@@ -1,0 +1,133 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+//---x---x---x---x---x---User model---x---x---x---x---x---x---x---x
+
+model User {
+  id        String   @id @default(uuid())
+  UserName  String   @unique
+  password  String
+  role      UserRole
+  createdAt DateTime @default(now())
+
+  assignedEnquiries Enquiry[] @relation("EnquiryAssignment")
+}
+
+enum UserRole {
+  ADMIN
+  SALES
+  OPS
+}
+
+//---x---x---x---x---x---Enquiry model---x---x---x---x---x---x---x---x
+
+enum EnquirySource {
+  MANUAL
+  WHATSAPP
+  EMAIL
+}
+
+enum EnquiryStatus {
+  NEW
+  OPEN
+  CLOSED
+  QUOTATION_SENT
+}
+
+model Enquiry {
+  id     String        @id @default(uuid())
+  name   String?
+  email  String?
+  phone  String?
+  source EnquirySource
+  status EnquiryStatus @default(NEW)
+
+  version Int @default(1)
+
+  lastCustomerReplyAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedToId String?
+  assignedTo   User?   @relation("EnquiryAssignment", fields: [assignedToId], references: [id])
+
+  timeline EnquiryTimeline[]
+  message  Message[]
+}
+
+//---x---x---x---x---Enquiry timeline audit---x---x--x---x---x---x---x
+
+enum EnquiryEventType {
+  CREATED
+  STATUS_CHANGED
+  FOLLOWUP_SENT
+  CUSTOMER_REPLIED
+}
+
+model EnquiryTimeline {
+  id        String           @id @default(uuid())
+  enquiryId String
+  type      EnquiryEventType
+
+  fromStatus EnquiryStatus?
+  toStatus   EnquiryStatus?
+
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  enquiry Enquiry @relation(fields: [enquiryId], references: [id])
+}
+
+//---x---x---x---x---x---Idempotency key ---x---x--x---x---x---x---x---x
+
+model IdempotencyKey {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  requestHash String
+  response    Json?
+  status      String // PROCESSING | COMPLETED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+//---x---x---x---x---x---Message_data---x---x--x---x---x---x---x---x
+
+enum MessageChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model Message {
+  id        String  @id @default(uuid())
+  enquiryId String
+  enquiry   Enquiry @relation(fields: [enquiryId], references: [id])
+
+  channel   MessageChannel
+  direction MessageDirection
+
+  externalId String?
+  from       String
+  subject    String?
+  content    String
+
+  createdAt DateTime @default(now())
+
+  @@unique([channel, externalId])
+}
