@@ -5,27 +5,62 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "postgresql"
 }
 
+//---x---x---x---x---x---Permission system---x---x---x---x---x---x---x---x
+
+model Permission {
+  id      String @id @default(uuid())
+  action  String // "create", "read", "update", "delete", "assign", "manage"
+  subject String // "enquiry", "user", "message", "dashboard", "all"
+
+  rolePermissions RolePermission[]
+
+  @@unique([action, subject])
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  role         UserRole
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  // Optional conditions for attribute-based rules
+  // e.g., { "assignedToId": "$userId" } means "only if assigned to self"
+  conditions Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([role, permissionId])
+  @@index([role])
+}
+
 //---x---x---x---x---x---User model---x---x---x---x---x---x---x---x
 
 model User {
-  id        String   @id @default(uuid())
-  UserName  String   @unique
-  password  String
-  role      UserRole
-  createdAt DateTime @default(now())
+  id          String    @id @default(uuid())
+  userName    String    @unique @map("UserName")
+  email       String?   @unique
+  displayName String?
+  password    String
+  role        UserRole
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   assignedEnquiries Enquiry[] @relation("EnquiryAssignment")
 }
 
 enum UserRole {
   ADMIN
+  MANAGER
   SALES
   OPS
 }
@@ -41,8 +76,11 @@ enum EnquirySource {
 enum EnquiryStatus {
   NEW
   OPEN
-  CLOSED
+  IN_PROGRESS
   QUOTATION_SENT
+  FOLLOW_UP
+  CONVERTED
+  CLOSED_LOST
 }
 
 model Enquiry {
@@ -52,10 +90,14 @@ model Enquiry {
   phone  String?
   source EnquirySource
   status EnquiryStatus @default(NEW)
+  tags   String[]      @default([])
+
+  lostReason String? // Reason when closed as lost
 
   version Int @default(1)
 
   lastCustomerReplyAt DateTime?
+  firstResponseAt     DateTime? // Track first response time
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -65,6 +107,13 @@ model Enquiry {
 
   timeline EnquiryTimeline[]
   message  Message[]
+
+  @@index([status])
+  @@index([assignedToId])
+  @@index([source])
+  @@index([createdAt])
+  @@index([email])
+  @@index([phone])
 }
 
 //---x---x---x---x---Enquiry timeline audit---x---x--x---x---x---x---x
@@ -72,8 +121,19 @@ model Enquiry {
 enum EnquiryEventType {
   CREATED
   STATUS_CHANGED
+  ASSIGNED
+  REASSIGNED
   FOLLOWUP_SENT
+  FOLLOWUP_SCHEDULED
   CUSTOMER_REPLIED
+  MESSAGE_SENT
+  MESSAGE_RECEIVED
+  ESCALATED
+  TAG_ADDED
+  TAG_REMOVED
+  CONVERTED
+  CLOSED
+  REOPENED
 }
 
 model EnquiryTimeline {
@@ -84,10 +144,14 @@ model EnquiryTimeline {
   fromStatus EnquiryStatus?
   toStatus   EnquiryStatus?
 
+  metadata Json? // Extra data for the event (e.g., tag name, message preview)
+
   createdBy String?
   createdAt DateTime @default(now())
 
   enquiry Enquiry @relation(fields: [enquiryId], references: [id])
+
+  @@index([enquiryId, createdAt])
 }
 
 //---x---x---x---x---x---Idempotency key ---x---x--x---x---x---x---x---x
@@ -100,6 +164,8 @@ model IdempotencyKey {
   status      String // PROCESSING | COMPLETED
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([createdAt])
 }
 
 //---x---x---x---x---x---Message_data---x---x--x---x---x---x---x---x
@@ -124,10 +190,12 @@ model Message {
 
   externalId String?
   from       String
+  to         String?
   subject    String?
   content    String
 
   createdAt DateTime @default(now())
 
   @@unique([channel, externalId])
+  @@index([enquiryId, createdAt])
 }

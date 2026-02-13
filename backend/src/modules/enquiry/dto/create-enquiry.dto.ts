@@ -1,8 +1,9 @@
-import { IsEnum, IsOptional, IsString , IsInt , isNumber , IsUUID , MinLength} from 'class-validator';
-import {  EnquirySource , EnquiryStatus } from '@prisma/client';
-import { Type } from 'class-transformer'; 
+import { IsEnum, IsOptional, IsString, IsInt, IsUUID, MinLength, IsArray } from 'class-validator';
+import { EnquirySource, EnquiryStatus } from '@prisma/client';
+import { Type } from 'class-transformer';
 
 export class CreateEnquiryDto {
+  @IsOptional()
   @IsString()
   name?: string;
 
@@ -14,12 +15,14 @@ export class CreateEnquiryDto {
   @IsString()
   phone?: string;
 
-
   @IsEnum(EnquirySource)
-  source: 'MANUAL' | 'WHATSAPP' | 'EMAIL';
-}
+  source: EnquirySource;
 
-     
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
+}
 
 export class ChangeStatusDto {
   @IsEnum(EnquiryStatus)
@@ -28,6 +31,10 @@ export class ChangeStatusDto {
   @Type(() => Number)
   @IsInt()
   version: number;
+
+  @IsOptional()
+  @IsString()
+  lostReason?: string; // Required when status = CLOSED_LOST
 }
 
 export class AssignEnquiryDto {
@@ -37,8 +44,6 @@ export class AssignEnquiryDto {
   @IsInt()
   version: number;
 }
-
-
 
 export class SendMessageDto {
   @IsString()

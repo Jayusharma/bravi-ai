@@ -4,6 +4,7 @@ import { EnquiryController } from './enquiry.controller';
 
 @Module({
   providers: [EnquiryService],
-  controllers: [EnquiryController]
+  controllers: [EnquiryController],
+  exports: [EnquiryService], // Used by IngestionModule
 })
-export class EnquiryModule {}
+export class EnquiryModule { }

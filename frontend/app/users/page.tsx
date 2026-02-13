@@ -1,12 +1,18 @@
 import { serverFetch } from '@/lib/ServerApi';
+import UserClient from './UserClient';
+import { DashboardLayout } from '@/components/DashboardLayout';
 
 export default async function UsersPage() {
-  const users = await serverFetch('/user');
+  let users = [];
+  try {
+    users = await serverFetch('/users');
+  } catch (e) {
+    console.error("Failed to fetch users", e);
+  }
 
   return (
-    <div>
-      <h1>Users</h1>
-      <pre>{JSON.stringify(users, null, 2)}</pre>
-    </div>
+    <DashboardLayout>
+      <UserClient initialUsers={users} />
+    </DashboardLayout>
   );
 }

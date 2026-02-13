@@ -2,42 +2,58 @@ import { getAuthToken } from "./Auth";
 
 const Api_Url = (process.env.NEST_API_URL || '').trim();
 
+/**
+ * Server-side fetch utility.
+ * 
+ * Automatically:
+ * - Attaches JWT from HttpOnly cookie
+ * - Unwraps the standardized response format { success, data }
+ * - Throws structured errors
+ */
 export async function serverFetch(
     path: string,
     options: RequestInit = {},
 ) {
-
-    
-    //here we are reading the token sent from browser to next js server ...
     const token = await getAuthToken();
 
-    
-
-    //now we want to attach the header which is authorization header bearer <token >
     const headers: HeadersInit = {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers || {}),
     }
 
-
-    //now we had extracted token and attached to headers now we have to send the request to nest js server 
     const res = await fetch(`${Api_Url}${path}`, {
         ...options,
         headers,
         cache: 'no-store'
     })
 
-   
-
     if (res.status === 401) {
         throw new Error('UNAUTHORIZED');
     }
 
     if (!res.ok) {
-        throw new Error(await res.text());
+        // Try to parse the standardized error response
+        try {
+            const errorBody = await res.json();
+            if (errorBody?.error?.message) {
+                throw new Error(errorBody.error.message);
+            }
+        } catch (e) {
+            if (e instanceof Error && e.message !== 'UNAUTHORIZED') {
+                throw e;
+            }
+        }
+        throw new Error(`Request failed with status ${res.status}`);
     }
 
-    return res.json();
+    const json = await res.json();
 
+    // Unwrap the standardized { success, data } envelope
+    if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
+        return json.data;
+    }
+
+    // Fallback for non-wrapped responses
+    return json;
 }

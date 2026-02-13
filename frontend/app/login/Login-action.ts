@@ -2,35 +2,40 @@
 import { setAuthToken } from '@/lib/Auth';
 import { redirect } from 'next/navigation';
 
+const Api_Url = (process.env.NEST_API_URL || '').trim();
+
 export async function loginAction(formData: FormData) {
-  const UserName = formData.get('username');
-  const password = formData.get('password');
+  const userName = formData.get('username') as string;
+  const password = formData.get('password') as string;
 
-
-
- 
   // 1️⃣ Next.js server → NestJS
-  const res = await fetch(
-    `${(process.env.NEST_API_URL || '').trim()}/auth/login`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ UserName, password }),
-    },
-  );
+  const res = await fetch(`${Api_Url}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userName, password }),
+  });
 
   if (!res.ok) {
-    throw new Error('Invalid credentials');
+    // Try to parse structured error
+    try {
+      const errorBody = await res.json();
+      const data = errorBody?.data || errorBody;
+      throw new Error(data?.error?.message || 'Invalid credentials');
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      throw new Error('Invalid credentials');
+    }
   }
 
-  // 2️⃣ Receive JWT from NestJS
-  const data = await res.json();
+  // 2️⃣ Receive response from NestJS
+  const responseBody = await res.json();
 
-  console.log("the data has came ", data)
+  // Unwrap the { success, data } envelope
+  const data = responseBody?.data || responseBody;
+   console.log(data.access_token);
   // 3️⃣ Store JWT in HttpOnly cookie
   await setAuthToken(data.access_token);
 
-
-  //redirect users 
-  redirect('/users');
+  // Redirect to dashboard
+  redirect('/dashboard');
 }

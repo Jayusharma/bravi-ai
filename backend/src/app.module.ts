@@ -11,7 +11,8 @@ import { IdempotencyMiddleware } from './common/middleware/idempotency.middlewar
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { WebhookModule } from './modules/webhooks/webhook.module';
-
+import { PermissionModule } from './modules/permission/permission.module';
+import { PermissionGuard } from './modules/permission/permission.guard';
 
 @Module({
   imports: [
@@ -23,19 +24,26 @@ import { WebhookModule } from './modules/webhooks/webhook.module';
     UserModule,
     EnquiryModule,
     IngestionModule,
-    WebhookModule
-
+    WebhookModule,
+    PermissionModule,
   ],
   controllers: [AppController],
-  providers: [AppService , {
-    provide: APP_GUARD,
-    useClass: JwtAuthGuard,
-  }],
+  providers: [
+    AppService,
+    // Global JWT guard — runs first, authenticates the user
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    // Global Permission guard — runs second, checks DB permissions
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard,
+    },
+  ],
 })
 export class AppModule implements NestModule {
-
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(IdempotencyMiddleware).forRoutes('webhook')
+    consumer.apply(IdempotencyMiddleware).forRoutes('webhook');
   }
-
 }

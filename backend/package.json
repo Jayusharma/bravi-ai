@@ -18,7 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "worker": "ts-node src/modules/automation/automation.worker.ts"
+    "worker": "ts-node src/modules/automation/automation.worker.ts",
+    "seed:permissions": "npx ts-node prisma/seed-permissions.ts"
   },
   "dependencies": {
     "@casl/ability": "^6.8.0",
@@ -27,7 +28,8 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-express": "^11.0.1", 
+    "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/swagger": "^11.2.6",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "@types/pg": "^8.16.0",
