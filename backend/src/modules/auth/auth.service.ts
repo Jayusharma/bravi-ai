@@ -2,7 +2,6 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtService } from '@nestjs/jwt';
-import { PermissionService } from '../permission/permission.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -10,7 +9,7 @@ export class AuthService {
     constructor(
         private prisma: PrismaService,
         private jwt: JwtService,
-        private permissionService: PermissionService,
+        
     ) { }
 
     /**
@@ -46,8 +45,7 @@ export class AuthService {
             role: user.role,
         };
 
-        // Get permissions for this role (to send to frontend)
-        const permissions = this.permissionService.getPermissionsForRole(user.role);
+        
 
         return {
             access_token: this.jwt.sign(payload),
@@ -59,7 +57,7 @@ export class AuthService {
                 displayName: user.displayName,
                 role: user.role,
             },
-            permissions,
+         
         };
     }
 
@@ -89,11 +87,11 @@ export class AuthService {
             throw new UnauthorizedException('User not found');
         }
 
-        const permissions = this.permissionService.getPermissionsForRole(user.role);
+        
 
         return {
             ...user,
-            permissions,
+            
         };
     }
 }

@@ -1,68 +1,123 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable , Logger , ConflictException} from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
-import { IncomingMessageDto } from './dto/incoming-message.dto';
-import { EnquiryService } from '../enquiry/enquiry.service';
-import { EnquirySource } from '@prisma/client';
+import { IngestMessageDto } from './dto/incoming-message.dto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { ContactService } from '../contact/contact.service';
+import { InboundMessage, QualificationStatus } from '@prisma/client';
+
 
 @Injectable()
 export class IngestionService {
+  private readonly logger = new Logger(IngestionService.name);
+
     constructor (
         private prisma:PrismaService ,
-        private enquiryService:EnquiryService 
+        @InjectQueue('qualification') private qualificationQueue: Queue,
+        private contactService:ContactService,
+           private eventEmitter: EventEmitter2,
     ){}
     
 
-    async ingest(dto:IncomingMessageDto ){
+    async ingest(dto: IngestMessageDto): Promise<InboundMessage> {
    
 
-         return this.prisma.$transaction(async (tx) =>{
+    // check for contact existing 
+    const {contactId , isNew } = await this.contactService.resolve(dto.channel , dto.from)
 
-        
-        //find the enquiry if exist 
-        let enquiry  = await tx.enquiry.findFirst({
-            where:{
-                OR:[
-                    {email:dto.from},
-                    {phone:dto.from}
-                ]
-            }
-        });
 
-        //create enquiry if not exist 
-        if (!enquiry) {
-            enquiry = await this.enquiryService.createFromMessage({
-              source: dto.channel as unknown as EnquirySource,
-              from: dto.from,
-            });
-          }
-
-           // 3) store message (facts)
-    await tx.message.create({
+   if(!isNew){
+    //check if open enquiry exist 
+     const openEnquiry = await this.prisma.enquiry.findFirst({
+      where: {
+        contactId,
+        status: {
+          notIn: ['CONVERTED', 'CLOSED_LOST'],
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (openEnquiry) {
+      // ════════════════════════════════════════════════
+      // FAST PATH: Known contact with open enquiry
+      // Skip qualification entirely — just append
+      // ════════════════════════════════════════════════
+      console.log("open enquiry found ")
+      const inboundMessage = await this.prisma.inboundMessage.create({
         data: {
-          enquiryId: enquiry.id,
           channel: dto.channel,
-          direction: 'INBOUND',
-          externalId: dto.externalMessageId,
+          externalId: dto.externalId,
           from: dto.from,
+          to: dto.to,
           subject: dto.subject,
-          content: dto.content,
+          body: dto.body,
+          rawPayload: dto.rawPayload ?? undefined,
+          status: 'REAL_ENQUIRY',  // ← Already qualified!
+          contactId,
         },
       });
-  
-    //   // 4) timeline (audit)
-    //   await this.prisma.enquiryTimeline.create({
-    //     data: {
-    //       enquiryId: enquiry.id,
-    //       type: 'CREATED',
-    //       createdBy: 'SYSTEM',
-    //     },
-    //   });
-  
-      // 5) mark idempotency completed (exactly-once effect)
-      
-  
-      return enquiry;
-      
-    })
+      // Append as ConversationMessage to the open enquiry
+      console.log("Message appended in conversation of the enquiry ")
+      await this.prisma.conversationMessage.create({
+        data: {
+          enquiryId: openEnquiry.id,
+          channel: dto.channel,
+          direction: 'INBOUND',
+          from: dto.from,
+          to: dto.to,
+          subject: dto.subject,
+          content: dto.body,
+        },
+      });
+      // Update enquiry tracking
+      await this.prisma.enquiry.update({
+        where: { id: openEnquiry.id },
+        data: {
+          lastCustomerReplyAt: new Date(),
+          lastActivityAt: new Date(),
+        },
+      });
+      this.logger.log(
+        `📨 Appended message to existing Enquiry ${openEnquiry.id} (contact: ${contactId})`,
+      );
+      return inboundMessage;
     }
+  }
+    // ════════════════════════════════════════════════
+    // SLOW PATH: New contact or all enquiries closed
+    // Must qualify to determine if real or spam
+    // ════════════════════════════════════════════════
+
+    console.log("the qualification round is created")
+    const inboundMessage = await this.prisma.inboundMessage.create({
+      data: {
+        channel: dto.channel,
+        externalId: dto.externalId,
+        from: dto.from,
+        to: dto.to,
+        subject: dto.subject,
+        body: dto.body,
+        rawPayload: dto.rawPayload ?? undefined,
+        status: 'PENDING',  // ← Needs qualification
+        contactId,
+      },
+    });
+    // Queue qualification job
+    await this.qualificationQueue.add(
+      'qualify',
+      { inboundMessageId: inboundMessage.id },
+      {
+        jobId: `qualify-${inboundMessage.id}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: { count: 1000 },
+        removeOnFail: { count: 5000 },
+      },
+    );
+    this.logger.log(
+      `📨 Ingested message ${inboundMessage.id} → queued for qualification`,
+    );
+    return inboundMessage;
+  }
 }

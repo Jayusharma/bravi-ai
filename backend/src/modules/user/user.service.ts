@@ -126,7 +126,7 @@ export class UserService {
                 role: true,
                 isActive: true,
                 updatedAt: true,
-            },
+            },    
         });
     }
 

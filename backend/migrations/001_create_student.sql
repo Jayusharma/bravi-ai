@@ -1,6 +1,0 @@
-CREATE TABLE Students (
-    id UUID PRIMARY KEY,
-    roll_number VARCHAR(255) NOT NULL UNIQUE,
-    name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT now()
-);

@@ -1,20 +1,25 @@
-import { Controller, Post, Body, Headers , UseGuards , UseInterceptors  } from '@nestjs/common';
+import { Controller, Post, Body, Headers , UseGuards , UseInterceptors , HttpCode , HttpStatus  } from '@nestjs/common';
 import { IngestionService } from "./ingestion.service";
-import { IncomingMessageDto } from './dto/incoming-message.dto';
+import { IngestMessageDto } from './dto/incoming-message.dto';
 import { IdempotencyGuard } from 'src/common/Idempotency/idempotency.guard';
 import { IdempotencyInterceptor } from 'src/common/interceptors/idempotency.interceptor';
+import { Public } from 'src/common/decorator/public.decorator';
 
 @Controller('ingestion')
 export class IngestionController {
   constructor(private ingestionService: IngestionService) {}
 
-
-@Post('message')
-@UseGuards(IdempotencyGuard)
-@UseInterceptors(IdempotencyInterceptor)
-
-ingestMessage(@Body() dto: IncomingMessageDto) {
- 
-  return this.ingestionService.ingest(dto);
-}
+  /**
+   * POST /api/v1/ingestion/message
+   * Ingest a raw message for qualification.
+   * Public endpoint (called by webhook handlers).
+   */
+  @Post('message')
+  @Public()
+  @UseGuards(IdempotencyGuard)
+  @UseInterceptors(IdempotencyInterceptor)
+  @HttpCode(HttpStatus.ACCEPTED)
+  ingestMessage(@Body() dto: IngestMessageDto) {
+    return this.ingestionService.ingest(dto);
+  }
 }

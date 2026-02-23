@@ -1,44 +1,65 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from './database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { EnquiryModule } from './modules/enquiry/enquiry.module';
 import { IngestionModule } from './modules/Ingestion/ingestion.module';
+import { QualificationModule } from './modules/qualification/qualification.module';
 import { IdempotencyMiddleware } from './common/middleware/idempotency.middleware';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { WebhookModule } from './modules/webhooks/webhook.module';
-import { PermissionModule } from './modules/permission/permission.module';
-import { PermissionGuard } from './modules/permission/permission.guard';
+import { CaslModule } from './modules/casl/casl.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { BullModule } from '@nestjs/bullmq';
+import { ContactModule } from './modules/contact/contact.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+
+    // ── Event System (for enquiry.qualified events) ──
+    EventEmitterModule.forRoot({
+      wildcard: false,
+      delimiter: '.',
+      maxListeners: 20,
+      verboseMemoryLeak: true,
+    }),
+
+    // ── BullMQ Queue System ──
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get('REDIS_HOST', 'localhost'),
+          port: config.get<number>('REDIS_PORT', 6379),
+          maxRetriesPerRequest: null,
+        },
+      }),
+      inject: [ConfigService],
+    }),
+
     PrismaModule,
     AuthModule,
     UserModule,
-    EnquiryModule,
     IngestionModule,
-    WebhookModule,
-    PermissionModule,
+    EnquiryModule,
+    QualificationModule,
+    CaslModule,
+    ContactModule,
+    WebhookModule 
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    // Global JWT guard — runs first, authenticates the user
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
-    },
-    // Global Permission guard — runs second, checks DB permissions
-    {
-      provide: APP_GUARD,
-      useClass: PermissionGuard,
     },
   ],
 })

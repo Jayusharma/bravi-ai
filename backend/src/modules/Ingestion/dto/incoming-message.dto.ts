@@ -1,28 +1,29 @@
-import { IsEnum, IsString, IsOptional } from 'class-validator';
+import { IsEnum, IsString, IsOptional, IsObject } from 'class-validator';
+import { MessageChannel } from '@prisma/client';
 
-export enum MessageChannel {
-  EMAIL = 'EMAIL',
-  WHATSAPP = 'WHATSAPP',
-}
-
-export class IncomingMessageDto {
+export class IngestMessageDto {
   @IsEnum(MessageChannel)
   channel: MessageChannel;
 
+  @IsOptional()
   @IsString()
-  externalMessageId: string; // Gmail messageId, WhatsApp messageId
+  externalId?: string; // WhatsApp message ID, email Message-ID, etc.
 
   @IsString()
-  from: string; // email or phone
+  from: string; // Phone number or email address
 
   @IsOptional()
   @IsString()
-  subject?: string;
-
-  @IsString()
-  content: string;
+  to?: string; // Your receiving number/email
 
   @IsOptional()
   @IsString()
-  receivedAt?: string;
+  subject?: string; // Email subject (strong qualifying signal)
+
+  @IsString()
+  body: string; // The actual message text
+
+  @IsOptional()
+  @IsObject()
+  rawPayload?: Record<string, any>; // Full webhook payload for debugging
 }

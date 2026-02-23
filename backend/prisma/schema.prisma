@@ -1,8 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// prisma/schema.prisma
+// Complete production schema for lead qualification system
 
 generator client {
   provider        = "prisma-client-js"
@@ -13,12 +10,14 @@ datasource db {
   provider = "postgresql"
 }
 
-//---x---x---x---x---x---Permission system---x---x---x---x---x---x---x---x
+// ============================================================================
+// USERS & PERMISSIONS
+// ============================================================================
 
 model Permission {
   id      String @id @default(uuid())
-  action  String // "create", "read", "update", "delete", "assign", "manage"
-  subject String // "enquiry", "user", "message", "dashboard", "all"
+  action  String // "create", "read", "update", "delete", "manage"
+  subject String // "enquiry", "inboundMessage", "qualificationRule", etc
 
   rolePermissions RolePermission[]
 
@@ -26,22 +25,16 @@ model Permission {
 }
 
 model RolePermission {
-  id           String   @id @default(uuid())
+  id           String     @id @default(uuid())
   role         UserRole
   permissionId String
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  // Optional conditions for attribute-based rules
-  // e.g., { "assignedToId": "$userId" } means "only if assigned to self"
-  conditions Json?
-
-  createdAt DateTime @default(now())
+  conditions   Json?
+  createdAt    DateTime   @default(now())
 
   @@unique([role, permissionId])
   @@index([role])
 }
-
-//---x---x---x---x---x---User model---x---x---x---x---x---x---x---x
 
 model User {
   id          String    @id @default(uuid())
@@ -55,7 +48,8 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  assignedEnquiries Enquiry[] @relation("EnquiryAssignment")
+  assignedEnquiries Enquiry[]          @relation("EnquiryAssignment")
+  sentMessages      ConversationMessage[] @relation("MessageSender")
 }
 
 enum UserRole {
@@ -65,58 +59,407 @@ enum UserRole {
   OPS
 }
 
-//---x---x---x---x---x---Enquiry model---x---x---x---x---x---x---x---x
+// ============================================================================
+// CONTACTS — The unified identity layer
+// WHY: A "Contact" is a PERSON, not a phone number. The same person might
+//      message from WhatsApp (+91-9876...) and Email (rahul@gmail.com).
+//      Both should link to ONE Contact record.
+// ============================================================================
 
-enum EnquirySource {
-  MANUAL
-  WHATSAPP
+model Contact {
+  id          String   @id @default(uuid())
+  displayName String   @default("Unknown")  // Updated when AI extracts name or staff edits
+  
+  // Optional profile info (enriched over time)
+  organization String? // Company/org name if known
+  notes        String? // Staff can add notes about this person
+  
+  // Tracking
+  firstSeenAt DateTime @default(now()) // When we first heard from them
+  lastSeenAt  DateTime @default(now()) // Updated on every new message
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  channels        ContactChannel[]    // All known phone/email/etc
+  enquiries       Enquiry[]           // All conversations with this person
+  inboundMessages InboundMessage[]    // All raw messages from this person
+  
+  @@index([displayName])
+  @@index([lastSeenAt])
+}
+
+// One Contact can have multiple channels (WhatsApp, Email, etc)
+// This is how we know "+91-9876..." and "rahul@gmail.com" are the SAME person
+model ContactChannel {
+  id         String         @id @default(uuid())
+  contactId  String
+  contact    Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  
+  channel    MessageChannel // WHATSAPP, EMAIL, SMS
+  identifier String         // The actual phone number or email address
+  
+  isPrimary  Boolean @default(false)  // Preferred channel for outbound
+  isVerified Boolean @default(false)  // Manually verified by staff
+  
+  createdAt DateTime @default(now())
+  
+  // A channel+identifier combination must be unique
+  // (only one Contact can own "+91-9876543210" on WhatsApp)
+  @@unique([channel, identifier])
+  @@index([contactId])
+}
+
+// ============================================================================
+// INBOUND MESSAGES — Raw staging area (before qualification)
+// WHY: Every incoming message lands here FIRST, before any processing.
+//      This is the "raw data" — never modified after creation.
+//      The qualification pipeline reads from here and writes results.
+// ============================================================================
+
+enum MessageChannel {
   EMAIL
+  WHATSAPP
+  SMS
 }
 
-enum EnquiryStatus {
-  NEW
-  OPEN
-  IN_PROGRESS
-  QUOTATION_SENT
-  FOLLOW_UP
-  CONVERTED
-  CLOSED_LOST
+enum QualificationStatus {
+  PENDING           // Just arrived, not qualified yet
+  PROCESSING        // Currently being qualified
+  REAL_ENQUIRY      // Confirmed real lead
+  SPAM              // Confirmed junk
+  NEEDS_REVIEW      // AI unsure — human must decide
+  REVIEWED_APPROVED // Human approved after review
+  REVIEWED_REJECTED // Human rejected after review
 }
 
-model Enquiry {
-  id     String        @id @default(uuid())
-  name   String?
-  email  String?
-  phone  String?
-  source EnquirySource
-  status EnquiryStatus @default(NEW)
-  tags   String[]      @default([])
+model InboundMessage {
+  id String @id @default(uuid())
 
-  lostReason String? // Reason when closed as lost
+  // Source info
+  channel    MessageChannel
+  externalId String? // WhatsApp message ID, email Message-ID, etc
+  from       String  // Phone number or email
+  to         String? // Your receiving number/email
 
-  version Int @default(1)
+  // Content
+  subject String? // Email subject (strong qualifying signal)
+  body    String  // The actual message text
 
-  lastCustomerReplyAt DateTime?
-  firstResponseAt     DateTime? // Track first response time
+  // Metadata
+  rawPayload         Json?    // Full webhook payload for debugging
+  contentFingerprint String?  // SHA-256 hash for duplicate detection (Rule Engine v2)
+  receivedAt         DateTime @default(now())
+
+  // Qualification state
+  status QualificationStatus @default(PENDING)
+
+  // ── NEW: Link to Contact (resolved during ingestion) ──
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Relations
+  qualificationResult QualificationResult?
+
+  @@unique([channel, externalId])
+  @@index([status, receivedAt])
+  @@index([status])
+  @@index([channel])
+  @@index([receivedAt])
+  @@index([contactId])
+  @@index([contentFingerprint])
+}
+
+// ============================================================================
+// QUALIFICATION SYSTEM
+// WHY: Determines if an inbound message is a real enquiry or spam.
+//      3-layer pipeline: Rule Engine → AI Classifier → Manual Review
+// ============================================================================
+
+// What type of rule is this — determines how the Rule Engine processes it
+enum RuleType {
+  BLACKLIST_KEYWORD         // Single word that triggers SPAM
+  BLACKLIST_PHRASE          // Multi-word phrase that triggers SPAM
+  WHITELIST_KEYWORD         // Positive signal word (scored)
+  REGEX_PATTERN             // Regex pattern to match (usually spam)
+  SENDER_DOMAIN_BLACKLIST   // Block entire domains (e.g., "spam.com")
+  SENDER_DOMAIN_WHITELIST   // Auto-approve trusted domains
+  SENDER_EMAIL_PATTERN      // Regex on sender email
+  COMPOSITE_GROUP           // Container for AND/OR/NOT logic
+}
+
+// Which layer made the final decision — for analytics and debugging
+enum QualificationLayer {
+  RULE_BLACKLIST   // Killed by blacklist keyword/phrase
+  RULE_SHORTTEXT   // Too short (< N words, configurable)
+  RULE_PATTERN     // Spam regex pattern matched
+  RULE_WHITELIST   // High keyword score → real enquiry
+  RULE_DUPLICATE   // Duplicate content fingerprint detected
+  RULE_DOMAIN      // Sender domain blacklist/whitelist
+  AI_CLASSIFIER    // AI made the decision
+  MANUAL_OVERRIDE  // Human overrode AI/rule decision
+}
+
+// What the enquirer's intent is — classified by AI
+enum EnquiryIntent {
+  PRODUCT_INQUIRY    // Asking about a product or service
+  PRICING_REQUEST    // Asking for pricing/quote
+  BULK_ORDER         // Bulk purchase inquiry
+  SHIPPING_INQUIRY   // Asking about delivery/shipping
+  GENERAL_INFO       // General information request
+  COMPLAINT          // Complaint or issue
+  APPOINTMENT        // Requesting meeting/demo
+  DOCUMENT_SUBMIT    // Sending documents (PO, invoice, etc.)
+  RETURN_REFUND      // Return or refund request
+  PARTNERSHIP        // Partnership/collaboration
+  UNKNOWN            // AI couldn't determine
+}
+
+// Logical operator for composite rule groups
+enum RuleGroupOperator {
+  AND  // ALL child rules must match
+  OR   // ANY child rule must match
+  NOT  // Child rule must NOT match
+}
+
+// Admin-editable qualification rules
+model QualificationRule {
+  id              String   @id @default(uuid())
+  type            RuleType
+  value           String   // The keyword, phrase, regex, or domain
+  weight          Int      @default(10)  // Score weight (for WHITELIST_KEYWORD)
+  description     String?  // Human-readable explanation of why this rule exists
+  isActive        Boolean  @default(true)
+  isCaseSensitive Boolean  @default(false)
+  createdBy       String?  // userId of who created this rule
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Rule Engine v2: execution ordering and scoring
+  priority       Int    @default(100)  // Lower number = runs first
+  category       String?              // e.g., "PRODUCT", "PRICING", "SHIPPING"
+  categoryWeight Float  @default(1.0) // Multiplier: PRODUCT=2.0, PRICING=1.5, etc
+
+  // Composite group support (AND/OR/NOT)
+  groupId       String?             // Parent group ID (null = top-level rule)
+  groupOperator RuleGroupOperator?  // Only set when type = COMPOSITE_GROUP
+  parentGroup   QualificationRule?  @relation("RuleGroup", fields: [groupId], references: [id])
+  childRules    QualificationRule[] @relation("RuleGroup")
+
+  // Analytics: track which rules are actually useful
+  hitCount  Int       @default(0)  // How many times this rule matched
+  lastHitAt DateTime?              // When it last matched
+
+  @@index([type, isActive])
+  @@index([isActive, priority])
+}
+
+// Complete audit trail of every qualification decision
+model QualificationResult {
+  id String @id @default(uuid())
+
+  // Link to the raw inbound message
+  inboundMessageId String         @unique
+  inboundMessage   InboundMessage @relation(fields: [inboundMessageId], references: [id], onDelete: Cascade)
+
+  // Final decision
+  finalStatus QualificationStatus
+  finalLayer  QualificationLayer
+
+  // Rule engine output
+  ruleScore       Int      @default(0)
+  matchedKeywords String[] @default([])
+  matchedRuleIds  String[] @default([]) // NEW: track exact rule IDs that fired
+  ruleReason      String?
+
+  // AI output
+  sentToAI         Boolean @default(false)
+  aiConfidence     Int?    // 0-100
+  aiReason         String?
+  intent           EnquiryIntent?
+  urgency          Int?    // 1-5
+  priority         Int?    // 1-10
+  extractedData    Json?   // { contactName, budgetSignal, quantitySignal, etc }
+  detectedLanguage String? // 'en', 'hi', 'ar', etc
+
+  // Cost tracking
+  aiInputTokens    Int?
+  aiOutputTokens   Int?
+  estimatedCostUsd Decimal? @db.Decimal(10, 6)
+  processingTimeMs Int
+
+  // Manual override tracking
+  wasOverridden  Boolean              @default(false)
+  overriddenTo   QualificationStatus?
+  overriddenBy   String?
+  overrideReason String?
+  overriddenAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([finalStatus, createdAt])
+  @@index([finalLayer])
+  @@index([intent])
+  @@index([sentToAI])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// ENQUIRIES — Conversations with qualified contacts
+// WHY: An Enquiry is a CONVERSATION THREAD, not a single message.
+//      One Contact can have one open Enquiry at a time.
+//      When the same person sends another message, it APPENDS to the open Enquiry.
+//      New Enquiry only created if previous is CONVERTED or CLOSED_LOST.
+// ============================================================================
+
+enum EnquiryType {
+  REAL   // Confirmed real lead → main sales inbox
+  REVIEW // Needs human review → review inbox
+  SPAM   // Marked as spam → hidden from main view
+}
+
+enum EnquiryStatus {
+  NEW               // Just created, no one has looked at it
+  OPEN              // Assigned or being looked at
+  IN_PROGRESS       // Staff is actively working on it
+  AWAITING_CUSTOMER // Staff replied, waiting for customer to respond
+  QUOTATION_SENT    // Quote/fee structure sent
+  FOLLOW_UP         // Needs follow-up (scheduled)
+  STALE             // No activity for configured days
+  CONVERTED         // Deal won / purchase confirmed
+  CLOSED_LOST       // Deal lost / not interested
+}
+
+model Enquiry {
+  id String @id @default(uuid())
+
+  // Inbox type
+  type EnquiryType @default(REAL)
+
+  // ── NEW: Link to Contact (REPLACES direct phone/email) ──
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id])
+
+  // State
+  status     EnquiryStatus @default(NEW)
+  tags       String[]      @default([])
+  lostReason String?
+
+  // Intent & priority (from qualification or AI)
+  intent   EnquiryIntent?
+  urgency  Int?   // 1-5
+  priority Int?   // 1-10
+
+  // Tracking
+  version             Int       @default(1)   // Optimistic concurrency
+  lastCustomerReplyAt DateTime?               // When customer last messaged
+  firstResponseAt     DateTime?               // When staff first replied
+  lastActivityAt      DateTime  @default(now()) // Any activity (message, status change)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Assignment
   assignedToId String?
   assignedTo   User?   @relation("EnquiryAssignment", fields: [assignedToId], references: [id])
 
+  // Relations
   timeline EnquiryTimeline[]
-  message  Message[]
+  messages ConversationMessage[]
+  notes    InternalNote[]
 
+  @@index([contactId, status]) // Core query: "open enquiry for this contact?"
+  @@index([type, status])
   @@index([status])
   @@index([assignedToId])
-  @@index([source])
   @@index([createdAt])
-  @@index([email])
-  @@index([phone])
+  @@index([intent])
+  @@index([priority])
+  @@index([lastActivityAt])
 }
 
-//---x---x---x---x---Enquiry timeline audit---x---x--x---x---x---x---x
+// ============================================================================
+// CONVERSATION MESSAGES — The actual chat messages within an enquiry
+// WHY: This is the unified conversation thread. Messages from ALL channels
+//      (WhatsApp, Email, SMS) are stored here, sorted by createdAt.
+//      The UI shows them as a continuous chat with channel badges.
+// ============================================================================
+
+enum MessageDirection {
+  INBOUND  // From customer
+  OUTBOUND // From your team
+}
+
+enum DeliveryStatus {
+  PENDING   // Not yet sent to provider
+  SENT      // Sent to provider (WhatsApp/Email API accepted)
+  DELIVERED // Delivered to recipient
+  READ      // Read by recipient (WhatsApp blue ticks)
+  FAILED    // Delivery failed
+}
+
+model ConversationMessage {
+  id        String           @id @default(uuid())
+  enquiryId String
+  enquiry   Enquiry          @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+
+  channel   MessageChannel   // Which channel this msg was sent/received on
+  direction MessageDirection // INBOUND or OUTBOUND
+
+  from    String    // Sender (phone/email for inbound, userId for outbound)
+  to      String?   // Recipient
+  subject String?   // Email subject
+  content String    // The message text
+
+  // Outbound tracking
+  externalId     String?        // Provider's message ID (wamid_xxx, Message-ID, etc)
+  deliveryStatus DeliveryStatus @default(PENDING) // Tracks delivery
+  deliveredAt    DateTime?      // When delivered
+  readAt         DateTime?      // When read
+
+  // Who sent it (for outbound messages)
+  sentByUserId String?
+  sentByUser   User?   @relation("MessageSender", fields: [sentByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([enquiryId, createdAt])
+  @@index([externalId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// INTERNAL NOTES — Private staff notes (NOT sent to customer)
+// WHY: Staff needs to communicate internally about an enquiry.
+//      These notes are NEVER visible to the customer.
+//      Shown in the enquiry timeline with a special "note" badge.
+// ============================================================================
+
+model InternalNote {
+  id        String  @id @default(uuid())
+  enquiryId String
+  enquiry   Enquiry @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+
+  content   String  // The note text
+  createdBy String  // userId who wrote the note
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enquiryId, createdAt])
+}
+
+
+// ============================================================================
+// ENQUIRY TIMELINE — Complete audit trail of everything that happens
+// WHY: Legal compliance, debugging, and staff accountability.
+//      Every action on an enquiry is recorded here permanently.
+// ============================================================================
 
 enum EnquiryEventType {
   CREATED
@@ -128,12 +471,15 @@ enum EnquiryEventType {
   CUSTOMER_REPLIED
   MESSAGE_SENT
   MESSAGE_RECEIVED
-  ESCALATED
   TAG_ADDED
   TAG_REMOVED
+  NOTE_ADDED
   CONVERTED
   CLOSED
   REOPENED
+  CONTACT_MERGED          // When another contact was merged into this enquiry's contact
+  AUTO_ASSIGNED
+  STALE_DETECTED
 }
 
 model EnquiryTimeline {
@@ -144,17 +490,21 @@ model EnquiryTimeline {
   fromStatus EnquiryStatus?
   toStatus   EnquiryStatus?
 
-  metadata Json? // Extra data for the event (e.g., tag name, message preview)
-
-  createdBy String?
+  metadata  Json?    // Flexible: { tag, reason, previousAssignee, channelUsed, etc }
+  createdBy String?  // userId or "SYSTEM"
   createdAt DateTime @default(now())
 
-  enquiry Enquiry @relation(fields: [enquiryId], references: [id])
+  enquiry Enquiry @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
 
   @@index([enquiryId, createdAt])
+  @@index([type])
+  @@index([createdAt])
 }
 
-//---x---x---x---x---x---Idempotency key ---x---x--x---x---x---x---x---x
+
+// ============================================================================
+// IDEMPOTENCY — Prevents duplicate webhook processing
+// ============================================================================
 
 model IdempotencyKey {
   id          String   @id @default(uuid())
@@ -166,36 +516,5 @@ model IdempotencyKey {
   updatedAt   DateTime @updatedAt
 
   @@index([createdAt])
-}
-
-//---x---x---x---x---x---Message_data---x---x--x---x---x---x---x---x
-
-enum MessageChannel {
-  EMAIL
-  WHATSAPP
-}
-
-enum MessageDirection {
-  INBOUND
-  OUTBOUND
-}
-
-model Message {
-  id        String  @id @default(uuid())
-  enquiryId String
-  enquiry   Enquiry @relation(fields: [enquiryId], references: [id])
-
-  channel   MessageChannel
-  direction MessageDirection
-
-  externalId String?
-  from       String
-  to         String?
-  subject    String?
-  content    String
-
-  createdAt DateTime @default(now())
-
-  @@unique([channel, externalId])
-  @@index([enquiryId, createdAt])
+  @@index([status])
 }
