@@ -315,7 +315,7 @@ export class ChannelRouterService {
 
     return adapter.send(params);
   }
-
+ 
   /**
    * If the primary channel isn't configured, try alternatives.
    * e.g., WhatsApp not configured → try Email.
