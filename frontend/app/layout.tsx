@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
+import { ToastProvider } from "@/components/ui/Toast";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -9,7 +11,8 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Enquiry Hub — Management System",
-  description: "Enterprise-grade enquiry management with multi-channel ingestion, automation, and team collaboration.",
+  description:
+    "Enterprise-grade enquiry management with multi-channel ingestion, automation, and team collaboration.",
 };
 
 export default function RootLayout({
@@ -18,11 +21,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${inter.variable} antialiased`}
-      >
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Prevents flash of wrong theme before React loads */}
+        <ThemeScript />
+      </head>
+      <body className={`${inter.variable} antialiased`}>
+        <ThemeProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

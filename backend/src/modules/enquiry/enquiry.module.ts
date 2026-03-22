@@ -1,12 +1,12 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { EnquiryService } from './enquiry.service';
 import { EnquiryController } from './enquiry.controller';
 import { ContactModule } from '../contact/contact.module';
 
 @Module({
-  imports: [ContactModule],
+  imports: [forwardRef(() => ContactModule)],
   providers: [EnquiryService],
   controllers: [EnquiryController],
-  exports: [EnquiryService], // Used by IngestionModule
+  exports: [EnquiryService],
 })
 export class EnquiryModule { }

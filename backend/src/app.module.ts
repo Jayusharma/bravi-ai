@@ -16,6 +16,8 @@ import { CaslModule } from './modules/casl/casl.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bullmq';
 import { ContactModule } from './modules/contact/contact.module';
+import { OutboundModule } from './modules/outbound/outbound.module';
+import { PermissionModule } from './modules/permission/permission.module';
 
 @Module({
   imports: [
@@ -52,7 +54,9 @@ import { ContactModule } from './modules/contact/contact.module';
     QualificationModule,
     CaslModule,
     ContactModule,
-    WebhookModule 
+    WebhookModule,
+    OutboundModule,
+    PermissionModule,
   ],
   controllers: [AppController],
   providers: [

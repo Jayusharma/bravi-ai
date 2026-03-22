@@ -9,11 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@casl/ability": "^6.8.0",
     "dotenv": "^17.2.3",
     "next": "16.1.2",
     "pg": "^8.17.1",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

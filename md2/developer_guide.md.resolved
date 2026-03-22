@@ -1,0 +1,680 @@
+# 🚀 Enquiry Hub — Developer Quick Reference
+
+> **Purpose:** Get you back into the flow in 10 minutes. Not module docs — this is **how to use the system's patterns** to build features fast.
+
+---
+
+## Table of Contents
+
+1. [How a Request Flows (End-to-End)](#1-how-a-request-flows)
+2. [The Guard Chain — Auth + Permissions](#2-the-guard-chain)
+3. [CASL — How Permissions Really Work](#3-casl-permissions)
+4. [Logger — How to Use It](#4-logger)
+5. [Error Handling — What Happens When Things Fail](#5-error-handling)
+6. [Response Envelope — Why Frontend Unwraps](#6-response-envelope)
+7. [Event System — How Modules Talk](#7-event-system)
+8. [Job Queue — Background Processing](#8-job-queue)
+9. [Frontend Architecture — Quick Map](#9-frontend-architecture)
+10. [Copy-Paste Templates — Add a Feature in 5 Minutes](#10-templates)
+
+---
+
+## 1. How a Request Flows
+
+Every authenticated API request goes through **this exact chain**:
+
+```
+Client Request
+     │
+     ▼
+[Global Prefix]     →  /api/v1/...
+     │
+     ▼
+[JwtAuthGuard]      →  Is there a valid JWT?  (GLOBAL — runs on every route)
+     │                  └── @Public() routes skip this
+     ▼
+[CaslGuard]         →  Does user have permission?  (PER-CONTROLLER)
+     │                  └── @CheckAbility({ action, subject }) defines what's needed
+     │                  └── Builds ability, stores in req.ability
+     ▼
+[ValidationPipe]    →  Is the DTO valid?  (GLOBAL)
+     │                  └── whitelist + forbidNonWhitelisted
+     ▼
+[Controller]        →  Route handler runs
+     │
+     ▼
+[Service]           →  Business logic + Prisma queries
+     │
+     ▼
+[ResponseInterceptor] → Wraps in { success: true, data: ... }
+     │
+     ▼
+Response sent ✅
+```
+
+**If anything throws:**
+```
+Any Exception
+     │
+     ▼
+[GlobalExceptionFilter]  →  Catches everything
+     │                      →  Maps Prisma errors to user-friendly messages
+     │                      →  Returns { success: false, error: { code, message } }
+     ▼
+Error Response ❌
+```
+
+---
+
+## 2. The Guard Chain
+
+### Guard 1: JwtAuthGuard (Global — on EVERY route)
+
+**File:** [jwt-auth.guard.ts](file:///d:/code/final/backend/src/modules/auth/guards/jwt-auth.guard.ts)
+
+What it does:
+- Extracts JWT from `Authorization: Bearer <token>`
+- Validates it using the jwt strategy
+- Sets `req.user = { userId, role }` (from JWT payload)
+- **SKIP IT** with `@Public()` decorator on any route
+
+```typescript
+// ✅ This route needs JWT
+@Get()
+findAll() { ... }
+
+// ✅ This route is open to everyone
+@Public()
+@Post('webhook')
+handleWebhook() { ... }
+```
+
+### Guard 2: CaslGuard (Per-Controller)
+
+**File:** [casl.guard.ts](file:///d:/code/final/backend/src/modules/casl/casl.guard.ts)
+
+What it does:
+- Reads `@CheckAbility()` decorator metadata
+- Builds CASL ability from user's DB permissions
+- Checks if user can perform the action
+- Stores `req.ability` for use in services
+- **If no `@CheckAbility()`** on the route → allows access (only JWT needed)
+
+```typescript
+@Controller('enquiry')
+@UseGuards(CaslGuard)    // ← Required on controller
+export class EnquiryController {
+
+  @Get()
+  @CheckAbility({ action: 'read', subject: 'Enquiry' })  // ← Gate this route
+  findAll() { ... }
+}
+```
+
+---
+
+## 3. CASL Permissions
+
+> This is the most important section. Understand this and you can build anything.
+
+### How Permissions Are Stored
+
+```
+Database Tables:
+┌─────────────┐       ┌──────────────────┐
+│ Permission   │       │ RolePermission   │
+│ ─────────── │       │ ──────────────── │
+│ action       │───┐   │ role: ADMIN      │
+│ subject      │   └──▶│ permissionId     │
+│              │       │ conditions: JSON? │
+└─────────────┘       └──────────────────┘
+
+Example rows:
+Permission: { action: "read",   subject: "enquiry" }
+Permission: { action: "manage", subject: "all" }
+
+RolePermission: { role: "ADMIN",  permissionId: "...", conditions: null }
+RolePermission: { role: "SALES",  permissionId: "...", conditions: { assignedToId: "$userId" } }
+```
+
+### The Subject Mapping (CRITICAL)
+
+Database stores lowercase (`enquiry`). CASL needs PascalCase ([Enquiry](file:///d:/code/final/frontend/services/enquiry.service.ts#125-128)).
+
+```
+enquiry            → Enquiry
+message            → Message
+user               → User
+internalNote       → InternalNote
+qualificationRule  → QualificationRule
+all                → all       (superuser wildcard)
+```
+
+This mapping exists in 3 places (must stay in sync):
+- [casl-ability.factory.ts](file:///d:/code/final/backend/src/modules/casl/casl-ability.factory.ts) → backend
+- [auth-store.ts](file:///d:/code/final/frontend/stores/auth-store.ts) → frontend (Zustand)
+- [permissions.ts](file:///d:/code/final/frontend/lib/permissions.ts) → frontend (server components)
+
+### The 3-Level Permission System
+
+```typescript
+// Level 1: "manage all" — Superuser, can do everything
+can('manage', 'all')         // ADMIN typically has this
+
+// Level 2: "manage Subject" — All actions on one subject
+can('manage', 'Enquiry')     // Can create, read, update, delete, assign enquiries
+
+// Level 3: Specific action on specific subject
+can('read', 'Enquiry')       // Can only read enquiries
+can('create', 'Message')     // Can send messages
+```
+
+### Conditional Permissions (The Power Feature)
+
+```typescript
+// In RolePermission.conditions:
+{ "assignedToId": "$userId" }
+
+// CaslAbilityFactory resolves $userId → actual user ID
+// Result: SALES user can only update enquiries assigned to them
+
+// In the service, use accessibleBy() to auto-filter:
+import { accessibleBy } from '@casl/prisma';
+
+const enquiries = await this.prisma.enquiry.findMany({
+  where: accessibleBy(ability).Enquiry,  // ← Auto-adds WHERE assignedToId = user.id
+});
+```
+
+### Available Actions and Subjects
+
+```typescript
+// Actions (from casl.types.ts):
+'create' | 'read' | 'update' | 'delete' | 'assign' | 'merge' | 'manage'
+
+// Subjects (from casl.types.ts):
+'Enquiry' | 'Message' | 'User' | 'Permission' | 'Contact' | 'Dashboard'
+| 'InboundMessage' | 'QualificationRule' | 'InternalNote' | 'QualificationResult'
+| 'all'
+```
+
+### Backend Usage Patterns
+
+```typescript
+// ── Pattern 1: Route-level gate (most common) ──
+@CheckAbility({ action: 'read', subject: 'Enquiry' })
+@Get()
+findAll() { ... }
+
+// ── Pattern 2: Use ability in service for fine-grained filtering ──
+async findAll(query: InboxQueryDto, ability: AppAbility) {
+  return this.prisma.enquiry.findMany({
+    where: {
+      ...accessibleBy(ability).Enquiry,  // ← CASL auto-filters
+      ...(query.status ? { status: query.status as any } : {}),
+    },
+  });
+}
+
+// ── Pattern 3: Manual check in service ──
+if (!ability.can('update', 'Enquiry')) {
+  throw new ForbiddenException("You can't update this enquiry");
+}
+
+// ── Pattern 4: Get ability from request (injected by CaslGuard) ──
+@Get()
+findAll(@Req() req: Request) {
+  return this.service.findAll(req.ability);  // req.ability is set by CaslGuard
+}
+
+// ── Pattern 5: Use @Ability() decorator (cleaner) ──
+@Get()
+findAll(@Ability() ability: AppAbility) {
+  return this.service.findAll(ability);
+}
+```
+
+### Frontend Usage Patterns
+
+```typescript
+// ── Server Components (use lib/permissions.ts) ──
+import { can } from '@/lib/permissions';
+import { getCurrentUser } from '@/services/auth.service';
+
+const user = await getCurrentUser();
+if (can(user.permissions, 'create', 'Enquiry')) {
+  // Show "New Enquiry" button
+}
+
+// ── Client Components (use Zustand store) ──
+import { useAuthStore } from '@/stores/auth-store';
+
+function MyButton() {
+  const { can } = useAuthStore();
+  if (!can('delete', 'Enquiry')) return null;
+  return <button>Delete</button>;
+}
+```
+
+### Adding a New Permission
+
+1. Add to DB (run seed or insert directly):
+```sql
+INSERT INTO "Permission" (id, action, subject) VALUES (gen_random_uuid(), 'read', 'report');
+INSERT INTO "RolePermission" (id, role, "permissionId") VALUES (gen_random_uuid(), 'ADMIN', '<permission-id>');
+```
+
+2. Add subject to [casl.types.ts](file:///d:/code/final/backend/src/modules/casl/casl.types.ts):
+```typescript
+export type AppSubjects = ... | 'Report' | 'all';
+```
+
+3. Add mapping in [casl-ability.factory.ts](file:///d:/code/final/backend/src/modules/casl/casl-ability.factory.ts):
+```typescript
+private mapSubject(subject: string): string {
+  const mapping = { ..., report: 'Report' };
+}
+```
+
+4. Add same mapping in frontend [auth-store.ts](file:///d:/code/final/frontend/stores/auth-store.ts) and [permissions.ts](file:///d:/code/final/frontend/lib/permissions.ts)
+
+5. Use in controller:
+```typescript
+@CheckAbility({ action: 'read', subject: 'Report' })
+```
+
+---
+
+## 4. Logger
+
+### How It Works
+
+NestJS has a built-in `Logger` class. Each service creates its own instance with a context name.
+
+```typescript
+import { Logger } from '@nestjs/common';
+
+@Injectable()
+export class MyService {
+  private readonly logger = new Logger(MyService.name);  // Context = "MyService"
+
+  async doSomething() {
+    this.logger.log('Something happened');        // [MyService] Something happened
+    this.logger.warn('Watch out');                 // [MyService] Watch out
+    this.logger.error('Failed', error.stack);      // [MyService] Failed + stack trace
+    this.logger.debug('Debug info');               // Only shown when debug mode is on
+  }
+}
+```
+
+### When to Use Each Level
+
+| Level | When |
+|-------|------|
+| [log()](file:///d:/code/final/backend/src/modules/auth/auth.service.ts#14-62) | Normal operations: "Enquiry created", "Message sent" |
+| [warn()](file:///d:/code/final/frontend/components/ui/Toast.tsx#73-75) | Not wrong but unusual: "Retry attempt 2/3", "Stale enquiry found" |
+| [error()](file:///d:/code/final/frontend/components/ui/Toast.tsx#71-73) | Something failed: always include stack → `this.logger.error('msg', error.stack)` |
+| `debug()` | Verbose — only during development |
+
+### Best Practices
+
+```typescript
+// ✅ Good — includes context and IDs
+this.logger.log(`📨 Enquiry ${enquiry.id} status changed: ${old} → ${newStatus}`);
+this.logger.error(`Failed to send message for enquiry ${id}`, error.stack);
+
+// ❌ Bad — no context, hard to trace
+console.log("status changed");  // Don't use console.log — use the logger
+```
+
+> **Rule:** Replace all `console.log()` with `this.logger.log()`. The only exception is temporary debugging.
+
+---
+
+## 5. Error Handling
+
+### Backend: GlobalExceptionFilter
+
+**File:** [global-exception.filter.ts](file:///d:/code/final/backend/src/common/filters/global-exception.filter.ts)
+
+Catches everything and returns consistent error responses:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Record not found",
+    "statusCode": 404
+  },
+  "timestamp": "2026-03-08T...",
+  "path": "/api/v1/enquiry/abc123"
+}
+```
+
+### What You Throw in Services
+
+```typescript
+// ── Common throws ──
+throw new NotFoundException('Enquiry not found');           // 404
+throw new BadRequestException('Invalid status transition'); // 400
+throw new ForbiddenException("You can't do this");          // 403
+throw new ConflictException('Version mismatch');            // 409
+throw new UnauthorizedException();                          // 401
+
+// ── Prisma errors are auto-mapped ──
+// P2002 → 409 CONFLICT (duplicate)
+// P2025 → 404 NOT_FOUND
+// P2003 → 400 FOREIGN_KEY_ERROR
+
+// ── Validation errors (from DTOs) ──
+// class-validator errors → 400 with details array
+```
+
+### Frontend: API Client Error Classification
+
+**File:** [api-client.ts](file:///d:/code/final/frontend/lib/api-client.ts)
+
+The frontend [apiClient](file:///d:/code/final/frontend/lib/api-client.ts#121-256) catches every error and classifies it:
+
+| HTTP Status | Error Type | What It Means |
+|------------|------------|---------------|
+| 0 (no response) | `NETWORK_ERROR` | Can't reach server |
+| 400 | `VALIDATION_ERROR` | DTO validation failed |
+| 401 | `AUTH_ERROR` | Token expired |
+| 403 | `FORBIDDEN_ERROR` | CASL permission denied |
+| 404 | `NOT_FOUND_ERROR` | Resource doesn't exist |
+| 409 | `CONFLICT_ERROR` | Version mismatch / duplicate |
+| 500+ | `SERVER_ERROR` | Backend crashed |
+
+---
+
+## 6. Response Envelope
+
+### Backend Wraps Everything
+
+[ResponseInterceptor](file:///d:/code/final/backend/src/common/interceptors/response.interceptor.ts) automatically wraps:
+
+```typescript
+// Your service returns:
+return { id: '123', name: 'Rahul' };
+
+// Client receives:
+{
+  "success": true,
+  "data": { "id": "123", "name": "Rahul" },
+  "timestamp": "2026-..."
+}
+```
+
+### Frontend Unwraps Automatically
+
+[apiClient](file:///d:/code/final/frontend/lib/api-client.ts#121-256) detects `{ success, data }` and returns just `data`:
+
+```typescript
+// In your service:
+const enquiry = await apiClient<Enquiry>('/enquiry/123');
+// enquiry = { id: '123', name: 'Rahul' }  ← Already unwrapped
+```
+
+---
+
+## 7. Event System
+
+### How Modules Communicate
+
+Uses `@nestjs/event-emitter` — modules emit events, other modules listen.
+
+```typescript
+// ── Emitting (in any service) ──
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
+this.eventEmitter.emit('enquiry.qualified', {
+  inboundMessageId: message.id,
+  contactId: message.contactId,
+  // ...
+});
+
+// ── Listening (in any other service) ──
+@OnEvent('enquiry.qualified')
+async handleQualified(payload: QualifiedDto) {
+  // Create enquiry from qualified inbound message
+}
+```
+
+### Current Events in the System
+
+| Event | Emitter | Listener | Purpose |
+|-------|---------|----------|---------|
+| `enquiry.qualified` | QualificationService | EnquiryService | Creates enquiry after AI qualifies a message |
+| `message.outbound` | EnquiryService | OutboundService | Sends reply via WhatsApp/Email/SMS |
+
+---
+
+## 8. Job Queue (BullMQ)
+
+### How Background Jobs Work
+
+```typescript
+// ── 1. Register queue in module ──
+BullModule.registerQueue({ name: 'qualification' })
+
+// ── 2. Add job from service ──
+await this.qualificationQueue.add('qualify', { inboundMessageId: id }, {
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 2000 },
+});
+
+// ── 3. Process in worker ──
+@Processor('qualification')
+export class QualificationWorker extends WorkerHost {
+  async process(job: Job<{ inboundMessageId: string }>) {
+    // AI classification logic here
+  }
+}
+```
+
+> **Requires:** Redis running on `REDIS_HOST:REDIS_PORT`
+
+---
+
+## 9. Frontend Architecture
+
+### The Layered Flow
+
+```
+Pages (Server/Client Components)
+  └── Services (Server Actions — 'use server')
+       └── apiClient (lib/api-client.ts — HTTP + retry + logging)
+            └── NestJS Backend
+```
+
+### Key Principle
+
+> **apiClient** is the ONLY thing that makes HTTP calls.
+> **Services** are the ONLY things that call apiClient.
+> **Components** are the ONLY things that call services.
+
+### Where Permissions Are Checked
+
+| Layer | How | File |
+|-------|-----|------|
+| Server Components | [can(user.permissions, 'read', 'Enquiry')](file:///d:/code/final/frontend/lib/permissions.ts#81-96) | [lib/permissions.ts](file:///d:/code/final/frontend/lib/permissions.ts) |
+| Client Components | `useAuthStore().can('read', 'Enquiry')` | [stores/auth-store.ts](file:///d:/code/final/frontend/stores/auth-store.ts) |
+| Navigation | Filtered in [DashboardLayout](file:///d:/code/final/frontend/components/DashboardLayout.tsx#35-72) → from [lib/navigation.tsx](file:///d:/code/final/frontend/lib/navigation.tsx) | [lib/navigation.tsx](file:///d:/code/final/frontend/lib/navigation.tsx) |
+
+### How the Zustand Store Gets Populated
+
+```
+1. User visits /dashboard
+2. DashboardLayout (server component) calls getCurrentUser()
+3. getCurrentUser() calls /auth/me → gets { user, permissions }
+4. DashboardLayout renders <AuthHydrator user={user} permissions={permissions} />
+5. AuthHydrator (client component) calls useAuthStore().setSession()
+6. setSession() builds CASL ability from permission rules
+7. Now any client component can do: useAuthStore().can('read', 'Enquiry')
+```
+
+---
+
+## 10. Copy-Paste Templates
+
+### Add a New Backend Module
+
+```typescript
+// ── 1. Controller ──
+@Controller('report')
+@UseGuards(CaslGuard)
+export class ReportController {
+  constructor(private reportService: ReportService) {}
+
+  @Get()
+  @CheckAbility({ action: 'read', subject: 'Report' })
+  findAll(@Query() query: any, @Req() req: Request) {
+    return this.reportService.findAll(query, req.ability);
+  }
+
+  @Get(':id')
+  @CheckAbility({ action: 'read', subject: 'Report' })
+  findOne(@Param('id') id: string) {
+    return this.reportService.findOne(id);
+  }
+
+  @Post()
+  @CheckAbility({ action: 'create', subject: 'Report' })
+  create(@Body() dto: CreateReportDto, @Req() req: Request) {
+    return this.reportService.create(dto, req.user!.userId);
+  }
+}
+
+// ── 2. Service ──
+@Injectable()
+export class ReportService {
+  private readonly logger = new Logger(ReportService.name);
+
+  constructor(private prisma: PrismaService) {}
+
+  async findAll(query: any, ability: AppAbility) {
+    return this.prisma.report.findMany({
+      where: accessibleBy(ability).Report,
+    });
+  }
+
+  async findOne(id: string) {
+    const report = await this.prisma.report.findUnique({ where: { id } });
+    if (!report) throw new NotFoundException('Report not found');
+    return report;
+  }
+
+  async create(dto: CreateReportDto, userId: string) {
+    this.logger.log(`📊 Creating report for user ${userId}`);
+    return this.prisma.report.create({ data: { ...dto, createdById: userId } });
+  }
+}
+```
+
+### Add a New Frontend Page
+
+```typescript
+// ── 1. Service (services/report.service.ts) ──
+'use server';
+import { apiClient } from '@/lib/api-client';
+import { API } from '@/lib/endpoints';
+
+export async function getReports() {
+  return apiClient<Report[]>(API.REPORT.LIST);
+}
+
+// ── 2. Endpoint (lib/endpoints.ts) ──
+REPORT: {
+  LIST: '/report',
+  DETAIL: (id: string) => `/report/${id}`,
+},
+
+// ── 3. Page (app/reports/page.tsx) ──
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { getReports } from '@/services/report.service';
+import { getCurrentUser } from '@/services/auth.service';
+import { can } from '@/lib/permissions';
+
+export default async function ReportsPage() {
+  const [user, reports] = await Promise.all([
+    getCurrentUser(),
+    getReports(),
+  ]);
+
+  return (
+    <DashboardLayout>
+      <div className="page-container">
+        <div className="page-header-row">
+          <div className="page-header">
+            <h1 className="page-title">Reports</h1>
+          </div>
+          {can(user.permissions, 'create', 'Report') && (
+            <Button>New Report</Button>
+          )}
+        </div>
+        {/* Table or cards here */}
+      </div>
+    </DashboardLayout>
+  );
+}
+
+// ── 4. Nav item (lib/navigation.tsx) ── Add to NAV_ITEMS array:
+{
+  href: '/reports',
+  label: 'Reports',
+  section: 'platform',
+  icon: ReportIcon,
+  permission: { action: 'read', subject: 'Report' },
+},
+```
+
+### Client Component with Permission Check
+
+```typescript
+'use client';
+import { useAuthStore } from '@/stores/auth-store';
+import { useAction } from '@/hooks/use-action';
+import { deleteReport } from '@/services/report.service';
+
+export function DeleteButton({ id }: { id: string }) {
+  const { can } = useAuthStore();
+  const { execute, pending } = useAction(deleteReport);
+
+  if (!can('delete', 'Report')) return null;
+
+  return (
+    <button onClick={() => execute(id)} disabled={pending}>
+      {pending ? 'Deleting...' : 'Delete'}
+    </button>
+  );
+}
+```
+
+---
+
+## Quick Reference Card
+
+| I want to... | Do this |
+|---|---|
+| **Protect a route** | `@CheckAbility({ action: 'read', subject: 'Enquiry' })` |
+| **Skip JWT on a route** | `@Public()` |
+| **Get current user in controller** | `@Req() req: Request` → `req.user.userId` |
+| **Get CASL ability in controller** | `@Ability() ability: AppAbility` or `req.ability` |
+| **Filter by permission in service** | `where: accessibleBy(ability).Enquiry` |
+| **Manual permission check** | `ability.can('update', 'Enquiry')` |
+| **Log something** | `this.logger.log('msg')` — NOT console.log |
+| **Throw 404** | `throw new NotFoundException('msg')` |
+| **Throw 400** | `throw new BadRequestException('msg')` |
+| **Throw 403** | `throw new ForbiddenException('msg')` |
+| **Add a nav item** | Add to `NAV_ITEMS` in [lib/navigation.tsx](file:///d:/code/final/frontend/lib/navigation.tsx) |
+| **Check permission (server page)** | [can(user.permissions, 'read', 'Enquiry')](file:///d:/code/final/frontend/lib/permissions.ts#81-96) |
+| **Check permission (client component)** | `useAuthStore().can('read', 'Enquiry')` |
+| **Call an API from frontend** | Create a service in `services/` using [apiClient()](file:///d:/code/final/frontend/lib/api-client.ts#121-256) |
+| **Handle button mutation** | Use [useAction(serverAction)](file:///d:/code/final/frontend/hooks/use-action.ts#6-68) hook |
+| **Handle form submission** | Use `useActionState(serverAction)` |
+
+---
+
+> **Remember:** The system is permission-based, not role-based. Never write `if (role === 'ADMIN')`. Always write `if (can('action', 'Subject'))`.

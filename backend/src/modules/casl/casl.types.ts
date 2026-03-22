@@ -11,16 +11,17 @@ export type Actions =
   | 'manage';
 
 export type AppSubjects =
-  | 'Enquiry'
-  | 'Message'
-  | 'User'
-  | 'Permission'
-  | 'Contact'
-  | 'Dashboard'
-  | 'InboundMessage'
-  | 'QualificationRule'
-  | 'InternalNote'
-  | 'QualificationResult'
+  | 'enquiry'
+  | 'message'
+  | 'user'
+  | 'permission'
+  | 'contact'
+  | 'dashboard'
+  | 'inboundmessage'
+  | 'qualificationrule'
+  | 'internalnote'
+  | 'qualificationresult'
+  | 'rolepermission'
   | 'all';
 
 export type AppAbility = PureAbility<[Actions, AppSubjects], PrismaQuery>;

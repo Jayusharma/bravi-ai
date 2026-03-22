@@ -9,7 +9,6 @@ export class AuthService {
     constructor(
         private prisma: PrismaService,
         private jwt: JwtService,
-        
     ) { }
 
     /**
@@ -45,11 +44,11 @@ export class AuthService {
             role: user.role,
         };
 
-        
+        // Load permissions for this role from DB
+        const permissions = await this.getPermissionsForRole(user.role);
 
         return {
             access_token: this.jwt.sign(payload),
-            
             user: {
                 id: user.id,
                 userName: user.userName,
@@ -57,7 +56,7 @@ export class AuthService {
                 displayName: user.displayName,
                 role: user.role,
             },
-         
+            permissions,
         };
     }
 
@@ -87,11 +86,30 @@ export class AuthService {
             throw new UnauthorizedException('User not found');
         }
 
-        
+        // Load permissions for this role from DB
+        const permissions = await this.getPermissionsForRole(user.role);
 
         return {
             ...user,
-            
+            permissions,
         };
+    }
+
+    /**
+     * Load permission rules for a role from the database.
+     * Returns a simple array of { action, subject } that the frontend
+     * can use to rebuild CASL abilities client-side.
+     */
+    private async getPermissionsForRole(role: string) {
+        const rolePermissions = await this.prisma.rolePermission.findMany({
+            where: { role: role as any },
+            include: { permission: true },
+        });
+
+        return rolePermissions.map((rp) => ({
+            action: rp.permission.action,
+            subject: rp.permission.subject,
+            conditions: rp.conditions,
+        }));
     }
 }

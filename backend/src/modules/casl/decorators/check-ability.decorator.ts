@@ -10,4 +10,6 @@ export interface AbilityCheck {
 
 // Decorator to check abilities on routes
 export const CheckAbility = (abilityCheck: AbilityCheck) =>
+
   SetMetadata(CHECK_ABILITY_KEY, abilityCheck);
+

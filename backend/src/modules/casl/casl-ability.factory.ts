@@ -5,18 +5,15 @@ import { PrismaService } from '../../database/prisma.service';
 import { AppAbility, Actions, AppSubjects } from './casl.types';
 import { AuthUser } from 'src/common/types/auth-user.interface';
 
-
 @Injectable()
 export class CaslAbilityFactory {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async createForUser(user: AuthUser): Promise<AppAbility> {
     const { can, cannot, build } = new AbilityBuilder<AppAbility>(
       createPrismaAbility as any,
     );
 
-
-  
     // Load role permissions from DB
     const rolePermissions = await this.prisma.rolePermission.findMany({
       where: { role: user.role },
@@ -24,11 +21,10 @@ export class CaslAbilityFactory {
     });
 
     for (const rp of rolePermissions) {
-      const action = rp.permission.action as Actions;
-      const subject = this.mapSubject(rp.permission.subject) as AppSubjects;
+      // Everything is lowercase — no mapping needed
+      const action = rp.permission.action.toLowerCase() as Actions;
+      const subject = rp.permission.subject.toLowerCase() as AppSubjects;
 
-      console.log(action ,"and", subject)
-     
       let conditions = rp.conditions as any;
 
       if (conditions) {
@@ -37,27 +33,12 @@ export class CaslAbilityFactory {
 
       if (action === 'manage' && subject === 'all') {
         can('manage', 'all');
-        // console.log("done manage all")
       } else {
         can(action, subject, conditions || undefined);
-      // console.log("manage conditionally ")
       }
     }
-  
+
     return build();
-  }
-
-  private mapSubject(subject: string): string {
-    const mapping: Record<string, string> = {
-      enquiry: 'Enquiry',
-      message: 'Message',
-      user: 'User',
-      permission: 'Permission',
-      dashboard: 'Dashboard',
-      all: 'all',
-    };
-
-    return mapping[subject] || subject;
   }
 
   private resolvePlaceholders(conditions: any, user: AuthUser) {

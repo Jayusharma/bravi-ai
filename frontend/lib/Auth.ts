@@ -14,9 +14,10 @@ export async function setAuthToken(token: string) {
     sameSite: 'lax',
     secure: false, // true in production (https)
     path: '/',
+    maxAge: 30 * 24 * 60 * 60, // 30 days — matches backend JWT expiry
   });
 
- 
+
 }
 
 /**
@@ -25,7 +26,7 @@ export async function setAuthToken(token: string) {
  */
 export async function getAuthToken() {
   const cookieStore = await cookies();
-  
+
   return cookieStore.get(COOKIE_NAME)?.value;
 }
 

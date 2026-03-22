@@ -1,32 +1,23 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { logout } from '@/services/auth/login.service';
+import { useAction } from '@/hooks/use-action';
 
 export function LogoutButton() {
-    const router = useRouter();
-    const [loading, setLoading] = useState(false);
-
-    const handleLogout = async () => {
-        setLoading(true);
-        try {
-            await fetch('/api/logout', { method: 'POST' });
-            router.push('/login');
-            router.refresh();
-        } catch {
-            // Even if logout API fails, redirect to login
-            router.push('/login');
-        }
-    };
+    const { execute, pending } = useAction(logout, {
+        refreshOnSuccess: false,
+    });
 
     return (
         <button
-            onClick={handleLogout}
-            disabled={loading}
-            className="flex items-center gap-3 w-full px-3 py-2.5 text-sm font-medium rounded-md text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+            onClick={() => execute()}
+            disabled={pending}
+            className="flex items-center gap-3 w-full px-3 py-2 text-sm rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-destructive transition-colors disabled:opacity-50"
         >
-            <span>🚪</span>
-            {loading ? 'Logging out...' : 'Logout'}
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" x2="9" y1="12" y2="12" />
+            </svg>
+            {pending ? 'Logging out...' : 'Logout'}
         </button>
     );
 }

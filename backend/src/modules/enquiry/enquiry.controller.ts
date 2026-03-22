@@ -1,135 +1,149 @@
-import { Controller, Post, Body, Put, Param, Patch, UseGuards, Req, Get, Query } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Patch,
+  Param,
+  UseGuards,
+  Req,
+  Get,
+  Query,
+} from '@nestjs/common';
 import { EnquiryService } from './enquiry.service';
-import { CreateEnquiryDto, SendMessageDto, ChangeStatusDto, AssignEnquiryDto, QualifiedDto } from './dto/create-enquiry.dto';
+import {
+  CreateEnquiryDto,
+  SendMessageDto,
+  ChangeStatusDto,
+  AssignEnquiryDto,
+  AddNoteDto,
+  QualifiedDto,
+} from './dto/create-enquiry.dto';
+import { InboxQueryDto } from './dto/inbox-query.dto';
 import type { Request } from 'express';
 import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { Ability } from '../casl/decorators/ability.decorator';
 import { Public } from 'src/common/decorator/public.decorator';
+import { AppAbility } from '../casl/casl.types';
 
 @Controller('enquiry')
 @UseGuards(CaslGuard)
 export class EnquiryController {
   constructor(private enquiryService: EnquiryService) { }
 
-
-
+  // ── Test endpoint (existing) ──
   @Patch('qualfiy')
   @Public()
   qualified(@Body() dto: QualifiedDto) {
     return this.enquiryService.handleQualified(dto);
   }
-  /**
-   * GET /enquiry — List all enquiries with optional filters.
-   */
-//   @Get()
-//   @CheckAbility({ action: 'read', subject: 'Enquiry' })
 
-//   findAll(
-//     @Req() req: Request,
-//     @Query('status') status?: string,
-//     @Query('source') source?: string,
-//     @Query('assignedToId') assignedToId?: string,
-//     @Query('search') search?: string,
-//     @Query('page') page?: string,
-//     @Query('limit') limit?: string,
-    
-//   ) {
-//     return this.enquiryService.findAll({
-//       status,
-//       source,
-//       assignedToId,
-//       search,
-//       page: page ? parseInt(page, 10) : 1,
-//       limit: limit ? parseInt(limit, 10) : 20,
-//     } ,
-//     req.ability,
-//   );
-//   }
+  // ═══════════════════════════════════════════════════════════════════
+  // GET /enquiry — Paginated inbox with filters
+  // ═══════════════════════════════════════════════════════════════════
+  @Get()
+  @CheckAbility({ action: 'read', subject: 'enquiry' })
+  findAll(@Query() query: InboxQueryDto, @Req() req: Request) {
+    return this.enquiryService.findAll(query, req.ability);
+  }
 
-//   /**
-//    * GET /enquiry/stats — Dashboard KPI stats.
-//    */
-//   @Get('stats')
-//   getStats() {
-//     return this.enquiryService.getStats();
-//   }
+  // ═══════════════════════════════════════════════════════════════════
+  // GET /enquiry/stats — Dashboard KPIs
+  // ═══════════════════════════════════════════════════════════════════
+  @Get('stats')
+  @CheckAbility({ action: 'read', subject: 'enquiry' })
+  getStats() {
+    return this.enquiryService.getStats();
+  }
 
-//   /**
-//    * GET /enquiry/:id — Get single enquiry with timeline & messages.
-//    */
-//   @Get(':id')
-  
-//   findOne(@Param('id') id: string) {
-//     return this.enquiryService.findOne(id);
-//   }
+  // ═══════════════════════════════════════════════════════════════════
+  // GET /enquiry/:id — Single enquiry with messages, timeline, notes
+  // ═══════════════════════════════════════════════════════════════════
+  @Get(':id')
+  @CheckAbility({ action: 'read', subject: 'enquiry' })
+  findOne(@Param('id') id: string) {
+    return this.enquiryService.findOne(id);
+  }
 
-//   /**
-//    * POST /enquiry — Create a new manual enquiry.
-//    */
-//   @Post()
-//   create(@Body() dto: CreateEnquiryDto, @Req() req: Request) {
-//     return this.enquiryService.create(dto, req.user?.userId);
-//   }
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /enquiry — Manual enquiry creation
+  // ═══════════════════════════════════════════════════════════════════
+  @Post()
+  @CheckAbility({ action: 'create', subject: 'enquiry' })
+  create(@Body() dto: CreateEnquiryDto, @Req() req: Request) {
+    return this.enquiryService.create(dto, req.user?.userId);
+  }
 
-//   /**
-//    * PATCH /enquiry/:id/status — Change enquiry status (FSM validated).
-//    */
-//   @Patch(':id/status')
-//   @CheckAbility({ action: 'update', subject: 'Enquiry' })
+  // ═══════════════════════════════════════════════════════════════════
+  // PATCH /enquiry/:id/status — FSM-validated status change
+  // ═══════════════════════════════════════════════════════════════════
+  @Patch(':id/status')
+  @CheckAbility({ action: 'update', subject: 'enquiry' })
+  statusChange(
+    @Param('id') id: string,
+    @Body() dto: ChangeStatusDto,
+    @Req() req: Request,
+  ) {
+    return this.enquiryService.statusChange(id, dto, req.ability, req.user?.userId);
+  }
 
-//   statusChange(
-//     @Param('id') id: string,
-//     @Body() dto: ChangeStatusDto,
-//     @Req() req: Request,
-//   ) {
-//     return this.enquiryService.statusChange(id, dto,  req.ability ,req.user?.userId );
-//   }
+  // ═══════════════════════════════════════════════════════════════════
+  // PATCH /enquiry/:id/assign — Assign to team member
+  // ═══════════════════════════════════════════════════════════════════
+  @Patch(':id/assign')
+  @CheckAbility({ action: 'assign', subject: 'enquiry' })
+  assign(@Param('id') id: string, @Body() dto: AssignEnquiryDto) {
+    return this.enquiryService.assign(id, dto.userId, dto.version);
+  }
 
-//   /**
-//    * PATCH /enquiry/:id/assign — Assign enquiry to a user.
-//    */
-//   @Patch(':id/assign')
-//   assign(
-//     @Param('id') id: string,
-//     @Body() dto: AssignEnquiryDto,
-//     @Req() req: Request,
-//   ) {
-//     return this.enquiryService.assign(id, dto.userId, dto.version);
-//   }
+  // ═══════════════════════════════════════════════════════════════════
+  // PATCH /enquiry/:id/tags — Update tags
+  // ═══════════════════════════════════════════════════════════════════
+  @Patch(':id/tags')
+  @CheckAbility({ action: 'update', subject: 'enquiry' })
+  updateTags(
+    @Param('id') id: string,
+    @Body() body: { tags: string[] },
+    @Req() req: Request,
+  ) {
+    return this.enquiryService.updateTags(id, body.tags, req.user?.userId);
+  }
 
-//   /**
-//    * PATCH /enquiry/:id/tags — Update tags on an enquiry.
-//    */
-//   @Patch(':id/tags')
-//   updateTags(
-//     @Param('id') id: string,
-//     @Body() body: { tags: string[] },
-//     @Req() req: Request,
-//   ) {
-//     return this.enquiryService.updateTags(id, body.tags, req.user?.userId);
-//   }
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /enquiry/:id/messages — Send reply to customer
+  // ═══════════════════════════════════════════════════════════════════
+  @Post(':id/messages')
+  @CheckAbility({ action: 'create', subject: 'message' })
+  sendMessage(
+    @Param('id') id: string,
+    @Body() dto: SendMessageDto,
+    @Req() req: Request,
+  ) {
+    return this.enquiryService.sendMessage(id, dto, {
+      userId: req.user!.userId,
+      role: req.user!.role,
+    });
+  }
 
-//   /**
-//    * POST /enquiry/:id/messages — Send a message for an enquiry.
-//    */
-//   @Post(':id/messages')
-//   sendMessage(
-//     @Param('id') id: string,
-//     @Body() dto: SendMessageDto,
-//     @Req() req: Request,
-//   ) {
-//     return this.enquiryService.sendMessage(id, dto, {
-//       userId: req.user!.userId,
-//       role: req.user!.role,
-//     });
-//   }
+  // ═══════════════════════════════════════════════════════════════════
+  // GET /enquiry/:id/messages — List conversation messages
+  // ═══════════════════════════════════════════════════════════════════
+  @Get(':id/messages')
+  @CheckAbility({ action: 'read', subject: 'message' })
+  getMessages(@Param('id') id: string) {
+    return this.enquiryService.getMessages(id);
+  }
 
-//   /**
-//    * GET /enquiry/:id/messages — List messages for an enquiry.
-//    */
-//   @Get(':id/messages')
-//   getMessages(@Param('id') id: string) {
-//     return this.enquiryService.getMessages(id);
-//   }
- }
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /enquiry/:id/notes — Add internal note
+  // ═══════════════════════════════════════════════════════════════════
+  @Post(':id/notes')
+  @CheckAbility({ action: 'create', subject: 'internalnote' })
+  addNote(
+    @Param('id') id: string,
+    @Body() dto: AddNoteDto,
+    @Req() req: Request,
+  ) {
+    return this.enquiryService.addNote(id, dto, req.user!.userId);
+  }
+}
