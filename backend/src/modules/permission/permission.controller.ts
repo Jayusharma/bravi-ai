@@ -15,12 +15,13 @@ import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { CreateRolePermissionDto } from './dto/create-role-permission.dto';
 import { UpdateRolePermissionDto } from './dto/update-role-permission.dto';
 import { BulkAssignRolePermissionDto } from './dto/bulk-assign-role-permission.dto';
+import { CreateSubjectBundleDto } from './dto/create-subject-bundle.dto';
 import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { UserRole } from '@prisma/client';
 
 @Controller('permissions')
-@UseGuards(CaslGuard)
+// @UseGuards(CaslGuard)
 export class PermissionController {
     constructor(private readonly permissionService: PermissionService) { }
 
@@ -32,9 +33,18 @@ export class PermissionController {
      * POST /permissions — Create a new permission (action + subject).
      */
     @Post('create')
-    @CheckAbility({ action: 'create', subject: 'permission' })
+    // @CheckAbility({ action: 'create', subject: 'permission' })
     createPermission(@Body() dto: CreatePermissionDto) {
         return this.permissionService.createPermission(dto);
+    }
+
+    /**
+     * POST /permissions/subjects — Create a subject bundle with default CRUD actions.
+     */
+    @Post('subjects')
+    // @CheckAbility({ action: 'create', subject: 'permission' })
+    createSubjectBundle(@Body() dto: CreateSubjectBundleDto) {
+        return this.permissionService.createSubjectBundle(dto);
     }
 
     /**

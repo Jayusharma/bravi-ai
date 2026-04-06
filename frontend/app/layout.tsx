@@ -1,36 +1,31 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
-import { ToastProvider } from "@/components/ui/Toast";
-
-const inter = Inter({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
+import type { Metadata } from 'next';
+import './globals.css';
+import '../styles/dashboard-shell.css';
+import '../styles/permission-matrix.css';
+import '../styles/toast.css';
+import { ThemeProvider, ThemeScript } from '@/components/common';
+import { ToastProvider } from '@/components/ui/Toast';
 
 export const metadata: Metadata = {
-  title: "Enquiry Hub — Management System",
-  description:
-    "Enterprise-grade enquiry management with multi-channel ingestion, automation, and team collaboration.",
+    title: 'Enquiry Hub - Management System',
+    description: 'Enterprise-grade enquiry management with multi-channel ingestion, automation, and team collaboration.',
 };
 
 export default function RootLayout({
-  children,
+    children,
 }: Readonly<{
-  children: React.ReactNode;
+    children: React.ReactNode;
 }>) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        {/* Prevents flash of wrong theme before React loads */}
-        <ThemeScript />
-      </head>
-      <body className={`${inter.variable} antialiased`}>
-        <ThemeProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </ThemeProvider>
-      </body>
-    </html>
-  );
+    return (
+        <html lang="en" suppressHydrationWarning>
+            <head>
+                <ThemeScript />
+            </head>
+            <body className="antialiased">
+                <ThemeProvider>
+                    <ToastProvider>{children}</ToastProvider>
+                </ThemeProvider>
+            </body>
+        </html>
+    );
 }

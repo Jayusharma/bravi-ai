@@ -78,6 +78,21 @@ export class IngestionService {
           lastActivityAt: new Date(),
         },
       });
+
+      this.eventEmitter.emit('message.inbound.appended', {
+        contactId,
+        enquiryId: openEnquiry.id,
+        message: {
+          id: inboundMessage.id,  // will be replaced with ConversationMessage id
+          enquiryId: openEnquiry.id,
+          channel: dto.channel,
+          direction: 'INBOUND',
+          from: dto.from,
+          to: dto.to,
+          content: dto.body,
+          createdAt: new Date(),
+        },
+      });
       this.logger.log(
         `📨 Appended message to existing Enquiry ${openEnquiry.id} (contact: ${contactId})`,
       );

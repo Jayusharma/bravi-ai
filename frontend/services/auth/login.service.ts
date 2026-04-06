@@ -1,6 +1,6 @@
 'use server';
 
-import { apiClient, ApiError } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { API } from '@/lib/endpoints';
 import { setAuthToken, clearAuthToken, getAuthToken } from '@/lib/Auth';
 import { redirect } from 'next/navigation';
@@ -9,7 +9,20 @@ import { redirect } from 'next/navigation';
 // Types
 // ═══════════════════════════════════════════════════════════════════
 
-type PermissionRule = { action: string; subject: string; conditions?: any };
+type PermissionRule = {
+    action: string;
+    subject: string;
+    conditions?: Record<string, unknown> | null;
+};
+
+type CurrentUserResponse = {
+    id: string;
+    userName: string;
+    email: string | null;
+    displayName: string | null;
+    role: string;
+    permissions?: PermissionRule[];
+};
 
 /** What getCurrentUser() returns */
 export type UserSession = {
@@ -63,8 +76,9 @@ export async function login(formData: FormData): Promise<LoginResult> {
         const data = responseBody?.data || responseBody;
 
         // Store JWT in HttpOnly cookie (persistent, 30 days)
+        console.log("return of login ", responseBody)
         await setAuthToken(data.access_token);
-    } catch (e) {
+    } catch {
         return { success: false, error: 'Unable to reach server. Please try again.' };
     }
 
@@ -90,7 +104,7 @@ export async function getCurrentUser(): Promise<UserSession | null> {
         const token = await getAuthToken();
         if (!token) return null;
 
-        const data = await apiClient<any>(API.AUTH.ME);
+        const data = await apiClient<CurrentUserResponse>(API.AUTH.ME);
 
         return {
             id: data.id,

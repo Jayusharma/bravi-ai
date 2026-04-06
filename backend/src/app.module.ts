@@ -18,6 +18,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ContactModule } from './modules/contact/contact.module';
 import { OutboundModule } from './modules/outbound/outbound.module';
 import { PermissionModule } from './modules/permission/permission.module';
+import { PlaygroundModule } from './modules/messaging/messaging.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { PermissionModule } from './modules/permission/permission.module';
     PrismaModule,
     AuthModule,
     UserModule,
+    PlaygroundModule,
     IngestionModule,
     EnquiryModule,
     QualificationModule,

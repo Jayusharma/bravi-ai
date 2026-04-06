@@ -30,4 +30,16 @@ export const API = {
         LIST: '/users',
         DETAIL: (id: string) => `/users/${id}`,
     },
+
+    PERMISSION: {
+        LIST: '/permissions',
+        DETAIL: (id: string) => `/permissions/${id}`,
+        CREATE: '/permissions/create',
+        UPDATE: (id: string) => `/permissions/${id}`,
+        DELETE: (id: string) => `/permissions/${id}`,
+        SUBJECTS: '/permissions/subjects',
+        ROLE_ASSIGNMENTS: '/permissions/roles/all',
+        ROLE_BULK_ASSIGN: '/permissions/roles/bulk-assign',
+        ROLE_CLEAR: (role: string) => `/permissions/roles/${role}/clear`,
+    },
 } as const;

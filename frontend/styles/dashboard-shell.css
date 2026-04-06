@@ -1,0 +1,373 @@
+.dashboard-shell {
+  position: relative;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, hsl(var(--primary) / 0.09), transparent 26%),
+    radial-gradient(circle at top right, hsl(var(--chart-2) / 0.1), transparent 24%),
+    linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.36) 100%);
+}
+
+.dark .dashboard-shell {
+  background:
+    radial-gradient(circle at top left, hsl(var(--chart-4) / 0.12), transparent 24%),
+    radial-gradient(circle at top right, hsl(var(--chart-2) / 0.14), transparent 20%),
+    linear-gradient(180deg, hsl(var(--background)) 0%, hsl(223 30% 8%) 100%);
+}
+
+.dashboard-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(hsl(var(--foreground) / 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.025) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(180deg, hsl(0 0% 0% / 0.45), transparent 90%);
+}
+
+.dashboard-sidebar {
+  background:
+    linear-gradient(180deg, hsl(var(--sidebar-background) / 0.94) 0%, hsl(var(--sidebar-background) / 0.86) 100%);
+  box-shadow: inset -1px 0 0 hsl(var(--sidebar-border) / 0.65);
+  backdrop-filter: blur(18px);
+}
+
+.dashboard-topbar {
+  background: linear-gradient(180deg, hsl(var(--background) / 0.82), hsl(var(--background) / 0.66));
+  backdrop-filter: blur(18px);
+}
+
+.dashboard-content {
+  position: relative;
+}
+
+.dashboard-content::before {
+  content: "";
+  position: absolute;
+  inset: 1.25rem 1.25rem auto;
+  height: 14rem;
+  border-radius: 1.5rem;
+  background: linear-gradient(135deg, hsl(var(--card) / 0.72), transparent 68%);
+  pointer-events: none;
+}
+
+.shell-panel {
+  border: 1px solid hsl(var(--border) / 0.75);
+  background: hsl(var(--card) / 0.72);
+  box-shadow: 0 18px 50px hsl(var(--foreground) / 0.06);
+  backdrop-filter: blur(18px);
+}
+
+.shell-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, hsl(var(--border)), transparent);
+}
+
+.sidebar-brand-mark {
+  background: linear-gradient(135deg, hsl(var(--foreground)), hsl(var(--chart-2)));
+  box-shadow: 0 10px 30px hsl(var(--foreground) / 0.18);
+}
+
+.sidebar-section-label {
+  letter-spacing: 0.24em;
+}
+
+.sidebar-nav-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.sidebar-nav-item::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, hsl(var(--chart-2)), hsl(var(--chart-4)));
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.sidebar-nav-item[data-active="true"]::before {
+  opacity: 1;
+}
+
+.sidebar-nav-item[data-active="true"] {
+  background: linear-gradient(90deg, hsl(var(--accent)) 0%, hsl(var(--card) / 0.8) 100%);
+  color: hsl(var(--foreground));
+  box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.55);
+}
+
+.sidebar-nav-child {
+  position: relative;
+}
+
+.sidebar-nav-child::before {
+  content: "";
+  position: absolute;
+  left: -0.95rem;
+  top: 50%;
+  width: 0.55rem;
+  height: 1px;
+  background: hsl(var(--border));
+}
+
+.dashboard-search {
+  background: linear-gradient(180deg, hsl(var(--card) / 0.92), hsl(var(--muted) / 0.72));
+  box-shadow: inset 0 1px 0 hsl(var(--background) / 0.6);
+}
+
+.dashboard-search:focus-within {
+  box-shadow: 0 0 0 1px hsl(var(--ring) / 0.3), 0 10px 30px hsl(var(--foreground) / 0.08);
+}
+
+.profile-popover {
+  background: linear-gradient(180deg, hsl(var(--popover) / 0.98), hsl(var(--card) / 0.94));
+  backdrop-filter: blur(20px);
+}
+
+.ops-hero {
+  position: relative;
+  background:
+    radial-gradient(circle at top left, rgb(16 185 129 / 0.24), transparent 26%),
+    radial-gradient(circle at 82% 18%, rgb(56 189 248 / 0.2), transparent 24%),
+    radial-gradient(circle at bottom right, rgb(251 191 36 / 0.14), transparent 22%),
+    linear-gradient(135deg, #06131f 0%, #0c1729 52%, #111827 100%);
+}
+
+.ops-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -6% -28% auto;
+  width: 18rem;
+  height: 18rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgb(56 189 248 / 0.16), transparent 68%);
+  pointer-events: none;
+}
+
+.ops-glass {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.04));
+  backdrop-filter: blur(18px);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+
+.insight-card {
+  background:
+    linear-gradient(180deg, hsl(var(--card) / 0.9), hsl(var(--card) / 0.78)),
+    radial-gradient(circle at top right, hsl(var(--chart-2) / 0.06), transparent 28%);
+  box-shadow: 0 20px 60px hsl(var(--foreground) / 0.05);
+}
+
+.metric-tile {
+  display: flex;
+  min-height: 8.75rem;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: 1.35rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.04));
+  padding: 1rem;
+  backdrop-filter: blur(12px);
+}
+
+.metric-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.52);
+}
+
+.metric-value {
+  font-size: clamp(1.85rem, 2.6vw, 2.5rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.metric-meta {
+  font-size: 0.82rem;
+  color: rgb(255 255 255 / 0.62);
+}
+
+.metric-bar {
+  height: 0.56rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: hsl(var(--muted) / 0.75);
+}
+
+.metric-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, hsl(var(--chart-2)), hsl(var(--chart-4)));
+}
+
+.pulse-dot {
+  display: inline-flex;
+  height: 0.55rem;
+  width: 0.55rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 0 rgb(16 185 129 / 0.55);
+  animation: dashboard-pulse 2.2s ease-out infinite;
+}
+
+@keyframes dashboard-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 0.6rem rgb(16 185 129 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SIDEBAR SURFACE — Slightly distinct background from main content
+   ═══════════════════════════════════════════════════════════════════ */
+
+.sidebar-surface {
+  background:
+    linear-gradient(
+      180deg,
+      hsl(var(--sidebar-background) / 0.98) 0%,
+      hsl(var(--sidebar-background) / 0.92) 100%
+    );
+  box-shadow: inset -1px 0 0 hsl(var(--sidebar-border) / 0.65);
+  backdrop-filter: blur(18px);
+}
+
+/* Light mode: give sidebar a subtle cool-gray tint so it's clearly different */
+:root .sidebar-surface {
+  background:
+    linear-gradient(180deg, hsl(220 20% 97%) 0%, hsl(220 14% 95%) 100%);
+}
+
+/* Dark mode: give sidebar a slightly lighter tint */
+.dark .sidebar-surface {
+  background:
+    linear-gradient(180deg, hsl(240 8% 8%) 0%, hsl(240 6% 6.5%) 100%);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SIDEBAR LOCK / UNLOCK SYSTEM
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Collapsed rail — visible strip when sidebar is unlocked ── */
+.sidebar-rail {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 52px;
+  z-index: 40;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 200ms ease;
+}
+
+.sidebar-rail::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      180deg,
+      hsl(var(--sidebar-background) / 0.6) 0%,
+      hsl(var(--sidebar-background) / 0.3) 100%
+    );
+  border-right: 1px solid hsl(var(--border) / 0.35);
+  transition: background 220ms ease, border-color 220ms ease;
+}
+
+:root .sidebar-rail::before {
+  background: linear-gradient(180deg, hsl(220 20% 97% / 0.7) 0%, hsl(220 14% 95% / 0.4) 100%);
+}
+
+.dark .sidebar-rail::before {
+  background: linear-gradient(180deg, hsl(240 8% 8% / 0.7) 0%, hsl(240 6% 6.5% / 0.4) 100%);
+}
+
+.sidebar-rail:hover::before {
+  border-right-color: hsl(var(--chart-2) / 0.5);
+  background:
+    linear-gradient(
+      180deg,
+      hsl(var(--sidebar-background) / 0.85) 0%,
+      hsl(var(--sidebar-background) / 0.6) 100%
+    );
+}
+
+/* Rail center indicator line */
+.sidebar-rail::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 48px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--muted-foreground) / 0.15) 0%,
+    hsl(var(--muted-foreground) / 0.35) 50%,
+    hsl(var(--muted-foreground) / 0.15) 100%
+  );
+  transition: all 220ms ease;
+  z-index: 1;
+}
+
+.sidebar-rail:hover::after {
+  height: 72px;
+  width: 4px;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--chart-2) / 0.3) 0%,
+    hsl(var(--chart-2) / 0.8) 40%,
+    hsl(var(--chart-4) / 0.8) 60%,
+    hsl(var(--chart-4) / 0.3) 100%
+  );
+}
+
+/* ── Overlay sidebar (hover-out uses transition, not animation) ── */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 292px;
+  z-index: 45;
+  transition:
+    transform 320ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 280ms ease;
+  will-change: transform, opacity;
+}
+
+.sidebar-overlay-open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+  box-shadow:
+    8px 0 40px hsl(var(--foreground) / 0.08),
+    2px 0 12px hsl(var(--foreground) / 0.04);
+}
+
+.sidebar-overlay-closed {
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Lock button ── */
+.sidebar-lock-btn {
+  opacity: 0.65;
+  transition: all 200ms ease;
+}
+
+.sidebar-lock-btn:hover {
+  opacity: 1;
+  transform: scale(1.12);
+}
+

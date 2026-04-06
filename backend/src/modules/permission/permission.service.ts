@@ -10,11 +10,14 @@ import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { CreateRolePermissionDto } from './dto/create-role-permission.dto';
 import { UpdateRolePermissionDto } from './dto/update-role-permission.dto';
 import { BulkAssignRolePermissionDto } from './dto/bulk-assign-role-permission.dto';
+import { CreateSubjectBundleDto } from './dto/create-subject-bundle.dto';
 import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class PermissionService {
     constructor(private prisma: PrismaService) { }
+
+    private readonly defaultSubjectActions = ['create', 'read', 'update', 'delete'] as const;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PERMISSION CRUD
@@ -44,6 +47,55 @@ export class PermissionService {
         return this.prisma.permission.create({
             data: { action, subject },
         });
+    }
+
+    /**
+     * Create a subject and automatically provision CRUD permissions for it.
+     * Accepts optional actions override, but defaults to create/read/update/delete.
+     */
+    async createSubjectBundle(dto: CreateSubjectBundleDto) {
+        const subject = dto.subject.toLowerCase().trim();
+        const actions = (dto.actions?.length ? dto.actions : [...this.defaultSubjectActions])
+            .map((action) => action.toLowerCase().trim())
+            .filter(Boolean);
+
+        if (!subject) {
+            throw new BadRequestException('Subject is required');
+        }
+
+        const uniqueActions = Array.from(new Set(actions));
+        if (uniqueActions.length === 0) {
+            throw new BadRequestException('At least one action is required');
+        }
+
+        const created: Array<{ id: string; action: string; subject: string }> = [];
+        const skipped: Array<{ action: string; subject: string; reason: string }> = [];
+
+        for (const action of uniqueActions) {
+            const existing = await this.prisma.permission.findUnique({
+                where: {
+                    action_subject: { action, subject },
+                },
+            });
+
+            if (existing) {
+                skipped.push({ action, subject, reason: 'Already exists' });
+                continue;
+            }
+
+            const permission = await this.prisma.permission.create({
+                data: { action, subject },
+            });
+
+            created.push(permission);
+        }
+
+        return {
+            subject,
+            created,
+            skipped,
+            summary: `${created.length} created, ${skipped.length} skipped`,
+        };
     }
 
     /**

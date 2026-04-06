@@ -28,6 +28,7 @@ export const Avatar = forwardRef<HTMLDivElement, AvatarProps>(
                 {...props}
             >
                 {src ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={src} alt={fallback} className="aspect-square h-full w-full object-cover" />
                 ) : (
                     <span className="text-muted-foreground">{initials}</span>

@@ -23,7 +23,7 @@ import { ReactNode } from 'react';
  * ╚═══════════════════════════════════════════════════════════════════╝
  */
 
-interface PermissionGateProps {
+interface PermissionGateProps { 
     action: string;
     subject: string;
     children: ReactNode;
@@ -59,7 +59,7 @@ export function PermissionGate({
 
     // Permission denied — full page shows "Access Denied"
     if (fullPage) {
-        return <AccessDenied action={action} subject={subject} />;
+        return <AccessDenied />;
     }
 
     // Permission denied — button/component just hides
@@ -81,7 +81,7 @@ function PageSkeleton() {
 }
 
 // ── Access Denied for page-level gates ──
-function AccessDenied({ action, subject }: { action: string; subject: string }) {
+function AccessDenied() {
     return (
         <div className="flex flex-col items-center justify-center min-h-[400px] text-center px-4">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 text-destructive mb-4">
@@ -92,7 +92,7 @@ function AccessDenied({ action, subject }: { action: string; subject: string }) 
             </div>
             <h2 className="text-lg font-semibold mb-1">Access Denied</h2>
             <p className="text-sm text-muted-foreground max-w-sm">
-                You don't have permission to access this section.
+                You don&apos;t have permission to access this section.
                 Contact your administrator if you believe this is an error.
             </p>
         </div>

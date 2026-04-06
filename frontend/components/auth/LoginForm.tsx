@@ -4,7 +4,7 @@ import { useActionState, useState } from 'react';
 import { login } from '@/services/auth/login.service';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { ThemeToggle } from '@/components/ThemeToggle';
+import { ThemeToggle } from '@/components/common';
 
 // ═══════════════════════════════════════════════════════════════════
 // Icons (inline SVG — no external deps)

@@ -1,7 +1,8 @@
 import { ReactNode } from 'react';
-import { getCurrentUser } from '@/services/auth/login.service';
-import { SidebarClient } from './SidebarClient';
-import { AuthHydrator } from './AuthHydrator';
+import { getCurrentUser } from '@/services/auth';
+import { AuthHydrator } from '@/components/auth';
+import { SidebarClient } from '@/components/common';
+import { redirect } from 'next/navigation';
 
 /**
  * Main authenticated layout — server component.
@@ -14,20 +15,23 @@ import { AuthHydrator } from './AuthHydrator';
  */
 export async function DashboardLayout({ children }: { children: ReactNode }) {
     const user = await getCurrentUser();
+    if (!user) {
+        redirect('/auth/login');
+    }
 
-    const permissions = user?.permissions || [];
+    const permissions = user.permissions || [];
 
     return (
         <>
             {/* Hydrate Zustand store so client components can use useAuthStore() */}
             <AuthHydrator
-                user={user ? {
+                user={{
                     id: user.id,
                     userName: user.userName,
                     email: user.email,
                     displayName: user.displayName,
                     role: user.role,
-                } : null}
+                }}
                 permissions={permissions}
             />
 

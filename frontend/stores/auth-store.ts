@@ -55,6 +55,7 @@ export type User = {
 };
 
 type AppAbility = PureAbility<[Actions, AppSubjects]>;
+type AbilityClass = new (rules?: unknown[], options?: unknown) => AppAbility;
 
 // Everything is lowercase — no mapping needed (matches backend)
 
@@ -63,14 +64,14 @@ type AppAbility = PureAbility<[Actions, AppSubjects]>;
 // ═══════════════════════════════════════════════════════════════════
 
 function buildAbility(rules: PermissionRule[]): AppAbility {
-    const { can, build } = new AbilityBuilder<AppAbility>(PureAbility as any);
+    const { can, build } = new AbilityBuilder<AppAbility>(PureAbility as AbilityClass);
 
     for (const rule of rules) {
         const action = rule.action.toLowerCase() as Actions;
         const subject = rule.subject.toLowerCase() as AppSubjects;
 
         if (rule.conditions) {
-            can(action, subject, rule.conditions as any);
+            can(action, subject, rule.conditions);
         } else {
             can(action, subject);
         }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useSyncExternalStore } from 'react';
 import { useTheme } from './ThemeProvider';
 
 /**
@@ -8,18 +9,21 @@ import { useTheme } from './ThemeProvider';
  */
 export function ThemeToggle() {
     const { theme, resolvedTheme, setTheme } = useTheme();
+    const mounted = useSyncExternalStore(
+        () => () => {},
+        () => true,
+        () => false,
+    );
 
-    const cycle = () => {
-        if (theme === 'light') setTheme('dark');
-        else if (theme === 'dark') setTheme('system');
-        else setTheme('light');
+    const toggleTheme = () => {
+        setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
     };
 
     return (
         <button
-            onClick={cycle}
-            className="inline-flex items-center justify-center rounded-md h-9 w-9 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-            title={`Theme: ${theme} (${resolvedTheme})`}
+            onClick={toggleTheme}
+            className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            title={mounted ? `Theme: ${theme} (${resolvedTheme})` : 'Toggle theme'}
         >
             {/* Sun icon — visible in dark mode */}
             <svg
