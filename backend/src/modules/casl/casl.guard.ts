@@ -23,7 +23,7 @@ export class CaslGuard implements CanActivate {
       context.getHandler(),
     );
 
-    // console.log('casl guard has activated ')
+    
     if (!abilityCheck) {
       // No check defined, allow access
       
@@ -33,7 +33,7 @@ export class CaslGuard implements CanActivate {
     // Get user from request (set by AuthGuard)
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-
+    
     if (!user) {
       throw new ForbiddenException('User not authenticated');
     }

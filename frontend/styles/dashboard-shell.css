@@ -371,3 +371,35 @@
   transform: scale(1.12);
 }
 
+/* ── Sidebar resize handle ── */
+.sidebar-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background 200ms ease;
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .sidebar-resize-handle {
+    display: block;
+  }
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+  background: linear-gradient(180deg, hsl(var(--chart-2) / 0.4), hsl(var(--chart-4) / 0.4));
+}
+
+.sidebar-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -4px;
+  right: -4px;
+  bottom: 0;
+}
+

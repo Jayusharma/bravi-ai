@@ -42,4 +42,10 @@ export const API = {
         ROLE_BULK_ASSIGN: '/permissions/roles/bulk-assign',
         ROLE_CLEAR: (role: string) => `/permissions/roles/${role}/clear`,
     },
+
+
+    CONVERSATION: {
+        LIST: '/conversations',
+        THREAD: (enquiryId: string) => `/conversations/${enquiryId}/thread`,
+    },
 } as const;

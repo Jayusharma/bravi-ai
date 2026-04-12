@@ -1,9 +1,13 @@
-import { IsEnum, IsString, IsOptional, IsObject } from 'class-validator';
+import { IsEnum, IsString, IsOptional, IsObject, isString } from 'class-validator';
 import { MessageChannel } from '@prisma/client';
 
 export class IngestMessageDto {
   @IsEnum(MessageChannel)
   channel: MessageChannel;
+
+  @IsString()
+  @IsOptional()
+  displayName?: string;
 
   @IsOptional()
   @IsString()

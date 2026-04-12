@@ -1,0 +1,160 @@
+/* ════════════════════════════════ PAGE WRAPPER ══════════════════ */
+
+.messagingPage {
+    /* Break out of the dashboard-content padding (p-4 md:p-8) */
+    margin: -1rem;
+    height: calc(100vh - 80px); /* 80px = topbar height */
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary, #0a0a0f);
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow: hidden; /* No page scroll — only panels scroll */
+}
+
+@media (min-width: 768px) {
+    .messagingPage {
+        margin: -2rem;
+    }
+}
+
+.messagingLayout {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ── Resizable contact panel ── */
+.contactPanel {
+    width: var(--contact-width, 360px);
+    min-width: 260px;
+    max-width: 550px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+    flex-shrink: 0;
+    position: relative;
+}
+
+/* ── Drag handle (between contact list and chat) ── */
+.resizeHandle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+    transition: background 0.2s;
+}
+.resizeHandle:hover,
+.resizeHandle:active {
+    background: rgba(99, 102, 241, 0.4);
+}
+.resizeHandle::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -4px;
+    right: -4px;
+    bottom: 0;
+}
+
+/* ── Chat panel ── */
+.chatPanel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* ════════════════════════════════ EMPTY RIGHT PANEL ═════════════ */
+
+.emptyView {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--bg-primary, #0a0a0f);
+}
+
+.emptyIcon {
+    font-size: 3.5rem;
+    opacity: 0.5;
+    filter: grayscale(0.3);
+}
+
+.emptyView h3 {
+    font-size: 1.05rem;
+    color: var(--text-muted, rgba(255, 255, 255, 0.5));
+    font-weight: 600;
+    margin: 0;
+}
+
+.emptyView p {
+    font-size: 0.82rem;
+    color: var(--text-muted, rgba(255, 255, 255, 0.3));
+    margin: 0;
+}
+
+/* ═══════════════════════════ CONNECTION STATUS ═════════════════ */
+
+.connectionBanner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+}
+.connectionBanner.connected {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+}
+.connectionBanner.disconnected {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+.connectionBanner.connecting {
+    background: rgba(234, 179, 8, 0.1);
+    color: #eab308;
+}
+.connectionDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ═══════════════════════════ LIGHT THEME ═══════════════════════ */
+
+:global([data-theme="light"]) .messagingPage {
+    background: #f5f6fa;
+}
+:global([data-theme="light"]) .contactPanel {
+    border-color: #e5e7eb;
+}
+:global([data-theme="light"]) .resizeHandle:hover,
+:global([data-theme="light"]) .resizeHandle:active {
+    background: rgba(99, 102, 241, 0.3);
+}
+:global([data-theme="light"]) .emptyView {
+    background: #f5f6fa;
+}
+:global([data-theme="light"]) .emptyView h3 {
+    color: #6b7280;
+}
+:global([data-theme="light"]) .emptyView p {
+    color: #9ca3af;
+}

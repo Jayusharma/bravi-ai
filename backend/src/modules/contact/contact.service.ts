@@ -20,6 +20,7 @@ export class ContactService {
   async resolve(
     channel: MessageChannel,
     identifier: string,
+    displayName?: string,
   ): Promise<{ contactId: string; isNew: boolean }> {
     const existing = await this.prisma.contactChannel.findUnique({
       where: {
@@ -43,7 +44,7 @@ export class ContactService {
 
     const contact = await this.prisma.contact.create({
       data: {
-        displayName: 'Unknown',
+        displayName: displayName || identifier,
         channels: {
           create: { channel, identifier },
         },

@@ -31,6 +31,18 @@ export function SidebarClient({ children }: SidebarClientProps) {
     const [sidebarHovered, setSidebarHovered] = useState(false);
     const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // ── Sidebar resize ──
+    const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+        if (typeof window === 'undefined') return 292;
+        try {
+            const stored = window.localStorage.getItem('sidebar-width');
+            return stored ? Math.max(220, Math.min(420, parseInt(stored, 10))) : 292;
+        } catch {
+            return 292;
+        }
+    });
+    const isSidebarResizing = useRef(false);
+
     const toggleSidebarLock = useCallback(() => {
         setSidebarLocked((prev) => {
             const next = !prev;
@@ -55,6 +67,34 @@ export function SidebarClient({ children }: SidebarClientProps) {
         return () => {
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         };
+    }, []);
+
+    const handleSidebarResize = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        isSidebarResizing.current = true;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+
+        const handleMouseMove = (ev: MouseEvent) => {
+            if (!isSidebarResizing.current) return;
+            const newWidth = Math.min(420, Math.max(220, ev.clientX));
+            setSidebarWidth(newWidth);
+        };
+
+        const handleMouseUp = () => {
+            isSidebarResizing.current = false;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            setSidebarWidth(w => {
+                localStorage.setItem('sidebar-width', String(w));
+                return w;
+            });
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
     }, []);
 
     // ── Pins ──
@@ -219,8 +259,8 @@ export function SidebarClient({ children }: SidebarClientProps) {
                 <button
                     onClick={toggleSidebarLock}
                     className={`sidebar-lock-btn flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-all ${sidebarLocked
-                            ? 'border-border/80 bg-accent/70 text-foreground'
-                            : 'border-border/50 bg-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                        ? 'border-border/80 bg-accent/70 text-foreground'
+                        : 'border-border/50 bg-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                         }`}
                     title={sidebarLocked ? 'Unlock sidebar' : 'Lock sidebar'}
                 >
@@ -263,10 +303,20 @@ export function SidebarClient({ children }: SidebarClientProps) {
 
             {/* ═════════ LOCKED SIDEBAR (static, in document flow) ═════════ */}
             {sidebarLocked ? (
-                <aside className="dashboard-sidebar sidebar-surface hidden w-[292px] shrink-0 md:flex md:flex-col">
-                    {sidebarBrandHeader(true)}
-                    {sidebarNavContent}
-                </aside>
+                <>
+                    <aside
+                        className="dashboard-sidebar sidebar-surface hidden shrink-0 md:flex md:flex-col"
+                        style={{ width: sidebarWidth }}
+                    >
+                        {sidebarBrandHeader(true)}
+                        {sidebarNavContent}
+                    </aside>
+                    {/* Sidebar resize handle */}
+                    <div
+                        className="sidebar-resize-handle"
+                        onMouseDown={handleSidebarResize}
+                    />
+                </>
             ) : (
                 <>
                     {/* ═════════ COLLAPSED RAIL (always visible when unlocked) ═════════ */}

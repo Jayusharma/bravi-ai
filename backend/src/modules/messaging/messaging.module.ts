@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
-import { PlaygroundGateway } from './messaging.gateway';
+import { MessagingGateway } from './messaging.gateway';
+import { ConversationService } from './messaging.service';
+import { ConversationController } from './messaging.controller';
 
 @Module({
-  providers: [PlaygroundGateway],
+  controllers: [ConversationController],
+  providers: [MessagingGateway, ConversationService],
+  exports: [ConversationService , MessagingGateway],
 })
-export class PlaygroundModule {}
+export class MessagingModule  {}

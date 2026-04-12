@@ -668,7 +668,8 @@ export class EnquiryService {
     priority?: number;
     extractedData?: any;
   }) {
-    const { inboundMessageId, contactId, intent, urgency, priority, extractedData } = payload;
+    const { inboundMessageId, contactId, intent, urgency, priority } = payload;
+
     if (!contactId) {
       this.logger.error(`No contactId for message ${inboundMessageId} — cannot create enquiry`);
       return;
@@ -678,43 +679,67 @@ export class EnquiryService {
     const message = await this.prisma.inboundMessage.findUnique({
       where: { id: inboundMessageId },
     });
-    console.log('message ', message);
 
     if (!message) {
       this.logger.error(`InboundMessage ${inboundMessageId} not found`);
       return;
     }
 
-    // Race condition guard: check again in case another message
-    // from the same contact already created an enquiry
-    const openEnquiry = await this.prisma.enquiry.findFirst({
+    // ── Race condition guard ──
+    // Check again for open enquiry (another message may have created one
+    // while we were qualifying in the BullMQ queue)
+    const activeEnquiry = await this.prisma.enquiry.findFirst({
       where: {
-        contactId: payload.contactId,
+        contactId,
         status: { notIn: ['CONVERTED', 'CLOSED_LOST'] },
       },
     });
-    if (openEnquiry) {
-      // Race condition: another message already created the enquiry
-      // Just append this message
-      await this.prisma.conversationMessage.create({
+
+    if (activeEnquiry) {
+      // Race: another message already created the enquiry → just append
+      const convMsg = await this.prisma.conversationMessage.create({
         data: {
-          enquiryId: openEnquiry.id,
+          enquiryId: activeEnquiry.id,
           channel: message.channel,
           direction: 'INBOUND',
           from: message.from,
           content: message.body,
         },
       });
+
+      // Emit for WebSocket so chat view updates
+      this.eventEmitter.emit('message.inbound.appended', {
+        contactId,
+        enquiryId: activeEnquiry.id,
+        message: {
+          id: convMsg.id,
+          enquiryId: activeEnquiry.id,
+          channel: message.channel,
+          direction: 'INBOUND',
+          from: message.from,
+          to: message.to,
+          content: message.body,
+          deliveryStatus: null,
+          createdAt: convMsg.createdAt,
+          sentByUser: null,
+        },
+      });
+
+      this.logger.log(
+        `📨 Race-append to enquiry ${activeEnquiry.id} for msg ${inboundMessageId}`,
+      );
       return;
     }
-    // Normal case: create new enquiry
-    await this.prisma.enquiry.create({
+
+    // ── Normal case: Create new enquiry ──
+    const enquiry = await this.prisma.enquiry.create({
       data: {
-        contactId: payload.contactId,
+        contactId,
         type: 'REAL',
         status: 'NEW',
-        urgency: payload.urgency,
-        priority: payload.priority,
+        intent: this.toEnquiryIntent(intent),
+        urgency,
+        priority,
         messages: {
           create: {
             channel: message.channel,
@@ -723,7 +748,51 @@ export class EnquiryService {
             content: message.body,
           },
         },
+        timeline: {
+          create: {
+            type: 'CREATED',
+            toStatus: 'NEW',
+            createdBy: 'SYSTEM',
+            metadata: {
+              source: 'QUALIFICATION',
+              inboundMessageId,
+              aiIntent: intent,
+            },
+          },
+        },
       },
     });
+
+    this.logger.log(
+      `✅ New enquiry ${enquiry.id} created for contact ${contactId}`,
+    );
+
+    // Emit for WebSocket — sidebar shows new contact
+    this.eventEmitter.emit('enquiry.created', {
+      contactId,
+      enquiryId: enquiry.id,
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // HELPER: Convert AI intent string to Prisma enum
+  // ═══════════════════════════════════════════════════════════════════
+
+  private toEnquiryIntent(intent?: string): EnquiryIntent | undefined {
+    if (!intent) return undefined;
+    const validIntents: Record<string, EnquiryIntent> = {
+      'PRODUCT_INQUIRY': EnquiryIntent.PRODUCT_INQUIRY,
+      'PRICING_REQUEST': EnquiryIntent.PRICING_REQUEST,
+      'BULK_ORDER': EnquiryIntent.BULK_ORDER,
+      'SHIPPING_INQUIRY': EnquiryIntent.SHIPPING_INQUIRY,
+      'GENERAL_INFO': EnquiryIntent.GENERAL_INFO,
+      'COMPLAINT': EnquiryIntent.COMPLAINT,
+      'APPOINTMENT': EnquiryIntent.APPOINTMENT,
+      'DOCUMENT_SUBMIT': EnquiryIntent.DOCUMENT_SUBMIT,
+      'RETURN_REFUND': EnquiryIntent.RETURN_REFUND,
+      'PARTNERSHIP': EnquiryIntent.PARTNERSHIP,
+      'UNKNOWN': EnquiryIntent.UNKNOWN,
+    };
+    return validIntents[intent] || EnquiryIntent.UNKNOWN;
   }
 }
