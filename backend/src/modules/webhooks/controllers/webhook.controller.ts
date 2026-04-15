@@ -1,7 +1,8 @@
-import { Controller, Get, Query, Res, ForbiddenException } from '@nestjs/common';
-import type { Response } from 'express';
+import { Controller, Get, Query, Res, ForbiddenException  , Post , Req } from '@nestjs/common';
+import type { Response , Request } from 'express';
 import { Public } from 'src/common/decorator/public.decorator';
 import { ConfigService } from '@nestjs/config';
+import { IngestionService } from '@/modules/Ingestion/ingestion.service';
 
 @Public()
 @Controller('webhook')
@@ -9,24 +10,12 @@ export class WebhookController {
   private readonly verifyToken: string;
 
   constructor(
+    private IngestionService: IngestionService,
     private config: ConfigService,
-  ) {
-    this.verifyToken = this.config.getOrThrow('WHATSAPP_VERIFY_TOKEN');
-  }
+  ) {}
 
-  @Get('whatsapp')
-verify(
-  @Query('hub.mode') mode: string,
-  @Query('hub.verify_token') verifyToken: string,
-  @Query('hub.challenge') challenge: string,
-  @Res() res: Response,
-) {
-  if (mode === 'subscribe' && verifyToken === this.verifyToken) {
-    console.log('✅ WhatsApp webhook verified successfully');
-    return res.status(200).send(challenge);
-  }
-
-  console.log('❌ WhatsApp verification failed');
-  return res.sendStatus(403);
+ @Post("whatsapp")
+handleIncoming(@Req() req:Request) {
+  console.log(req.body);
 }
 }

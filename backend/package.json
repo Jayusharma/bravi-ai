@@ -39,6 +39,7 @@
     "@nestjs/websockets": "^11.1.18",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
+    "@sendgrid/mail": "^8.1.6",
     "@types/pg": "^8.16.0",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.67.2",
@@ -46,13 +47,15 @@
     "class-validator": "^0.14.3",
     "cloudflared": "^0.7.1",
     "ioredis": "^5.9.2",
+    "multer": "^2.1.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.17.1",
     "prisma": "^7.3.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "twilio": "^5.13.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
