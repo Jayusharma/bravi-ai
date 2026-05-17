@@ -518,3 +518,73 @@ model IdempotencyKey {
   @@index([createdAt])
   @@index([status])
 }
+
+
+
+
+// ============================================================================
+// outbound module 
+// ============================================================================
+
+enum DraftStatus {
+  ACTIVE
+  EXPIRED
+  CLEARED
+}
+
+enum AttachmentKind {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+model OutboundDraft {
+  id         String         @id @default(uuid())
+  enquiryId  String
+  channel    MessageChannel
+  subject    String?
+  body       String?
+  status     DraftStatus    @default(ACTIVE)
+  expiresAt  DateTime
+  createdBy  String
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  enquiry Enquiry @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+
+  attachments DraftAttachment[]
+
+  @@unique([enquiryId, channel, createdBy, status])
+  @@index([enquiryId, channel])
+  @@index([expiresAt, status])
+}
+
+model DraftAttachment {
+  id          String         @id @default(uuid())
+  draftId      String
+  kind        AttachmentKind
+  fileName    String
+  mimeType    String
+  fileSize    Int
+  storageKey  String
+  createdAt   DateTime       @default(now())
+
+  draft OutboundDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId])
+}
+
+model MessageAttachment {
+  id             String           @id @default(uuid())
+  conversationMessageId String
+  kind           AttachmentKind
+  fileName       String
+  mimeType       String
+  fileSize       Int
+  storageKey     String
+  createdAt      DateTime         @default(now())
+
+  message ConversationMessage @relation(fields: [conversationMessageId], references: [id], onDelete: Cascade)
+
+  @@index([conversationMessageId])
+}

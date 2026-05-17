@@ -65,7 +65,6 @@ export class AIClassifierStrategy {
 
     async classify(message: {
         body: string;
-        subject?: string | null;
         from: string;
         channel: string;
     }): Promise<AIClassificationResult> {
@@ -78,7 +77,7 @@ export class AIClassifierStrategy {
                 model: 'gemini-2.5-flash',
                 contents: prompt,
                 config: {
-                    systemInstruction: `You are a lead qualification AI for ${this.businessContext}. Analyze incoming messages and determine if they are genuine business enquiries or spam/noise. You MUST respond with ONLY valid JSON — no markdown, no code blocks, no explanation text.`,
+                    systemInstruction: `You are a lead qualification AI for ${this.businessContext}. Your primary job is to CAPTURE business leads — never let a real business enquiry slip through. Classify every message that shows any commercial, product, pricing, or service interest as a lead. Only reject clear spam, promotions, OTPs, and auto-replies. Respond with ONLY valid JSON.`,
                     temperature: 0.1, // Low temperature for consistent, deterministic results
                     maxOutputTokens: 1024,
                 },
@@ -125,7 +124,7 @@ export class AIClassifierStrategy {
                 outputTokens,
             };
         } catch (error) {
-            console.log("ai failded and throwed an error ")
+            console.log("ai failed  and throwed an error ")
             const processingMs = Date.now() - startTime;
             this.logger.error(
                 `❌ AI classification failed after ${processingMs}ms: ${error.message}`,
@@ -154,44 +153,59 @@ export class AIClassifierStrategy {
 
     private buildPrompt(message: {
         body: string;
-        subject?: string | null;
         from: string;
         channel: string;
     }): string {
-        return `Analyze this ${message.channel} message and determine if it's a genuine business enquiry.
+        return `You are analyzing a message received by a business on ${message.channel}.
 
 FROM: ${message.from}
-${message.subject ? `SUBJECT: ${message.subject}` : ''}
 MESSAGE:
 ${message.body}
 
-Respond with this exact JSON structure (no markdown, no code blocks):
+DECISION RULES (read carefully):
+
+Mark isLead=true (confidence 75-95) when the message shows ANY of these signals:
+- Asking about price, pricing, rates, quotation, quote, cost, charges
+- Asking for samples, catalogue, brochure, product list, demo
+- Asking about availability, stock, delivery, shipping, lead time
+- Mentioning a quantity, bulk order, wholesale, retail requirement
+- Asking how to buy, place an order, or make a purchase
+- Asking about specifications, features, quality of a product or service
+- Requesting a callback, meeting, or follow-up for business purposes
+- Sending a business enquiry even if phrased informally (e.g. "send me pricing", "what is the rate")
+- Hindi/Urdu/regional business messages about products or prices
+
+Mark isLead=false (confidence 70-95) ONLY for clear non-business:
+- Spam or promotional bulk messages
+- Auto-replies and system notifications
+- OTPs or verification codes
+- Pure personal conversation with no business intent
+- Unsubscribe or opt-out messages
+
+For ambiguous short messages like just "hi" or "hello" with no context:
+- isLead=false, confidence=60 (route to review so no message is lost)
+
+NEVER mark a real pricing, product, or order request as NOT a lead. When in doubt, mark as lead.
+
+Return JSON:
 {
   "isLead": true or false,
   "confidence": 0 to 100,
-  "intent": "PRODUCT_INQUIRY" | "PRICING_REQUEST" | "BULK_ORDER" | "SHIPPING_INQUIRY" | "GENERAL_INFO" | "COMPLAINT" | "APPOINTMENT" | "DOCUMENT_SUBMIT" | "RETURN_REFUND" | "PARTNERSHIP" | "UNKNOWN",
+  "intent": one of "PRODUCT_INQUIRY" | "PRICING_REQUEST" | "BULK_ORDER" | "SHIPPING_INQUIRY" | "GENERAL_INFO" | "COMPLAINT" | "APPOINTMENT" | "DOCUMENT_SUBMIT" | "RETURN_REFUND" | "PARTNERSHIP" | "UNKNOWN",
   "urgency": 1 to 5,
   "priority": 1 to 10,
-  "reason": "one sentence explaining your decision",
+  "reason": "one sentence explaining your classification decision",
   "extractedData": {
-    "contactName": "person's name if mentioned or null",
-    "companyName": "company/business name if mentioned or null",
-    "productRequested": "which product/item if mentioned or null",
-    "quantitySignal": "any quantity or bulk indicators or null",
-    "areaLocality": "area or location if mentioned or null",
-    "budgetSignal": "any budget hints or null",
-    "timelineSignal": "any urgency/timeline mentions or null"
+    "contactName": "name or null",
+    "companyName": "company or null",
+    "productRequested": "product or null",
+    "quantitySignal": "quantity mentioned or null",
+    "areaLocality": "location or null",
+    "budgetSignal": "budget hints or null",
+    "timelineSignal": "timeline mentions or null"
   },
-  "detectedLanguage": "en" or "hi" or relevant language code
-}
-
-Classification rules:
-- isLead=true: person is genuinely enquiring about products, pricing, ordering, or business services
-- isLead=false: spam, auto-reply, personal chat, marketing, promotional, OTP, notifications
-- confidence below 50 means you're unsure — this triggers human review
-- Be strict: only mark as lead if there's genuine purchase/business intent
-- A casual greeting like "hi" or "how are you" is NOT a lead (isLead=false, confidence=80)
-- Extract ANY useful data you can find in extractedData fields`;
+  "detectedLanguage": "en" or "hi" or relevant ISO code
+}`;
     }
 
     // ═══════════════════════════════════════════════════════════════════

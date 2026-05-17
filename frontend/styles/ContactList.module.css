@@ -634,3 +634,119 @@
 :global([data-theme="light"]) .listBody {
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
+
+/* ══════════════════════════ CHANNEL TOGGLE ═════════════════════ */
+.channelToggle {
+  display: flex;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--cl-bg, rgba(255, 255, 255, 0.015));
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+}
+.channelBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: transparent;
+  color: var(--text-muted, rgba(255, 255, 255, 0.4));
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.channelBtnActive {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #a5b4fc;
+}
+.channelBtn:hover:not(.channelBtnActive) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary, #e8e8ed);
+}
+
+.channelUnseenDot {
+  width: 8px;
+  height: 8px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 2px;
+}
+
+/* ══════════════════════════ EMAIL VIEW ═════════════════════════ */
+.emailCard {
+  background: var(--cl-bg, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.emailCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.emailCardHeaderLeft {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.emailAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4b5563, #6b7280);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.emailMeta {
+  display: flex;
+  flex-direction: column;
+}
+.emailSender {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary, #e8e8ed);
+}
+.emailTo {
+  font-size: 0.75rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.4));
+}
+.emailTime {
+  font-size: 0.75rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.4));
+}
+.emailSubject {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary, #e8e8ed);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+  padding-bottom: 8px;
+}
+.emailBody {
+  font-size: 0.85rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+:global([data-theme="light"]) .channelToggle { background: #ffffff; border-color: #e5e7eb; }
+:global([data-theme="light"]) .channelBtn { border-color: #d1d5db; color: #6b7280; }
+:global([data-theme="light"]) .channelBtnActive { background: rgba(99, 102, 241, 0.1); border-color: rgba(99, 102, 241, 0.5); color: #4f46e5; }
+:global([data-theme="light"]) .channelBtn:hover:not(.channelBtnActive) { background: #f3f4f6; color: #111827; }
+:global([data-theme="light"]) .emailCard { background: #ffffff; border-color: #e5e7eb; }
+:global([data-theme="light"]) .emailSender { color: #111827; }
+:global([data-theme="light"]) .emailTo { color: #6b7280; }
+:global([data-theme="light"]) .emailTime { color: #6b7280; }
+:global([data-theme="light"]) .emailSubject { color: #111827; border-color: #e5e7eb; }
+:global([data-theme="light"]) .emailBody { color: #374151; }

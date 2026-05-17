@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Headers , UseGuards , UseInterceptors , HttpCode , HttpStatus  } from '@nestjs/common';
 import { IngestionService } from "./ingestion.service";
-import { IngestMessageDto } from './dto/incoming-message.dto';
+import { IngestMessageDto ,  validateIngestMessageDto } from './dto/incoming-message.dto';
 import { IdempotencyGuard } from 'src/common/Idempotency/idempotency.guard';
 import { IdempotencyInterceptor } from 'src/common/interceptors/idempotency.interceptor';
 import { Public } from 'src/common/decorator/public.decorator';
@@ -20,6 +20,7 @@ export class IngestionController {
   @UseInterceptors(IdempotencyInterceptor)
   @HttpCode(HttpStatus.ACCEPTED)
   ingestMessage(@Body() dto: IngestMessageDto) {
+    validateIngestMessageDto(dto.channel , dto.from)
     return this.ingestionService.ingest(dto);
   }
 }

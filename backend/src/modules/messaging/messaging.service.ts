@@ -212,6 +212,7 @@ export class ConversationService {
             channel: true,
             from: true,
             to: true,
+            subject: true,
             deliveryStatus: true,
             createdAt: true,
             sentByUser: {

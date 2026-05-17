@@ -2,74 +2,59 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessageChannel } from '@prisma/client';
 import { ChannelAdapter, SendParams, SendResult } from './channel-adapter.interface';
+import Twilio from 'twilio';
 
 /**
- * Sends messages via WhatsApp Business Cloud API.
+ * Sends outbound WhatsApp messages via Twilio Messaging API.
  *
- * PREREQUISITE:
- *   - Meta Business account with WhatsApp Business API access
- *   - WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN in .env
- *   - The recipient must have messaged you first (WhatsApp 24h window)
- *     OR you use a pre-approved message template
- *
- * API: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/text-messages
+ * Required env vars:
+ *   TWILIO_ACCOUNT_SID   - Your Twilio Account SID (ACxxxxxxx)
+ *   TWILIO_AUTH_TOKEN    - Your Twilio Auth Token
+ *   TWILIO_WHATSAPP_NUMBER - e.g. whatsapp:+14155238886
  */
 @Injectable()
 export class WhatsAppAdapter implements ChannelAdapter {
   readonly channel = MessageChannel.WHATSAPP;
   private readonly logger = new Logger(WhatsAppAdapter.name);
 
-  private readonly apiUrl: string;
-  private readonly phoneNumberId: string;
-  private readonly accessToken: string;
+  private client: Twilio.Twilio | null = null;
+  private readonly fromNumber: string;
 
-  constructor(private config: ConfigService) {
-    this.apiUrl = this.config.get('WHATSAPP_API_URL', 'https://graph.facebook.com/v18.0');
-    this.phoneNumberId = this.config.get('WHATSAPP_PHONE_NUMBER_ID', '');
-    this.accessToken = this.config.get('WHATSAPP_ACCESS_TOKEN', '');
+  constructor(private readonly config: ConfigService) {
+    const sid = this.config.get<string>('TWILIO_ACCOUNT_SID', '');
+    const token = this.config.get<string>('TWILIO_AUTH_TOKEN', '');
+    this.fromNumber = this.config.get<string>('TWILIO_WHATSAPP_NUMBER', '');
+
+    if (sid && token) {
+      this.client = Twilio(sid, token);
+      this.logger.log('✅ Twilio WhatsApp adapter initialized');
+    } else {
+      this.logger.warn('⚠️ Twilio credentials missing — WhatsApp adapter disabled');
+    }
   }
 
   isConfigured(): boolean {
-    return !!(this.phoneNumberId && this.accessToken);
+    return !!(this.client && this.fromNumber);
   }
 
   async send(params: SendParams): Promise<SendResult> {
     if (!this.isConfigured()) {
       this.logger.warn('WhatsApp adapter not configured — skipping send');
-      return { success: false, error: 'WhatsApp not configured' };
+      return { success: false, error: 'WhatsApp (Twilio) not configured' };
     }
 
     try {
-      const url = `${this.apiUrl}/${this.phoneNumberId}/messages`;
+      const to = params.to.startsWith('whatsapp:') ? params.to : `whatsapp:${params.to}`;
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: params.to.replace(/\D/g, ''), // Strip non-digits
-          type: 'text',
-          text: { body: params.content },
-        }),
+      const message = await this.client!.messages.create({
+        from: this.fromNumber,   // 'whatsapp:+14155238886'
+        to,                      // 'whatsapp:+919876543210'
+        body: params.content,
       });
 
-      const data = await response.json() as any;
-
-      if (!response.ok) {
-        const errorMsg = data?.error?.message || `HTTP ${response.status}`;
-        this.logger.error(`WhatsApp send failed: ${errorMsg}`);
-        return { success: false, error: errorMsg };
-      }
-
-      const externalId = data?.messages?.[0]?.id;
-      this.logger.log(`📱 WhatsApp message sent: ${externalId} → ${params.to}`);
-
-      return { success: true, externalId };
-    } catch (error) {
+      this.logger.log(`📱 WhatsApp sent: SID=${message.sid} → ${params.to}`);
+      return { success: true, externalId: message.sid };
+    } catch (error: any) {
       this.logger.error(`WhatsApp send error: ${error.message}`);
       return { success: false, error: error.message };
     }

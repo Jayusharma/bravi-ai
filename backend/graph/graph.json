@@ -1,0 +1,471 @@
+{
+  "D:\\code\\final\\backend\\src\\app.controller.spec.ts": [
+    "@nestjs/testing",
+    "./app.controller",
+    "./app.service"
+  ],
+  "D:\\code\\final\\backend\\src\\app.controller.ts": [
+    "@nestjs/common",
+    "./app.service",
+    "./common/decorator/public.decorator"
+  ],
+  "D:\\code\\final\\backend\\src\\app.module.ts": [
+    "@nestjs/common",
+    "./app.controller",
+    "./app.service",
+    "@nestjs/config",
+    "./database/prisma.module",
+    "./modules/auth/auth.module",
+    "./modules/user/user.module",
+    "./modules/enquiry/enquiry.module",
+    "./modules/Ingestion/ingestion.module",
+    "./modules/qualification/qualification.module",
+    "./common/middleware/idempotency.middleware",
+    "@nestjs/core",
+    "./modules/auth/guards/jwt-auth.guard",
+    "./modules/webhooks/webhook.module",
+    "./modules/casl/casl.module",
+    "@nestjs/event-emitter",
+    "@nestjs/bullmq",
+    "./modules/contact/contact.module",
+    "./modules/outbound/outbound.module",
+    "./modules/permission/permission.module",
+    "./modules/messaging/messaging.module"
+  ],
+  "D:\\code\\final\\backend\\src\\app.service.ts": [
+    "@nestjs/common"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\decorator\\public.decorator.ts": [
+    "@nestjs/common"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\filters\\global-exception.filter.ts": [
+    "@nestjs/common",
+    "express"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\Idempotency\\idempotency.guard.ts": [
+    "@nestjs/common",
+    "crypto",
+    "src/database/prisma.service"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\interceptors\\idempotency.interceptor.ts": [
+    "@nestjs/common",
+    "rxjs",
+    "src/database/prisma.service"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\interceptors\\response.interceptor.ts": [
+    "@nestjs/common",
+    "rxjs"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\middleware\\idempotency.middleware.ts": [
+    "@nestjs/common",
+    "express"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\queue\\redis.connection.ts": [
+    "ioredis"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\types\\auth-user.interface.ts": [
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\common\\types\\express.d.ts": [
+    "@prisma/client",
+    "src/modules/casl/casl.types"
+  ],
+  "D:\\code\\final\\backend\\src\\database\\prisma.module.ts": [
+    "@nestjs/common",
+    "./prisma.service"
+  ],
+  "D:\\code\\final\\backend\\src\\database\\prisma.service.ts": [
+    "@nestjs/common",
+    "@prisma/client",
+    "@nestjs/config",
+    "pg",
+    "@prisma/adapter-pg"
+  ],
+  "D:\\code\\final\\backend\\src\\main.ts": [
+    "@nestjs/core",
+    "./app.module",
+    "@nestjs/common",
+    "@nestjs/swagger",
+    "./common/filters/global-exception.filter",
+    "./common/interceptors/response.interceptor"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\auth\\auth.controller.ts": [
+    "@nestjs/common",
+    "./dto/login.dto",
+    "./auth.service",
+    "src/common/decorator/public.decorator",
+    "express"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\auth\\auth.module.ts": [
+    "@nestjs/common",
+    "./auth.service",
+    "./auth.controller",
+    "@nestjs/jwt",
+    "@nestjs/passport",
+    "./strategies/jwt.strategy"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\auth\\auth.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "./dto/login.dto",
+    "@nestjs/jwt",
+    "bcrypt"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\auth\\dto\\login.dto.ts": [
+    "class-validator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\auth\\guards\\jwt-auth.guard.ts": [
+    "@nestjs/common",
+    "@nestjs/passport",
+    "@nestjs/core",
+    "src/common/decorator/public.decorator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\auth\\strategies\\jwt.strategy.ts": [
+    "@nestjs/common",
+    "@nestjs/passport",
+    "passport-jwt"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\automation\\automation.queue.ts": [
+    "bullmq",
+    "src/common/queue/redis.connection"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\automation\\automation.worker.ts": [
+    "dotenv/config",
+    "bullmq",
+    "@prisma/client",
+    "../../common/queue/redis.connection",
+    "pg",
+    "@prisma/adapter-pg"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\casl\\casl-ability.factory.ts": [
+    "@nestjs/common",
+    "@casl/ability",
+    "@casl/prisma",
+    "../../database/prisma.service",
+    "./casl.types",
+    "src/common/types/auth-user.interface"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\casl\\casl.guard.ts": [
+    "@nestjs/common",
+    "@nestjs/core",
+    "./casl-ability.factory",
+    "./decorators/check-ability.decorator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\casl\\casl.module.ts": [
+    "@nestjs/common",
+    "./casl-ability.factory",
+    "../../database/prisma.module"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\casl\\casl.types.ts": [
+    "@casl/ability",
+    "@casl/prisma"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\casl\\decorators\\ability.decorator.ts": [
+    "@nestjs/common",
+    "../casl.types"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\casl\\decorators\\check-ability.decorator.ts": [
+    "@nestjs/common"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\contact\\contact.controller.ts": [
+    "@nestjs/common",
+    "../casl/casl.guard",
+    "../casl/decorators/check-ability.decorator",
+    "./contact.service",
+    "../enquiry/enquiry.service",
+    "./dto/update-contact.dto",
+    "../casl/decorators/ability.decorator",
+    "express"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\contact\\contact.module.ts": [
+    "@nestjs/common",
+    "./contact.service",
+    "./contact.controller",
+    "../enquiry/enquiry.module"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\contact\\contact.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "@prisma/client",
+    "./dto/update-contact.dto"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\contact\\dto\\merge-contact.dto.ts": [
+    "class-validator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\contact\\dto\\update-contact.dto.ts": [
+    "class-validator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\enquiry\\dto\\add-message.dto.ts": [
+    "class-validator",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\enquiry\\dto\\create-enquiry.dto.ts": [
+    "class-validator",
+    "@prisma/client",
+    "class-transformer"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\enquiry\\dto\\inbox-query.dto.ts": [
+    "class-validator",
+    "class-transformer",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\enquiry\\enquiry.controller.ts": [
+    "@nestjs/common",
+    "./enquiry.service",
+    "./dto/create-enquiry.dto",
+    "./dto/inbox-query.dto",
+    "express",
+    "../casl/casl.guard",
+    "../casl/decorators/check-ability.decorator",
+    "../casl/decorators/ability.decorator",
+    "src/common/decorator/public.decorator",
+    "../casl/casl.types"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\enquiry\\enquiry.module.ts": [
+    "@nestjs/common",
+    "./enquiry.service",
+    "./enquiry.controller",
+    "../contact/contact.module"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\enquiry\\enquiry.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "@nestjs/event-emitter",
+    "@nestjs/event-emitter",
+    "./dto/create-enquiry.dto",
+    "./dto/inbox-query.dto",
+    "./enquiry.state",
+    "@prisma/client",
+    "../casl/casl.types",
+    "@casl/prisma",
+    "src/common/types/auth-user.interface"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\enquiry\\enquiry.state.ts": [
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\Ingestion\\dto\\incoming-message.dto.ts": [
+    "class-validator",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\Ingestion\\ingestion.controller.ts": [
+    "@nestjs/common",
+    "./ingestion.service",
+    "./dto/incoming-message.dto",
+    "src/common/Idempotency/idempotency.guard",
+    "src/common/interceptors/idempotency.interceptor",
+    "src/common/decorator/public.decorator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\Ingestion\\ingestion.module.ts": [
+    "@nestjs/common",
+    "@nestjs/bullmq",
+    "./ingestion.controller",
+    "./ingestion.service",
+    "../contact/contact.module"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\Ingestion\\ingestion.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "./dto/incoming-message.dto",
+    "@nestjs/event-emitter",
+    "@nestjs/bullmq",
+    "bullmq",
+    "../contact/contact.service",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\messaging\\messaging.controller.ts": [
+    "@nestjs/common",
+    "./messaging.service",
+    "../casl/casl.guard",
+    "../casl/decorators/check-ability.decorator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\messaging\\messaging.gateway.ts": [
+    "@nestjs/websockets",
+    "@nestjs/common",
+    "socket.io",
+    "./messaging.service",
+    "@nestjs/event-emitter",
+    "jsonwebtoken"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\messaging\\messaging.module.ts": [
+    "@nestjs/common",
+    "./messaging.gateway",
+    "./messaging.service",
+    "./messaging.controller"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\messaging\\messaging.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\outbound\\adapters\\channel-adapter.interface.ts": [
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\outbound\\adapters\\email.adapter.ts": [],
+  "D:\\code\\final\\backend\\src\\modules\\outbound\\adapters\\whatsapp.adapter.ts": [
+    "@nestjs/common",
+    "@nestjs/config",
+    "@prisma/client",
+    "./channel-adapter.interface",
+    "twilio"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\outbound\\channel-router.service.ts": [
+    "@nestjs/common",
+    "@nestjs/config",
+    "@prisma/client",
+    "./adapters/channel-adapter.interface",
+    "./adapters/whatsapp.adapter"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\outbound\\delivery\\delivery-tracking.service.ts": [],
+  "D:\\code\\final\\backend\\src\\modules\\outbound\\outbound.module.ts": [
+    "@nestjs/common",
+    "./outbound.service",
+    "./channel-router.service",
+    "./adapters/whatsapp.adapter"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\outbound\\outbound.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "@nestjs/event-emitter",
+    "./channel-router.service",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\dto\\bulk-assign-role-permission.dto.ts": [
+    "class-validator",
+    "class-transformer",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\dto\\create-permission.dto.ts": [
+    "class-validator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\dto\\create-role-permission.dto.ts": [
+    "class-validator",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\dto\\create-subject-bundle.dto.ts": [
+    "class-validator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\dto\\update-permission.dto.ts": [
+    "class-validator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\dto\\update-role-permission.dto.ts": [
+    "class-validator",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\permission.controller.ts": [
+    "@nestjs/common",
+    "./permission.service",
+    "./dto/create-permission.dto",
+    "./dto/update-permission.dto",
+    "./dto/create-role-permission.dto",
+    "./dto/update-role-permission.dto",
+    "./dto/bulk-assign-role-permission.dto",
+    "./dto/create-subject-bundle.dto",
+    "../casl/casl.guard",
+    "../casl/decorators/check-ability.decorator",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\permission.module.ts": [
+    "@nestjs/common",
+    "./permission.controller",
+    "./permission.service"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\permission\\permission.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "./dto/create-permission.dto",
+    "./dto/update-permission.dto",
+    "./dto/create-role-permission.dto",
+    "./dto/update-role-permission.dto",
+    "./dto/bulk-assign-role-permission.dto",
+    "./dto/create-subject-bundle.dto",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\dto\\create-rule.dto.ts": [
+    "class-validator",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\dto\\manual-review.dto.ts": [
+    "class-validator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\processors\\qualification.processor.ts": [
+    "@nestjs/bullmq",
+    "@nestjs/common",
+    "bullmq",
+    "../qualification.service"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\qualification.controller.ts": [],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\qualification.module.ts": [
+    "@nestjs/common",
+    "@nestjs/bullmq",
+    "./qualification.service",
+    "./processors/qualification.processor",
+    "./strategies/ai.strategy"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\qualification.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "@nestjs/event-emitter",
+    "@nestjs/config",
+    "./strategies/ai.strategy",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\strategies\\ai.strategy.ts": [
+    "@nestjs/common",
+    "@nestjs/config",
+    "@google/genai"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\strategies\\rule.strategy.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\qualification\\strategies\\stats-query.dto.ts": [],
+  "D:\\code\\final\\backend\\src\\modules\\user\\dto\\create-user.dto.ts": [
+    "class-validator",
+    "@prisma/client"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\user\\user.controller.ts": [
+    "@nestjs/common",
+    "./user.service",
+    "./dto/create-user.dto",
+    "src/common/decorator/public.decorator"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\user\\user.module.ts": [
+    "@nestjs/common",
+    "./user.service",
+    "./user.controller"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\user\\user.service.ts": [
+    "@nestjs/common",
+    "src/database/prisma.service",
+    "./dto/create-user.dto",
+    "bcrypt"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\webhooks\\controllers\\webhook.controller.ts": [
+    "@nestjs/common",
+    "express",
+    "src/common/decorator/public.decorator",
+    "@/modules/Ingestion/ingestion.service",
+    "../normalizer/twilio-whatsapp.normalizer",
+    "../dto/twilio-whatsapp.dto"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\webhooks\\dto\\twilio-whatsapp.dto.ts": [],
+  "D:\\code\\final\\backend\\src\\modules\\webhooks\\dto\\whatsapp-webhook.dto.ts": [],
+  "D:\\code\\final\\backend\\src\\modules\\webhooks\\normalizer\\normalizer.interface.ts": [
+    "@/modules/Ingestion/dto/incoming-message.dto"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\webhooks\\normalizer\\twilio-whatsapp.normalizer.ts": [
+    "@nestjs/common",
+    "@prisma/client",
+    "@/modules/Ingestion/dto/incoming-message.dto",
+    "./normalizer.interface",
+    "../dto/twilio-whatsapp.dto"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\webhooks\\normalizer\\whatsapp.normalizer.ts": [],
+  "D:\\code\\final\\backend\\src\\modules\\webhooks\\webhook.module.ts": [
+    "@nestjs/common",
+    "../Ingestion/ingestion.module",
+    "./controllers/webhook.controller",
+    "./normalizer/twilio-whatsapp.normalizer"
+  ],
+  "D:\\code\\final\\backend\\src\\modules\\webhooks\\webhook.service.ts": []
+}

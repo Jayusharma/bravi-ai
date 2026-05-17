@@ -63,8 +63,11 @@ function getDateLabel(msg: ThreadMessage, prev: ThreadMessage | null): string | 
 
 // ── Sub-component: single enquiry thread ─────────────────────────
 
-function EnquiryBlock({ enq, newMessageIds }: { enq: EnquiryThread; newMessageIds: Set<string> }) {
+function EnquiryBlock({ enq, newMessageIds, activeChannel }: { enq: EnquiryThread; newMessageIds: Set<string>; activeChannel: 'WHATSAPP' | 'EMAIL' }) {
     const statusColor = STATUS_COLORS[enq.status] || '#6b7280';
+    const filteredMessages = enq.messages.filter(msg => msg.channel === activeChannel);
+
+    if (filteredMessages.length === 0) return null;
 
     return (
         <div className={styles.enquiryBlock}>
@@ -91,15 +94,13 @@ function EnquiryBlock({ enq, newMessageIds }: { enq: EnquiryThread; newMessageId
             </div>
 
             {/* Messages for this enquiry */}
-            {enq.messages.length === 0 ? (
-                <div className={styles.chatEmpty}>No messages in this thread</div>
-            ) : (
-                enq.messages.map((msg, i) => {
-                    const prev = i > 0 ? enq.messages[i - 1] : null;
-                    const dateLabel = getDateLabel(msg, prev);
-                    const isInbound = msg.direction === 'INBOUND';
-                    const isNew = newMessageIds.has(msg.id);
+            {filteredMessages.map((msg, i) => {
+                const prev = i > 0 ? filteredMessages[i - 1] : null;
+                const dateLabel = getDateLabel(msg, prev);
+                const isInbound = msg.direction === 'INBOUND';
+                const isNew = newMessageIds.has(msg.id);
 
+                if (activeChannel === 'EMAIL') {
                     return (
                         <div key={msg.id} className={isNew ? styles.msgNew : undefined}>
                             {dateLabel && (
@@ -107,33 +108,59 @@ function EnquiryBlock({ enq, newMessageIds }: { enq: EnquiryThread; newMessageId
                                     <span>{dateLabel}</span>
                                 </div>
                             )}
-                            <div className={`${styles.msgRow} ${isInbound ? styles.msgInbound : styles.msgOutbound}`}>
-                                <div className={`${styles.msgBubble} ${isInbound ? styles.bubbleInbound : styles.bubbleOutbound}`}>
-                                    {/* Staff sender name on outbound */}
-                                    {!isInbound && msg.sentByUser && (
-                                        <div className={styles.msgSenderName}>
-                                            {msg.sentByUser.displayName || msg.sentByUser.userName}
+                            <div className={`${styles.emailCard}`}>
+                                <div className={styles.emailCardHeader}>
+                                    <div className={styles.emailCardHeaderLeft}>
+                                        <div className={styles.emailAvatar}>{isInbound ? 'C' : 'S'}</div>
+                                        <div className={styles.emailMeta}>
+                                            <div className={styles.emailSender}>
+                                                {isInbound ? msg.from : (msg.sentByUser?.displayName || msg.sentByUser?.userName || 'Staff')}
+                                            </div>
+                                            <div className={styles.emailTo}>to {isInbound ? (msg.to || 'us') : msg.to}</div>
                                         </div>
-                                    )}
-
-                                    <div className={styles.msgContent}>{msg.content}</div>
-
-                                    <div className={styles.msgFooter}>
-                                        <span className={styles.msgTime}>{formatMsgTime(msg.createdAt)}</span>
-                                        {!isInbound && (
-                                            <span className={styles.deliveryStatus}>
-                                                {msg.deliveryStatus === 'READ' ? '✓✓' :
-                                                    msg.deliveryStatus === 'DELIVERED' ? '✓✓' :
-                                                        msg.deliveryStatus === 'SENT' ? '✓' : '🕐'}
-                                            </span>
-                                        )}
                                     </div>
+                                    <div className={styles.emailTime}>{formatMsgTime(msg.createdAt)}</div>
                                 </div>
+                                {msg.subject && <div className={styles.emailSubject}>Subject: {msg.subject}</div>}
+                                <div className={styles.emailBody}>{msg.content}</div>
                             </div>
                         </div>
                     );
-                })
-            )}
+                }
+
+                return (
+                    <div key={msg.id} className={isNew ? styles.msgNew : undefined}>
+                        {dateLabel && (
+                            <div className={styles.dateSeparator}>
+                                <span>{dateLabel}</span>
+                            </div>
+                        )}
+                        <div className={`${styles.msgRow} ${isInbound ? styles.msgInbound : styles.msgOutbound}`}>
+                            <div className={`${styles.msgBubble} ${isInbound ? styles.bubbleInbound : styles.bubbleOutbound}`}>
+                                {/* Staff sender name on outbound */}
+                                {!isInbound && msg.sentByUser && (
+                                    <div className={styles.msgSenderName}>
+                                        {msg.sentByUser.displayName || msg.sentByUser.userName}
+                                    </div>
+                                )}
+
+                                <div className={styles.msgContent}>{msg.content}</div>
+
+                                <div className={styles.msgFooter}>
+                                    <span className={styles.msgTime}>{formatMsgTime(msg.createdAt)}</span>
+                                    {!isInbound && (
+                                        <span className={styles.deliveryStatus}>
+                                            {msg.deliveryStatus === 'READ' ? '✓✓' :
+                                                msg.deliveryStatus === 'DELIVERED' ? '✓✓' :
+                                                    msg.deliveryStatus === 'SENT' ? '✓' : '🕐'}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })}
         </div>
     );
 }
@@ -144,6 +171,8 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
     const [thread, setThread] = useState<ConversationThread | null>(null);
     const [loading, setLoading] = useState(true);
     const [newMessageIds, setNewMessageIds] = useState<Set<string>>(new Set());
+    const [activeChannel, setActiveChannel] = useState<'WHATSAPP' | 'EMAIL'>('WHATSAPP');
+    const [unseenChannels, setUnseenChannels] = useState<Set<string>>(new Set());
     const bottomRef = useRef<HTMLDivElement>(null);
     const socketRef = useRef<Socket | null>(null);
 
@@ -155,7 +184,25 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
             setLoading(true);
             try {
                 const data = await getConversationThread(contactId);
-                if (!cancelled) setThread(data);
+                if (!cancelled) {
+                    setThread(data);
+                    // Determine the default channel based on the latest message
+                    let latestMsgChannel = 'WHATSAPP';
+                    let latestMsgTime = 0;
+                    data.enquiries.forEach(enq => {
+                        if (enq.messages.length > 0) {
+                            const lastMsg = enq.messages[enq.messages.length - 1];
+                            const time = new Date(lastMsg.createdAt).getTime();
+                            if (time > latestMsgTime) {
+                                latestMsgTime = time;
+                                latestMsgChannel = lastMsg.channel;
+                            }
+                        }
+                    });
+                    if (latestMsgChannel === 'EMAIL' || latestMsgChannel === 'WHATSAPP') {
+                        setActiveChannel(latestMsgChannel as 'WHATSAPP' | 'EMAIL');
+                    }
+                }
             } catch (err) {
                 console.error('Failed to load thread:', err);
             } finally {
@@ -205,6 +252,14 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
                         });
 
                         return { ...prev, enquiries: updatedEnquiries };
+                    });
+
+                    // Track unseen channels if not active
+                    setActiveChannel(currentActive => {
+                        if (data.message.channel !== currentActive) {
+                            setUnseenChannels(prev => new Set(prev).add(data.message.channel));
+                        }
+                        return currentActive;
                     });
 
                     // Track as "new" for animation
@@ -262,6 +317,15 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
     const channelInfo = CHANNEL_LABELS[primaryChannel?.channel || ''] || { icon: '💭', label: 'Chat' };
     const statusColor = STATUS_COLORS[activeEnquiry?.status || ''] || '#6b7280';
 
+    const handleChannelSwitch = (channel: 'WHATSAPP' | 'EMAIL') => {
+        setActiveChannel(channel);
+        setUnseenChannels(prev => {
+            const next = new Set(prev);
+            next.delete(channel);
+            return next;
+        });
+    };
+
     return (
         <div className={styles.chatView}>
 
@@ -305,16 +369,35 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
                 )}
             </div>
 
+            {/* ── Channel Toggle ─────────────────────────────────── */}
+            <div className={styles.channelToggle}>
+                <button 
+                    className={`${styles.channelBtn} ${activeChannel === 'WHATSAPP' ? styles.channelBtnActive : ''}`}
+                    onClick={() => handleChannelSwitch('WHATSAPP')}
+                >
+                    💬 WhatsApp {unseenChannels.has('WHATSAPP') && <span className={styles.channelUnseenDot} />}
+                </button>
+                <button 
+                    className={`${styles.channelBtn} ${activeChannel === 'EMAIL' ? styles.channelBtnActive : ''}`}
+                    onClick={() => handleChannelSwitch('EMAIL')}
+                >
+                    📧 Email {unseenChannels.has('EMAIL') && <span className={styles.channelUnseenDot} />}
+                </button>
+            </div>
+
             {/* ── Messages Area — all enquiry blocks ───────────── */}
             <div className={styles.chatMessages}>
                 {thread.enquiries.length === 0 ? (
                     <div className={styles.chatEmpty}>No conversations yet</div>
+                ) : !thread.enquiries.some(enq => enq.messages.some(m => m.channel === activeChannel)) ? (
+                    <div className={styles.chatEmpty}>No {activeChannel === 'WHATSAPP' ? 'WhatsApp' : 'Email'} messages in this conversation</div>
                 ) : (
                     [...thread.enquiries].reverse().map((enq) => (
                         <EnquiryBlock
                             key={enq.enquiryId}
                             enq={enq}
                             newMessageIds={newMessageIds}
+                            activeChannel={activeChannel}
                         />
                     ))
                 )}

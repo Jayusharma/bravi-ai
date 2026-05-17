@@ -1,12 +1,18 @@
 import { Module } from '@nestjs/common';
-import  {IngestionService} from "../Ingestion/ingestion.service";
-import { EnquiryModule } from '../enquiry/enquiry.module';
-import { EnquiryService } from '../enquiry/enquiry.service';
-import { WebhookController } from './controllers/webhook.controller';
+import { IngestionModule } from '../Ingestion/ingestion.module';
+import { WebhookController } from './webhook.controller';
+import { TwilioWhatsAppNormalizer } from './normalizer/twilio-whatsapp.normalizer';
+import { SendGridEmailNormalizer } from './normalizer/email.normalizer';
+
 
 @Module({
-  imports: [],
+  imports: [
+    IngestionModule,  // Provides IngestionService
+  ],
   controllers: [WebhookController],
-  providers: [ EnquiryService,IngestionService ],
+  providers: [
+    TwilioWhatsAppNormalizer,
+    SendGridEmailNormalizer,
+  ],
 })
-export class WebhookModule {}
+export class WebhookModule { }

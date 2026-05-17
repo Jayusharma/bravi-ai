@@ -8,6 +8,10 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // ─── Body Parsing ──────────────────────────────────────────────
+  // Twilio sends webhooks as application/x-www-form-urlencoded
+  app.use(require('express').urlencoded({ extended: true }));
+
   // ─── API Versioning ────────────────────────────────────────────
   app.setGlobalPrefix('api/v1');
 
@@ -46,7 +50,7 @@ async function bootstrap() {
 
   // ─── Start ─────────────────────────────────────────────────────
   const port = process.env.PORT ?? 3001;
-  await app.listen(port);
+  await app.listen(port, "0.0.0.0");
 
   console.log(`\n🚀 Server running on http://localhost:${port}`);
   console.log(`📚 Swagger docs at http://localhost:${port}/api/docs\n`);

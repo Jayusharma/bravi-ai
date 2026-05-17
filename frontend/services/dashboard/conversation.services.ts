@@ -30,6 +30,7 @@ export type ThreadMessage = {
   channel: string;
   from: string;
   to: string | null;
+  subject?: string | null;
   deliveryStatus: string;
   createdAt: string;
   sentByUser: { id: string; displayName: string | null; userName: string } | null;

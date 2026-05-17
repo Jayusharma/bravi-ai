@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
-import { MessageChannel } from '@prisma/client';
+import { MessageChannel, Prisma } from '@prisma/client';
 import { UpdateContactDto } from './dto/update-contact.dto';
 
 @Injectable()
@@ -13,18 +13,16 @@ export class ContactService {
 
   constructor(private prisma: PrismaService) { }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RESOLVE — Find or create a contact by channel+identifier (used by ingestion)
-  // ═══════════════════════════════════════════════════════════════════════════
-
   async resolve(
     channel: MessageChannel,
     identifier: string,
     displayName?: string,
   ): Promise<{ contactId: string; isNew: boolean }> {
+    const normalizedIdentifier = this.normalizeIdentifier(channel, identifier);
+
     const existing = await this.prisma.contactChannel.findUnique({
       where: {
-        channel_identifier: { channel, identifier },
+        channel_identifier: { channel, identifier: normalizedIdentifier },
       },
       include: { contact: true },
     });
@@ -36,31 +34,50 @@ export class ContactService {
       });
 
       this.logger.debug(
-        `👤 Resolved existing contact: ${existing.contact.displayName} (${existing.contactId})`,
+        `ðŸ‘¤ Resolved existing contact: ${existing.contact.displayName} (${existing.contactId})`,
       );
 
       return { contactId: existing.contactId, isNew: false };
     }
 
-    const contact = await this.prisma.contact.create({
-      data: {
-        displayName: displayName || identifier,
-        channels: {
-          create: { channel, identifier },
+    try {
+      const contact = await this.prisma.contact.create({
+        data: {
+          displayName: displayName || normalizedIdentifier,
+          channels: {
+            create: { channel, identifier: normalizedIdentifier },
+          },
         },
-      },
-    });
+      });
 
-    this.logger.debug(
-      `🆕 Created new contact: ${contact.displayName} (${contact.id})`,
-    );
+      this.logger.debug(
+        `ðŸ†• Created new contact: ${contact.displayName} (${contact.id})`,
+      );
 
-    return { contactId: contact.id, isNew: true };
+      return { contactId: contact.id, isNew: true };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const concurrent = await this.prisma.contactChannel.findUnique({
+          where: {
+            channel_identifier: { channel, identifier: normalizedIdentifier },
+          },
+          include: { contact: true },
+        });
+
+        if (concurrent) {
+          this.logger.debug(
+            `ðŸ‘¤ Resolved concurrently-created contact: ${concurrent.contact.displayName} (${concurrent.contactId})`,
+          );
+          return { contactId: concurrent.contactId, isNew: false };
+        }
+      }
+
+      throw error;
+    }
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // FIND ALL — List contacts with channels, enquiry count, search & pagination
-  // ═══════════════════════════════════════════════════════════════════════════
 
   async findAll(query?: {
     search?: string;
@@ -71,7 +88,6 @@ export class ContactService {
     const limit = Number(query?.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Build where clause for search
     const where = query?.search
       ? {
         OR: [
@@ -127,10 +143,6 @@ export class ContactService {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // FIND BY ID — Single contact with full details
-  // ═══════════════════════════════════════════════════════════════════════════
-
   async findById(id: string) {
     const contact = await this.prisma.contact.findUnique({
       where: { id },
@@ -162,10 +174,6 @@ export class ContactService {
     return contact;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // UPDATE — Edit contact profile (displayName, organization, notes)
-  // ═══════════════════════════════════════════════════════════════════════════
-
   async updateContact(id: string, dto: UpdateContactDto) {
     const contact = await this.prisma.contact.findUnique({
       where: { id },
@@ -193,5 +201,10 @@ export class ContactService {
         },
       },
     });
+  }
+
+  private normalizeIdentifier(channel: MessageChannel, identifier: string): string {
+    const value = identifier.trim();
+    return channel === MessageChannel.EMAIL ? value.toLowerCase() : value;
   }
 }
