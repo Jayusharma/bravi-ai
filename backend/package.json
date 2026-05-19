@@ -22,6 +22,8 @@
     "seed:permissions": "npx ts-node prisma/seed-permissions.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1049.0",
+    "@aws-sdk/s3-request-presigner": "^3.1049.0",
     "@casl/ability": "^6.8.0",
     "@casl/prisma": "^1.6.1",
     "@google/genai": "^1.42.0",
@@ -40,6 +42,7 @@
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "@sendgrid/mail": "^8.1.6",
+    "@socket.io/redis-adapter": "^8.3.0",
     "@types/pg": "^8.16.0",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.67.2",
@@ -66,6 +69,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^2.1.0",
     "@types/node": "^22.10.7",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^6.0.2",

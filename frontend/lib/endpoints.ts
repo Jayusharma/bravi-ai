@@ -48,4 +48,17 @@ export const API = {
         LIST: '/conversations',
         THREAD: (enquiryId: string) => `/conversations/${enquiryId}/thread`,
     },
+
+    // ── Outbound ──
+    OUTBOUND: {
+        CREATE_DRAFT: (enquiryId: string) => `/outbound/enquiries/${enquiryId}/drafts`,
+        GET_DRAFT: (enquiryId: string) => `/outbound/enquiries/${enquiryId}/draft`,
+        UPDATE_DRAFT: (draftId: string) => `/outbound/drafts/${draftId}`,
+        DELETE_DRAFT: (draftId: string) => `/outbound/drafts/${draftId}`,
+        SEND_DRAFT: (draftId: string) => `/outbound/drafts/${draftId}/send`,
+        MESSAGES: (enquiryId: string) => `/outbound/enquiries/${enquiryId}/messages`,
+        RETRY: (messageId: string) => `/outbound/messages/${messageId}/retry`,
+        UPLOAD_ATTACHMENT: (draftId: string) => `/outbound/drafts/${draftId}/attachments`,
+        DELETE_ATTACHMENT: (draftId: string, attachmentId: string) => `/outbound/drafts/${draftId}/attachments/${attachmentId}`,
+    },
 } as const;

@@ -28,7 +28,15 @@ const prisma = new PrismaClient({ adapter });
 
 // ─── Define all permission subjects and actions ─────────────────────────
 
-const SUBJECTS = ['enquiry', 'user', 'message', 'dashboard', 'all'];
+const SUBJECTS = [
+  'enquiry',
+  'user',
+  'message',
+  'dashboard',
+  'outbounddraft',
+  'conversationmessage',
+  'all',
+];
 const ACTIONS = ['create', 'read', 'update', 'delete', 'assign', 'manage'];
 
 // ─── Define default role → permission mappings ─────────────────────────
@@ -58,6 +66,14 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'create', subject: 'message' },
         // Dashboard
         { action: 'read', subject: 'dashboard' },
+        // Outbound
+        { action: 'create', subject: 'outbounddraft' },
+        { action: 'read', subject: 'outbounddraft' },
+        { action: 'update', subject: 'outbounddraft' },
+        { action: 'delete', subject: 'outbounddraft' },
+        { action: 'read', subject: 'conversationmessage' },
+        { action: 'create', subject: 'conversationmessage' },
+        { action: 'update', subject: 'conversationmessage' },
     ],
 
     SALES: [
@@ -70,6 +86,14 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'create', subject: 'message' },
         // Dashboard (own stats)
         { action: 'read', subject: 'dashboard' },
+        // Outbound — draft and send
+        { action: 'create', subject: 'outbounddraft' },
+        { action: 'read', subject: 'outbounddraft' },
+        { action: 'update', subject: 'outbounddraft' },
+        { action: 'delete', subject: 'outbounddraft' },
+        { action: 'read', subject: 'conversationmessage' },
+        { action: 'create', subject: 'conversationmessage' },
+        { action: 'update', subject: 'conversationmessage' },
     ],
 
     OPS: [
@@ -77,6 +101,9 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'read', subject: 'enquiry' },
         { action: 'read', subject: 'message' },
         { action: 'read', subject: 'dashboard' },
+        // Outbound — read-only
+        { action: 'read', subject: 'outbounddraft' },
+        { action: 'read', subject: 'conversationmessage' },
     ],
 };
 

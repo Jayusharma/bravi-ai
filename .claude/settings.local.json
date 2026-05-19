@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem *)",
+      "Bash(find \"D:\\\\\\\\code\\\\\\\\final\\\\\\\\frontend\" -type f -name \"*.tsx\" -o -name \"*.ts\" -o -name \"*.jsx\" -o -name \"*.js\")",
+      "Bash(find \"D:\\\\\\\\code\\\\\\\\final\\\\\\\\frontend\" -type d)",
+      "Bash(find \"D:\\\\\\\\code\\\\\\\\final\\\\\\\\frontend/app\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\))",
+      "Bash(find \"D:\\\\\\\\code\\\\\\\\final\\\\\\\\frontend/components\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\))",
+      "Bash(find \"D:\\\\\\\\code\\\\\\\\final\\\\\\\\frontend/hooks\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\))",
+      "Bash(find \"D:\\\\\\\\code\\\\\\\\final\\\\\\\\frontend/lib\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\))",
+      "Bash(find \"D:\\\\\\\\code\\\\\\\\final\\\\\\\\frontend\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -not -path \"*/node_modules/*\" -not -path \"*/.next/*\")",
+      "Read(//mnt/d/code/final/**)",
+      "Bash(npx prisma *)",
+      "Bash(Select-Object FullName)",
+      "Bash(Select-Object Name)",
+      "Bash(ConvertTo-Csv -NoTypeInformation)",
+      "Bash(Select-Object -Skip 1)",
+      "Bash(xargs grep -l \"keyboard\\\\|hotkey\\\\|shortcut\")",
+      "Bash(xargs grep -l \"notification\\\\|pushNotification\\\\|toast\")",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

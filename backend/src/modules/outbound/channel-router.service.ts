@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { MessageChannel } from '@prisma/client';
 import { ChannelAdapter, SendParams, SendResult } from './adapters/channel-adapter.interface';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
-// import { EmailAdapter } from './adapters/email.adapter';
+import { EmailAdapter } from './adapters/email.adapter';
 
 /**
  * Routes outbound messages to the correct channel adapter.
@@ -24,15 +24,13 @@ export class ChannelRouterService {
     constructor(
         private config: ConfigService,
         private whatsappAdapter: WhatsAppAdapter,
-        // private emailAdapter: EmailAdapter,
+        private emailAdapter: EmailAdapter,
     ) {
         this.adapters = new Map();
 
-        // ─── Pick mock or real adapter based on env ───
-        const useMock = this.config.get('WHATSAPP_MOCK', 'true') === 'true';
-        this.adapters.set(MessageChannel.WHATSAPP, whatsappAdapter)
-        // this.adapters.set(MessageChannel.EMAIL, emailAdapter);
-    }
+        this.adapters.set(MessageChannel.WHATSAPP, whatsappAdapter);
+        this.adapters.set(MessageChannel.EMAIL, emailAdapter);
+    }   
 
     async send(
         channel: MessageChannel,

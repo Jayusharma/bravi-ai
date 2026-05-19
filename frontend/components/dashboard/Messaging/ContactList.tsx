@@ -60,6 +60,12 @@ export default function ContactList({
     }, [search]);
 
     // ── WebSocket: Real-time contact list updates ──
+    // Effect does NOT depend on `search` — re-registering on every keystroke
+    // would constantly remove and re-add the handler. The handler captures
+    // `search` via a ref so it always sees the latest value without re-registering.
+    const searchRef = useRef(search);
+    useEffect(() => { searchRef.current = search; }, [search]);
+
     useEffect(() => {
         let mounted = true;
 
@@ -69,23 +75,30 @@ export default function ContactList({
                 if (!mounted) return;
                 socketRef.current = sock;
 
-                sock.on('contact-list:update', (data: { conversations: ConversationPreview[] }) => {
+                // Named handler so we can remove exactly this listener on cleanup,
+                // not every 'contact-list:update' listener on the socket.
+                function onContactListUpdate(data: { conversations: ConversationPreview[] }) {
                     if (!mounted) return;
-                    if (search.trim()) return; // Don't override search results
+                    if (searchRef.current.trim()) return; // Don't override active search results
                     setConversations(data.conversations);
-                });
+                }
+
+                sock.on('contact-list:update', onContactListUpdate);
+
+                return () => { sock.off('contact-list:update', onContactListUpdate); };
             } catch (err) {
                 console.error('WebSocket setup failed:', err);
             }
         }
 
-        setupSocket();
+        let cleanup: (() => void) | undefined;
+        setupSocket().then(fn => { cleanup = fn; });
 
         return () => {
             mounted = false;
-            socketRef.current?.off('contact-list:update');
+            cleanup?.();
         };
-    }, [search]);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Format relative time (WhatsApp-style)
     const formatTime = (dateStr: string) => {

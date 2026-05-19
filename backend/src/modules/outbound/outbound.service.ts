@@ -1,21 +1,38 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from 'src/database/prisma.service';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { ChannelRouterService } from './channel-router.service';
-import { MessageChannel, DeliveryStatus } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { PrismaService } from 'src/database/prisma.service';
+import { DeliveryStatus, MessageChannel } from '@prisma/client';
+import {
+  OUTBOUND_QUEUE,
+  JOB_EMAIL,
+  JOB_WHATSAPP,
+  EmailJobPayload,
+  WhatsAppJobPayload,
+} from './outbound.processor';
+
+const JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 2000 },
+  removeOnComplete: { count: 100 },
+  removeOnFail: { count: 50 },
+};
 
 @Injectable()
 export class OutboundService {
   private readonly logger = new Logger(OutboundService.name);
 
   constructor(
-    private prisma: PrismaService,
-    private channelRouter: ChannelRouterService,
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+    @InjectQueue(OUTBOUND_QUEUE) private readonly outboundQueue: Queue,
   ) {}
 
   /**
    * LISTENER: When EnquiryService creates an outbound ConversationMessage,
-   * this event fires to actually SEND it via the channel adapter.
+   * this event enqueues a BullMQ job instead of sending synchronously.
    */
   @OnEvent('message.outbound')
   async handleOutbound(payload: {
@@ -25,61 +42,154 @@ export class OutboundService {
     to: string;
     content: string;
     subject?: string;
+    fromUserId?: string;
   }): Promise<void> {
-    const { messageId, channel, to, content, subject } = payload;
+    const { messageId, enquiryId, channel, to, content, subject, fromUserId = 'SYSTEM' } = payload;
+    try {
+      if (!to) {
+        this.logger.error(`No recipient for message ${messageId} — marking FAILED`);
+        await this.prisma.conversationMessage.update({
+          where: { id: messageId },
+          data: { deliveryStatus: DeliveryStatus.FAILED },
+        });
+        return;
+      }
 
-    if (!to) {
-      this.logger.error(`No recipient for message ${messageId} — cannot send`);
-      await this.updateDeliveryStatus(messageId, DeliveryStatus.FAILED);
-      return;
-    }
-
-    this.logger.log(`📤 Sending ${channel} message ${messageId} → ${to}`);
-
-    const result = await this.channelRouter.send(channel, {
-      to,
-      content,
-      subject,
-    });
-
-    if (result.success) {
-      await this.prisma.conversationMessage.update({
-        where: { id: messageId },
-        data: {
-          deliveryStatus: DeliveryStatus.SENT,
-          externalId: result.externalId,
-        },
-      });
-      this.logger.log(`✅ Message ${messageId} sent. ExternalId: ${result.externalId}`);
-    } else {
-      await this.prisma.conversationMessage.update({
-        where: { id: messageId },
-        data: { deliveryStatus: DeliveryStatus.FAILED },
-      });
-      this.logger.error(`❌ Message ${messageId} failed: ${result.error}`);
+      if (channel === MessageChannel.EMAIL) {
+        const jobPayload: EmailJobPayload = { messageId, enquiryId, to, subject, body: content, fromUserId };
+        await this.outboundQueue.add(JOB_EMAIL, jobPayload, JOB_OPTIONS);
+        this.logger.log(`📬 Enqueued email job for message ${messageId} → ${to}`);
+      } else if (channel === MessageChannel.WHATSAPP) {
+        const jobPayload: WhatsAppJobPayload = { messageId, enquiryId, to, body: content, fromUserId };
+        await this.outboundQueue.add(JOB_WHATSAPP, jobPayload, JOB_OPTIONS);
+        this.logger.log(`📬 Enqueued WhatsApp job for message ${messageId} → ${to}`);
+      } else {
+        this.logger.warn(`Unsupported channel ${channel} for message ${messageId}`);
+        await this.prisma.conversationMessage.update({
+          where: { id: messageId },
+          data: { deliveryStatus: DeliveryStatus.FAILED },
+        });
+      }
+    } catch (err: any) {
+      this.logger.error(`handleOutbound failed for message ${messageId}: ${err.message}`, err.stack);
+      // Best-effort: mark message failed so the UI shows the error state
+      try {
+        await this.prisma.conversationMessage.update({
+          where: { id: messageId },
+          data: { deliveryStatus: DeliveryStatus.FAILED },
+        });
+      } catch {
+        // ignore secondary failure
+      }
     }
   }
 
   /**
-   * Update delivery status from webhook callbacks.
-   * Called when WhatsApp/SendGrid sends us a delivery receipt.
+   * Re-enqueue a FAILED message for manual retry.
+   */
+  async retryMessage(messageId: string): Promise<void> {
+    const msg = await this.prisma.conversationMessage.findUnique({
+      where: { id: messageId },
+      include: { enquiry: { include: { contact: { include: { channels: true } } } } },
+    });
+
+    if (!msg) throw new BadRequestException(`Message ${messageId} not found`);
+    if (msg.deliveryStatus !== DeliveryStatus.FAILED) {
+      throw new BadRequestException(`Message ${messageId} is not in FAILED state`);
+    }
+
+    // Reset to PENDING
+    await this.prisma.conversationMessage.update({
+      where: { id: messageId },
+      data: { deliveryStatus: DeliveryStatus.PENDING },
+    });
+
+    // Re-emit to trigger the normal queue path
+    await this.handleOutbound({
+      messageId,
+      enquiryId: msg.enquiryId,
+      channel: msg.channel,
+      to: msg.to ?? '',
+      content: msg.content,
+      subject: msg.subject ?? undefined,
+      fromUserId: msg.sentByUserId ?? 'SYSTEM',
+    });
+
+    this.logger.log(`🔄 Retry queued for message ${messageId}`);
+  }
+
+  /**
+   * Update delivery status by provider's external message ID (for webhook callbacks).
+   */
+  async updateDeliveryStatusByExternalId(
+    externalId: string,
+    status: DeliveryStatus,
+  ): Promise<void> {
+    const msg = await this.prisma.conversationMessage.findFirst({
+      where: { externalId },
+    });
+    if (!msg) {
+      this.logger.warn(`No message found with externalId: ${externalId}`);
+      return;
+    }
+    await this.updateDeliveryStatus(msg.id, status, msg.enquiryId);
+  }
+
+  /**
+   * Update delivery status from provider webhook callbacks (Twilio / SendGrid).
    */
   async updateDeliveryStatus(
     messageId: string,
     status: DeliveryStatus,
+    enquiryId?: string,
   ): Promise<void> {
-    const data: any = { deliveryStatus: status };
+    // Prevent status regression: SENT→DELIVERED→READ is the only valid progression.
+    // Out-of-order webhooks (e.g. Twilio re-delivering a stale DELIVERED after READ)
+    // must not downgrade the current status.
+    const STATUS_RANK: Record<string, number> = {
+      PENDING: 0,
+      SENT: 1,
+      DELIVERED: 2,
+      READ: 3,
+      FAILED: -1,
+    };
+    const incomingRank = STATUS_RANK[status] ?? 0;
+    const lowerStatuses = (Object.keys(STATUS_RANK) as DeliveryStatus[]).filter(
+      (s) => (STATUS_RANK[s] ?? 0) < incomingRank,
+    );
 
-    if (status === DeliveryStatus.DELIVERED) {
-      data.deliveredAt = new Date();
-    }
-    if (status === DeliveryStatus.READ) {
-      data.readAt = new Date();
-    }
+    const data: { deliveryStatus: DeliveryStatus; deliveredAt?: Date; readAt?: Date } = {
+      deliveryStatus: status,
+    };
 
-    await this.prisma.conversationMessage.update({
-      where: { id: messageId },
+    if (status === DeliveryStatus.DELIVERED) data.deliveredAt = new Date();
+    if (status === DeliveryStatus.READ) data.readAt = new Date();
+
+    // Only update if current status is lower than incoming (prevents regression)
+    const updated = await this.prisma.conversationMessage.updateMany({
+      where: {
+        id: messageId,
+        deliveryStatus: lowerStatuses.length > 0 ? { in: lowerStatuses } : undefined,
+      },
       data,
+    });
+
+    if (updated.count === 0) {
+      this.logger.debug(`⏭️  Status ${status} ignored for ${messageId} — already at higher rank`);
+      return;
+    }
+
+    const msg = await this.prisma.conversationMessage.findUnique({ where: { id: messageId } });
+
+    this.logger.log(`📦 Delivery status updated: ${messageId} → ${status}`);
+
+    const eid = enquiryId ?? msg?.enquiryId;
+    this.eventEmitter.emit('outbound.delivery_updated', {
+      messageId,
+      enquiryId: eid,
+      deliveryStatus: status,
+      deliveredAt: data.deliveredAt,
+      readAt: data.readAt,
     });
   }
 }

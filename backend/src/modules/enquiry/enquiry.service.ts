@@ -548,6 +548,108 @@ export class EnquiryService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // ADD OUTBOUND MESSAGE — Used by OutboundController (draft → send)
+  // Creates ConversationMessage + EnquiryTimeline + emits event.
+  // ═══════════════════════════════════════════════════════════════════
+
+  async addOutboundMessage(
+    enquiryId: string,
+    dto: {
+      channel: MessageChannel;
+      to: string;
+      subject?: string;
+      body: string;
+      userId: string;
+      draftId?: string;
+    },
+  ) {
+    const enquiry = await this.prisma.enquiry.findUnique({ where: { id: enquiryId } });
+    if (!enquiry) throw new NotFoundException(`Enquiry ${enquiryId} not found`);
+
+    const message = await this.prisma.conversationMessage.create({
+      data: {
+        enquiryId,
+        channel: dto.channel,
+        direction: 'OUTBOUND',
+        from: dto.userId,
+        to: dto.to,
+        subject: dto.subject,
+        content: dto.body,
+        sentByUserId: dto.userId,
+        deliveryStatus: 'PENDING',
+        draftId: dto.draftId,
+      },
+    });
+
+    await this.prisma.enquiry.update({
+      where: { id: enquiryId },
+      data: {
+        lastActivityAt: new Date(),
+        ...(enquiry.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+        timeline: {
+          create: {
+            type: 'MESSAGE_SENT',
+            createdBy: dto.userId,
+            metadata: { channel: dto.channel, messageId: message.id },
+          },
+        },
+      },
+    });
+
+    this.eventEmitter.emit('message.outbound', {
+      messageId: message.id,
+      enquiryId,
+      channel: dto.channel,
+      to: dto.to,
+      content: dto.body,
+      subject: dto.subject,
+      fromUserId: dto.userId,
+    });
+
+    this.logger.log(`📤 Outbound message ${message.id} created for enquiry ${enquiryId}`);
+    return message;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MAYBE TRANSITION ON OUTBOUND — Called by OutboundProcessor on success
+  // Transitions IN_PROGRESS / FOLLOW_UP → AWAITING_CUSTOMER
+  // ═══════════════════════════════════════════════════════════════════
+
+  async maybeTransitionOnOutbound(enquiryId: string): Promise<void> {
+    const enquiry = await this.prisma.enquiry.findUnique({ where: { id: enquiryId } });
+    if (!enquiry) return;
+
+    const transitionable: EnquiryStatus[] = [
+      EnquiryStatus.IN_PROGRESS,
+      EnquiryStatus.FOLLOW_UP,
+    ];
+    if (!transitionable.includes(enquiry.status)) return;
+
+    const allowed = ENQUIRY_TRANSITIONS[enquiry.status];
+    if (!allowed?.includes(EnquiryStatus.AWAITING_CUSTOMER)) return;
+
+    await this.prisma.enquiry.update({
+      where: { id: enquiryId },
+      data: {
+        status: EnquiryStatus.AWAITING_CUSTOMER,
+        version: { increment: 1 },
+        lastActivityAt: new Date(),
+        timeline: {
+          create: {
+            type: 'STATUS_CHANGED',
+            fromStatus: enquiry.status,
+            toStatus: EnquiryStatus.AWAITING_CUSTOMER,
+            createdBy: 'SYSTEM',
+            metadata: { reason: 'outbound_message_sent' },
+          },
+        },
+      },
+    });
+
+    this.logger.log(`📋 Enquiry ${enquiryId}: ${enquiry.status} → AWAITING_CUSTOMER (auto on outbound)`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // GET MESSAGES — List conversation messages
   // ═══════════════════════════════════════════════════════════════════
 

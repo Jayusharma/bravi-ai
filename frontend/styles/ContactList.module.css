@@ -750,3 +750,314 @@
 :global([data-theme="light"]) .emailTime { color: #6b7280; }
 :global([data-theme="light"]) .emailSubject { color: #111827; border-color: #e5e7eb; }
 :global([data-theme="light"]) .emailBody { color: #374151; }
+
+/* -------------------------- INLINE OUTBOUND COMPOSER ----------------------- */
+
+.composerWrapper {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+  background: var(--cl-bg, rgba(255, 255, 255, 0.015));
+  flex-shrink: 0;
+}
+.composerWrapper .composer {
+  border-top: none;
+}
+
+.composerTextarea {
+  flex: 1;
+  padding: 9px 16px;
+  border-radius: 22px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--input-bg, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, #e8e8ed);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.2s;
+  resize: none;
+  min-height: 40px;
+  max-height: 140px;
+  line-height: 1.45;
+  font-family: inherit;
+  overflow-y: auto;
+}
+.composerTextarea:focus { border-color: rgba(99, 102, 241, 0.4); }
+.composerTextarea::placeholder { color: var(--text-muted, rgba(255, 255, 255, 0.2)); }
+.composerTextarea:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.composerSubjectInput {
+  padding: 8px 16px;
+  border: none;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+  background: transparent;
+  color: var(--text-primary, #e8e8ed);
+  font-size: 0.82rem;
+  outline: none;
+}
+.composerSubjectInput::placeholder { color: var(--text-muted, rgba(255, 255, 255, 0.2)); }
+
+.composerError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  font-size: 0.78rem;
+}
+.composerErrorDismiss {
+  background: none;
+  border: none;
+  color: #fca5a5;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.composerIconBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+  color: var(--text-muted, rgba(255,255,255,0.4));
+}
+.composerIconBtn:hover:not(:disabled) {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-primary, #e8e8ed);
+}
+:global([data-theme="light"]) .composerIconBtn { color: #6b7280; }
+:global([data-theme="light"]) .composerIconBtn:hover:not(:disabled) { background: #f3f4f6; color: #374151; }
+
+:global([data-theme="light"]) .composerWrapper { background: #ffffff; border-color: #e5e7eb; }
+:global([data-theme="light"]) .composerTextarea { background: #f3f4f6; border-color: #d1d5db; color: #111827; }
+:global([data-theme="light"]) .composerTextarea::placeholder { color: #9ca3af; }
+:global([data-theme="light"]) .composerSubjectInput { color: #111827; border-color: #e5e7eb; }
+:global([data-theme="light"]) .composerError { background: rgba(239, 68, 68, 0.08); color: #dc2626; }
+
+/* ══════════════════════════ MESSAGE GROUPING ═══════════════════ */
+
+/* First message in a group — full spacing, show avatar slot */
+.msgGroupFirst {
+  margin-top: 8px;
+}
+/* Middle messages — tight stacking, no avatar */
+.msgGroupMiddle {
+  margin-top: 1px;
+}
+/* Last message in a group */
+.msgGroupLast {
+  margin-top: 1px;
+  margin-bottom: 4px;
+}
+/* Group of one (first = last) */
+.msgGroupSingle {
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+
+/* Avatar spacer so bubbles align even when avatar is hidden */
+.msgAvatarPlaceholder {
+  width: 28px;
+  flex-shrink: 0;
+}
+
+/* Small avatar inline (inbound messages) */
+.msgInlineAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4b5563, #6b7280);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+
+/* Rounder corners for grouped bubbles */
+.bubbleGroupMiddle {
+  border-radius: 6px !important;
+}
+.bubbleGroupFirst.bubbleInbound   { border-top-left-radius: 14px; border-bottom-left-radius: 6px; }
+.bubbleGroupLast.bubbleInbound    { border-top-left-radius: 6px;  border-bottom-left-radius: 4px; }
+.bubbleGroupFirst.bubbleOutbound  { border-top-right-radius: 14px; border-bottom-right-radius: 6px; }
+.bubbleGroupLast.bubbleOutbound   { border-top-right-radius: 6px;  border-bottom-right-radius: 4px; }
+
+/* ── Timestamps on hover (per-message) ── */
+.msgFooterHover {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  height: 14px;
+}
+.msgBubble:hover .msgFooterHover {
+  opacity: 1;
+}
+/* Group timestamp — always shown on last bubble in group */
+.msgFooterVisible {
+  opacity: 1 !important;
+}
+
+/* ══════════════════════════ STICKY DATE SEPARATOR ══════════════ */
+.dateSeparatorSticky {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  text-align: center;
+  padding: 8px 0;
+  pointer-events: none;
+}
+.dateSeparatorSticky span {
+  font-size: 0.68rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.45));
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 3px 12px;
+  border-radius: 10px;
+  display: inline-block;
+}
+:global([data-theme="light"]) .dateSeparatorSticky span {
+  background: rgba(250, 251, 252, 0.92);
+  color: #6b7280;
+}
+
+/* ══════════════════════════ NEW MESSAGES FLOAT BTN ════════════ */
+.newMsgFloat {
+  position: absolute;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+  z-index: 20;
+  animation: floatIn 0.25s ease-out;
+  white-space: nowrap;
+}
+@keyframes floatIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.newMsgFloat:hover {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+}
+
+/* Chat messages wrapper needs position: relative for the float button */
+.chatMessagesWrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ══════════════════════════ SKELETON LOADING ═══════════════════ */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeletonBubble {
+  height: 38px;
+  border-radius: 14px;
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.04) 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+.skeletonRow {
+  display: flex;
+  margin-bottom: 8px;
+}
+.skeletonRow:nth-child(odd)  { justify-content: flex-start; padding-left: 8px; }
+.skeletonRow:nth-child(even) { justify-content: flex-end;   padding-right: 8px; }
+.skeletonRow:nth-child(1) .skeletonBubble { width: 52%; }
+.skeletonRow:nth-child(2) .skeletonBubble { width: 38%; }
+.skeletonRow:nth-child(3) .skeletonBubble { width: 60%; }
+
+:global([data-theme="light"]) .skeletonBubble {
+  background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+  background-size: 400px 100%;
+}
+
+/* ══════════════════════════ TYPING INDICATOR ════════════════════ */
+@keyframes typingDot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30%            { transform: translateY(-4px); opacity: 1; }
+}
+
+/* ══════════════════════════ REACTIONS ══════════════════════════ */
+.reactionsBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.reactionPill {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.reactionPill:hover {
+  background: rgba(99,102,241,0.15);
+  border-color: rgba(99,102,241,0.4);
+}
+.reactionPillMine {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.5);
+}
+:global([data-theme="light"]) .reactionPill { background: #f3f4f6; border-color: #e5e7eb; }
+:global([data-theme="light"]) .reactionPill:hover { background: #ede9fe; border-color: #a5b4fc; }
+:global([data-theme="light"]) .reactionPillMine { background: #ede9fe; border-color: #6366f1; }
+
+/* ══════════════════════════ EDITED LABEL ════════════════════════ */
+.editedLabel {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.3);
+  font-style: italic;
+  margin-left: 4px;
+}
+:global([data-theme="light"]) .editedLabel { color: #9ca3af; }
+
+/* ══════════════════════════ DELETED MSG ════════════════════════ */
+.msgDeleted {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.3);
+  font-style: italic;
+}
+:global([data-theme="light"]) .msgDeleted { color: #9ca3af; }

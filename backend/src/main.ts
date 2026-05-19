@@ -4,6 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { RedisIoAdapter } from './adapters/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -14,6 +15,14 @@ async function bootstrap() {
 
   // ─── API Versioning ────────────────────────────────────────────
   app.setGlobalPrefix('api/v1');
+
+  // ─── Redis Socket.IO Adapter (horizontal scaling) ─────────────
+  const redisIoAdapter = new RedisIoAdapter(app);
+  await redisIoAdapter.connectToRedis(
+    process.env.REDIS_HOST || 'localhost',
+    parseInt(process.env.REDIS_PORT || '6379', 10),
+  );
+  app.useWebSocketAdapter(redisIoAdapter);
 
   // ─── CORS ──────────────────────────────────────────────────────
   app.enableCors({

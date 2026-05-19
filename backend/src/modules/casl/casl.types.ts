@@ -22,6 +22,8 @@ export type AppSubjects =
   | 'internalnote'
   | 'qualificationresult'
   | 'rolepermission'
+  | 'outbounddraft'
+  | 'conversationmessage'
   | 'all';
 
 export type AppAbility = PureAbility<[Actions, AppSubjects], PrismaQuery>;

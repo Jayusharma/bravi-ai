@@ -33,7 +33,10 @@ export type ThreadMessage = {
   subject?: string | null;
   deliveryStatus: string;
   createdAt: string;
+  editedAt?: string | null;
+  isDeleted?: boolean;
   sentByUser: { id: string; displayName: string | null; userName: string } | null;
+  reactions?: { emoji: string; count: number }[];
 };
 
 // ── This matches EXACTLY what the backend returns from getThread() ──
