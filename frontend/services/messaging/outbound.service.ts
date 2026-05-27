@@ -11,6 +11,19 @@ export type MessageChannel = 'EMAIL' | 'WHATSAPP' | 'SMS';
 export type DraftStatus = 'ACTIVE' | 'EXPIRED' | 'CLEARED';
 export type DeliveryStatus = 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
 
+export interface DraftAttachment {
+    id: string;
+    kind: string;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    storageKey: string;
+    cdnUrl: string | null;
+    width?: number | null;
+    height?: number | null;
+    durationMs?: number | null;
+}
+
 export interface OutboundDraft {
     id: string;
     enquiryId: string;
@@ -22,6 +35,19 @@ export interface OutboundDraft {
     createdBy: string;
     createdAt: string;
     updatedAt: string;
+    attachments?: DraftAttachment[];
+}
+
+export interface OutboundMessageAttachment {
+    id: string;
+    kind: string;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    cdnUrl: string | null;
+    width?: number | null;
+    height?: number | null;
+    durationMs?: number | null;
 }
 
 export interface OutboundMessage {
@@ -40,6 +66,7 @@ export interface OutboundMessage {
     draftId: string | null;
     sentByUserId: string | null;
     sentByUser: { id: string; displayName: string | null; userName: string } | null;
+    attachments?: OutboundMessageAttachment[];
     createdAt: string;
 }
 
@@ -78,6 +105,10 @@ export async function updateDraft(
 
 export async function deleteDraft(draftId: string): Promise<void> {
     await apiClient<void>(API.OUTBOUND.DELETE_DRAFT(draftId), { method: 'DELETE' });
+}
+
+export async function deleteDraftAttachment(draftId: string, attachmentId: string): Promise<void> {
+    await apiClient<void>(API.OUTBOUND.DELETE_ATTACHMENT(draftId, attachmentId), { method: 'DELETE' });
 }
 
 // ═══════════════════════════════════════════════════════════════════

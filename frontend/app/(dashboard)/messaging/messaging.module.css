@@ -6,9 +6,14 @@
     height: calc(100vh - 80px); /* 80px = topbar height */
     display: flex;
     flex-direction: column;
-    background: var(--bg-primary, #0a0a0f);
+    background: #efeae2; /* Default Light Theme: WhatsApp cream background! */
     font-family: 'Inter', system-ui, sans-serif;
     overflow: hidden; /* No page scroll — only panels scroll */
+    transition: background-color 0.3s ease, height 0.3s ease;
+}
+
+:global(.dark) .messagingPage {
+    background: #0b141a; /* Dark Theme: WhatsApp dark background! */
 }
 
 @media (min-width: 768px) {
@@ -27,14 +32,21 @@
 /* ── Resizable contact panel ── */
 .contactPanel {
     width: var(--contact-width, 360px);
-    min-width: 260px;
+    min-width: 280px;
     max-width: 550px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-right: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+    border-right: 1px solid rgba(0, 0, 0, 0.08); /* Light mode border */
     flex-shrink: 0;
     position: relative;
+    background: #ffffff; /* Default Light Theme: white list! */
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+:global(.dark) .contactPanel {
+    border-right-color: rgba(255, 255, 255, 0.06);
+    background: #111b21; /* Dark Theme: WhatsApp dark sidebar list! */
 }
 
 /* ── Drag handle (between contact list and chat) ── */
@@ -78,7 +90,12 @@
     justify-content: center;
     flex-direction: column;
     gap: 12px;
-    background: var(--bg-primary, #0a0a0f);
+    background: #efeae2;
+    transition: background-color 0.3s ease;
+}
+
+:global(.dark) .emptyView {
+    background: #0b141a;
 }
 
 .emptyIcon {
@@ -89,15 +106,23 @@
 
 .emptyView h3 {
     font-size: 1.05rem;
-    color: var(--text-muted, rgba(255, 255, 255, 0.5));
+    color: #65676b;
     font-weight: 600;
     margin: 0;
 }
 
+:global(.dark) .emptyView h3 {
+    color: rgba(255, 255, 255, 0.5);
+}
+
 .emptyView p {
     font-size: 0.82rem;
-    color: var(--text-muted, rgba(255, 255, 255, 0.3));
+    color: #8a8d91;
     margin: 0;
+}
+
+:global(.dark) .emptyView p {
+    color: rgba(255, 255, 255, 0.3);
 }
 
 /* ═══════════════════════════ CONNECTION STATUS ═════════════════ */
@@ -135,26 +160,4 @@
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
-}
-
-/* ═══════════════════════════ LIGHT THEME ═══════════════════════ */
-
-:global([data-theme="light"]) .messagingPage {
-    background: #f5f6fa;
-}
-:global([data-theme="light"]) .contactPanel {
-    border-color: #e5e7eb;
-}
-:global([data-theme="light"]) .resizeHandle:hover,
-:global([data-theme="light"]) .resizeHandle:active {
-    background: rgba(99, 102, 241, 0.3);
-}
-:global([data-theme="light"]) .emptyView {
-    background: #f5f6fa;
-}
-:global([data-theme="light"]) .emptyView h3 {
-    color: #6b7280;
-}
-:global([data-theme="light"]) .emptyView p {
-    color: #9ca3af;
 }

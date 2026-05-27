@@ -7,6 +7,13 @@ import { PrismaService } from 'src/database/prisma.service';
 import { ChannelRouterService } from './channel-router.service';
 import { EnquiryService } from '../enquiry/enquiry.service';
 
+export interface JobAttachment {
+  cdnUrl: string;
+  fileName: string;
+  mimeType: string;
+  fileSize?: number;
+}
+
 export interface EmailJobPayload {
   messageId: string;
   enquiryId: string;
@@ -14,6 +21,7 @@ export interface EmailJobPayload {
   subject?: string;
   body: string;
   fromUserId: string;
+  attachments?: JobAttachment[];
 }
 
 export interface WhatsAppJobPayload {
@@ -22,6 +30,7 @@ export interface WhatsAppJobPayload {
   to: string;
   body: string;
   fromUserId: string;
+  attachments?: JobAttachment[];
 }
 
 export const OUTBOUND_QUEUE = 'OUTBOUND_QUEUE';
@@ -80,9 +89,8 @@ export class OutboundProcessor extends WorkerHost {
   }
 
   private async handleEmail(job: Job<EmailJobPayload>): Promise<void> {
-    const { messageId, enquiryId, to, subject, body } = job.data;
+    const { messageId, enquiryId, to, subject, body, attachments } = job.data;
 
-    // Idempotency: skip if already processed
     const msg = await this.prisma.conversationMessage.findUnique({
       where: { id: messageId },
     });
@@ -91,19 +99,20 @@ export class OutboundProcessor extends WorkerHost {
       return;
     }
 
-    this.logger.log(`📧 Processing email job ${job.id} → ${to}`);
+    this.logger.log(`📧 Processing email job ${job.id} → ${to} (${attachments?.length ?? 0} attachment(s))`);
 
     const result = await this.channelRouter.send(MessageChannel.EMAIL, {
       to,
       content: body,
       subject,
+      attachments,
     });
 
     await this.updateAndEmit(messageId, enquiryId, result, job.attemptsMade + 1);
   }
 
   private async handleWhatsApp(job: Job<WhatsAppJobPayload>): Promise<void> {
-    const { messageId, enquiryId, to, body } = job.data;
+    const { messageId, enquiryId, to, body, attachments } = job.data;
 
     const msg = await this.prisma.conversationMessage.findUnique({
       where: { id: messageId },
@@ -113,11 +122,12 @@ export class OutboundProcessor extends WorkerHost {
       return;
     }
 
-    this.logger.log(`📱 Processing WhatsApp job ${job.id} → ${to}`);
+    this.logger.log(`📱 Processing WhatsApp job ${job.id} → ${to} (${attachments?.length ?? 0} attachment(s))`);
 
     const result = await this.channelRouter.send(MessageChannel.WHATSAPP, {
       to,
       content: body,
+      attachments,
     });
 
     await this.updateAndEmit(messageId, enquiryId, result, job.attemptsMade + 1);

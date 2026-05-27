@@ -107,6 +107,31 @@ export class ConversationService {
       }),
       this.prisma.contact.count({ where }),
     ]);
+    // Fetch active drafts for all enquiry IDs in one query
+    const enquiryIds = contacts
+      .map((c) => c.enquiries[0]?.id)
+      .filter(Boolean) as string[];
+
+    const activeDrafts = enquiryIds.length > 0
+      ? await this.prisma.outboundDraft.findMany({
+          where: {
+            enquiryId: { in: enquiryIds },
+            status: 'ACTIVE',
+            expiresAt: { gt: new Date() },
+          },
+          select: {
+            enquiryId: true,
+            body: true,
+            channel: true,
+            _count: { select: { attachments: true } },
+          },
+        })
+      : [];
+
+    const draftByEnquiry = new Map(
+      activeDrafts.map((d) => [d.enquiryId, d]),
+    );
+
     // Flatten into the shape the frontend needs
     const conversations = contacts
       .map((contact) => {
@@ -114,19 +139,17 @@ export class ConversationService {
         if (!enquiry) return null;
         const lastMsg = enquiry.messages[0];
         const channel = contact.channels[0];
+        const draft = draftByEnquiry.get(enquiry.id);
         return {
           contactId: contact.id,
           contactName: contact.displayName,
           organization: contact.organization,
-          // Channel info
           channel: channel?.channel || null,
           identifier: channel?.identifier || null,
-          // Active enquiry
           enquiryId: enquiry.id,
           enquiryStatus: enquiry.status,
           assignedTo: enquiry.assignedTo,
           messageCount: enquiry._count.messages,
-          // Last message preview
           lastMessage: lastMsg
             ? {
               content: lastMsg.content.length > 80
@@ -138,9 +161,16 @@ export class ConversationService {
             }
             : null,
           lastActivityAt: enquiry.lastActivityAt,
+          draft: draft
+            ? {
+              body: draft.body,
+              attachmentCount: draft._count.attachments,
+              channel: draft.channel,
+            }
+            : null,
         };
       })
-      .filter(Boolean); // Remove contacts with no valid enquiry
+      .filter(Boolean);
     // Sort by last message time (most recent first)
     conversations.sort((a: any, b: any) => {
       const timeA = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
@@ -204,7 +234,7 @@ export class ConversationService {
           select: { id: true, displayName: true, userName: true },
         },
         messages: {
-          orderBy: { createdAt: 'asc' }, // oldest message first (WhatsApp order)
+          orderBy: { createdAt: 'asc' },
           select: {
             id: true,
             content: true,
@@ -215,8 +245,26 @@ export class ConversationService {
             subject: true,
             deliveryStatus: true,
             createdAt: true,
+            editedAt: true,
+            isDeleted: true,
             sentByUser: {
               select: { id: true, displayName: true, userName: true },
+            },
+            attachments: {
+              select: {
+                id: true,
+                kind: true,
+                fileName: true,
+                mimeType: true,
+                fileSize: true,
+                cdnUrl: true,
+                width: true,
+                height: true,
+                durationMs: true,
+              },
+            },
+            reactions: {
+              select: { id: true, emoji: true, userId: true },
             },
           },
         },

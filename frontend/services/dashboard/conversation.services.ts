@@ -21,6 +21,23 @@ export type ConversationPreview = {
     createdAt: string;
   } | null;
   lastActivityAt: string;
+  draft?: {
+    body: string | null;
+    attachmentCount: number;
+    channel: string;
+  } | null;
+};
+
+export type MessageAttachment = {
+  id: string;
+  kind: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  cdnUrl: string | null;
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
 };
 
 export type ThreadMessage = {
@@ -36,7 +53,8 @@ export type ThreadMessage = {
   editedAt?: string | null;
   isDeleted?: boolean;
   sentByUser: { id: string; displayName: string | null; userName: string } | null;
-  reactions?: { emoji: string; count: number }[];
+  reactions?: { emoji: string; count: number; userId?: string }[];
+  attachments?: MessageAttachment[];
 };
 
 // ── This matches EXACTLY what the backend returns from getThread() ──

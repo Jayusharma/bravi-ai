@@ -52,10 +52,38 @@ export class EmailAdapter implements ChannelAdapter {
         ...(params.replyTo ? { replyTo: params.replyTo } : {}),
       };
 
+      // Fetch attachment files from CDN and encode as base64 for SendGrid
+      if (params.attachments && params.attachments.length > 0) {
+        const sgAttachments: { content: string; filename: string; type: string; disposition: string }[] = [];
+
+        for (const att of params.attachments) {
+          try {
+            const res = await fetch(att.cdnUrl);
+            if (!res.ok) {
+              this.logger.warn(`Failed to fetch attachment ${att.fileName}: HTTP ${res.status}`);
+              continue;
+            }
+            const buffer = Buffer.from(await res.arrayBuffer());
+            sgAttachments.push({
+              content: buffer.toString('base64'),
+              filename: att.fileName,
+              type: att.mimeType,
+              disposition: 'attachment',
+            });
+          } catch (fetchErr: any) {
+            this.logger.warn(`Failed to fetch attachment ${att.fileName}: ${fetchErr.message}`);
+          }
+        }
+
+        if (sgAttachments.length > 0) {
+          (msg as any).attachments = sgAttachments;
+        }
+      }
+
       const [response] = await sgMail.send(msg);
       const messageId = response.headers['x-message-id'] as string | undefined;
 
-      this.logger.log(`📧 Email sent to ${params.to} — MessageId: ${messageId ?? 'unknown'}`);
+      this.logger.log(`📧 Email sent to ${params.to} — MessageId: ${messageId ?? 'unknown'} (${params.attachments?.length ?? 0} attachment(s))`);
       return { success: true, externalId: messageId };
     } catch (error: any) {
       const detail = error?.response?.body?.errors?.[0]?.message ?? error.message;

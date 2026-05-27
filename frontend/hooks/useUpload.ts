@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { uploadAttachment, UploadedAttachment } from '@/lib/upload';
 
 export type UploadStatus = 'pending' | 'uploading' | 'done' | 'failed';
@@ -121,6 +121,15 @@ export function useUpload(draftId: string | null): UseUploadReturn {
     },
     [runUpload],
   );
+
+  // Automatically trigger uploads for pending files once draftId becomes non-null
+  useEffect(() => {
+    if (!draftId) return;
+    const pendingUploads = uploadsRef.current.filter((u) => u.status === 'pending');
+    for (const upload of pendingUploads) {
+      runUpload(upload.id, upload.file, upload.abortController);
+    }
+  }, [draftId, runUpload]);
 
   const clearAll = useCallback(() => {
     for (const u of uploadsRef.current) u.abortController.abort();

@@ -55,14 +55,23 @@ export class OutboundService {
         return;
       }
 
+      // Fetch attachments for this message to include in the job payload
+      const msgAttachments = await this.prisma.messageAttachment.findMany({
+        where: { conversationMessageId: messageId },
+        select: { cdnUrl: true, fileName: true, mimeType: true, fileSize: true },
+      });
+      const attachments = msgAttachments
+        .filter((a) => a.cdnUrl)
+        .map((a) => ({ cdnUrl: a.cdnUrl!, fileName: a.fileName, mimeType: a.mimeType, fileSize: a.fileSize }));
+
       if (channel === MessageChannel.EMAIL) {
-        const jobPayload: EmailJobPayload = { messageId, enquiryId, to, subject, body: content, fromUserId };
+        const jobPayload: EmailJobPayload = { messageId, enquiryId, to, subject, body: content, fromUserId, attachments };
         await this.outboundQueue.add(JOB_EMAIL, jobPayload, JOB_OPTIONS);
-        this.logger.log(`📬 Enqueued email job for message ${messageId} → ${to}`);
+        this.logger.log(`📬 Enqueued email job for message ${messageId} → ${to} (${attachments.length} attachment(s))`);
       } else if (channel === MessageChannel.WHATSAPP) {
-        const jobPayload: WhatsAppJobPayload = { messageId, enquiryId, to, body: content, fromUserId };
+        const jobPayload: WhatsAppJobPayload = { messageId, enquiryId, to, body: content, fromUserId, attachments };
         await this.outboundQueue.add(JOB_WHATSAPP, jobPayload, JOB_OPTIONS);
-        this.logger.log(`📬 Enqueued WhatsApp job for message ${messageId} → ${to}`);
+        this.logger.log(`📬 Enqueued WhatsApp job for message ${messageId} → ${to} (${attachments.length} attachment(s))`);
       } else {
         this.logger.warn(`Unsupported channel ${channel} for message ${messageId}`);
         await this.prisma.conversationMessage.update({

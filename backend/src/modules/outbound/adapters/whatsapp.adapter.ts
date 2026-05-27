@@ -45,14 +45,23 @@ export class WhatsAppAdapter implements ChannelAdapter {
 
     try {
       const to = params.to.startsWith('whatsapp:') ? params.to : `whatsapp:${params.to}`;
+      const mediaUrls = (params.attachments ?? [])
+        .filter((a) => a.cdnUrl)
+        .map((a) => a.cdnUrl);
 
-      const message = await this.client!.messages.create({
-        from: this.fromNumber,   // 'whatsapp:+14155238886'
-        to,                      // 'whatsapp:+919876543210'
-        body: params.content,
-      });
+      // Twilio WhatsApp: send body + up to 10 media URLs in one message
+      const createParams: Record<string, unknown> = {
+        from: this.fromNumber,
+        to,
+        body: params.content || '',
+      };
+      if (mediaUrls.length > 0) {
+        createParams.mediaUrl = mediaUrls;
+      }
 
-      this.logger.log(`📱 WhatsApp sent: SID=${message.sid} → ${params.to}`);
+      const message = await this.client!.messages.create(createParams as any);
+
+      this.logger.log(`📱 WhatsApp sent: SID=${message.sid} → ${params.to} (${mediaUrls.length} media)`);
       return { success: true, externalId: message.sid };
     } catch (error: any) {
       this.logger.error(`WhatsApp send error: ${error.message}`);

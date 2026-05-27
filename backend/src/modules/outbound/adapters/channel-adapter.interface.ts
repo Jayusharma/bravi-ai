@@ -8,11 +8,19 @@ import { MessageChannel } from '@prisma/client';
  *
  * PATTERN: Strategy pattern — swap implementations without changing the caller.
  */
+export interface AttachmentParam {
+  cdnUrl: string;
+  fileName: string;
+  mimeType: string;
+  fileSize?: number;
+}
+
 export interface SendParams {
-  to: string;        // recipient (phone number or email address)
-  content: string;   // message body
-  subject?: string;  // for email only
-  replyTo?: string;  // for email threading (In-Reply-To header)
+  to: string;
+  content: string;
+  subject?: string;
+  replyTo?: string;
+  attachments?: AttachmentParam[];
 }
 
 export interface SendResult {

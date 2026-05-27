@@ -41,16 +41,32 @@ const MIME_TO_KIND: Record<string, AttachmentKind> = {
   'image/png': AttachmentKind.IMAGE,
   'image/gif': AttachmentKind.IMAGE,
   'image/webp': AttachmentKind.IMAGE,
+  'image/svg+xml': AttachmentKind.IMAGE,
+  'image/bmp': AttachmentKind.IMAGE,
   'video/mp4': AttachmentKind.VIDEO,
   'video/webm': AttachmentKind.VIDEO,
+  'video/quicktime': AttachmentKind.VIDEO,
+  'video/3gpp': AttachmentKind.VIDEO,
   'audio/webm': AttachmentKind.AUDIO,
   'audio/ogg': AttachmentKind.AUDIO,
+  'audio/mpeg': AttachmentKind.AUDIO,
+  'audio/aac': AttachmentKind.AUDIO,
+  'audio/flac': AttachmentKind.AUDIO,
+  'audio/opus': AttachmentKind.AUDIO,
+  'audio/wav': AttachmentKind.AUDIO,
   'audio/mp4': AttachmentKind.VOICE_NOTE,
   'application/pdf': AttachmentKind.DOCUMENT,
   'application/msword': AttachmentKind.DOCUMENT,
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': AttachmentKind.DOCUMENT,
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': AttachmentKind.DOCUMENT,
   'application/vnd.ms-excel': AttachmentKind.DOCUMENT,
+  'application/vnd.ms-powerpoint': AttachmentKind.DOCUMENT,
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': AttachmentKind.DOCUMENT,
+  'application/zip': AttachmentKind.DOCUMENT,
+  'application/x-zip-compressed': AttachmentKind.DOCUMENT,
+  'application/x-rar-compressed': AttachmentKind.DOCUMENT,
+  'text/plain': AttachmentKind.DOCUMENT,
+  'text/csv': AttachmentKind.DOCUMENT,
 };
 
 const ALLOWED_MIMES = new Set(Object.keys(MIME_TO_KIND));
@@ -80,33 +96,43 @@ export class OutboundController {
     @Req() req: Request,
   ) {
     const userId = req.user!.userId;
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 min
 
-    const draft = await this.prisma.outboundDraft.upsert({
-      where: {
-        enquiryId_channel_createdBy_status: {
+    try {
+      const draft = await this.prisma.outboundDraft.upsert({
+        where: {
+          enquiryId_channel_createdBy_status: {
+            enquiryId,
+            channel: dto.channel,
+            createdBy: userId,
+            status: DraftStatus.ACTIVE,
+          },
+        },
+        create: {
           enquiryId,
           channel: dto.channel,
+          subject: dto.subject,
+          body: dto.body,
           createdBy: userId,
-          status: DraftStatus.ACTIVE,
+          expiresAt,
         },
-      },
-      create: {
-        enquiryId,
-        channel: dto.channel,
-        subject: dto.subject,
-        body: dto.body,
-        createdBy: userId,
-        expiresAt,
-      },
-      update: {
-        subject: dto.subject,
-        body: dto.body,
-        expiresAt,
-      },
-    });
-
-    return draft;
+        update: {
+          subject: dto.subject,
+          body: dto.body,
+          expiresAt,
+        },
+      });
+      return draft;
+    } catch (err: any) {
+      // P2002 = unique constraint race condition: another request already created the draft
+      if (err?.code === 'P2002') {
+        const existing = await this.prisma.outboundDraft.findFirst({
+          where: { enquiryId, channel: dto.channel, createdBy: userId, status: DraftStatus.ACTIVE },
+        });
+        if (existing) return existing;
+      }
+      throw err;
+    }
   }
 
   // ── GET /outbound/enquiries/:enquiryId/draft ──
@@ -146,6 +172,7 @@ export class OutboundController {
         ...(dto.channel !== undefined ? { channel: dto.channel } : {}),
         ...(dto.subject !== undefined ? { subject: dto.subject } : {}),
         ...(dto.body !== undefined ? { body: dto.body } : {}),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
       },
     });
 
@@ -197,7 +224,12 @@ export class OutboundController {
     if (!draft) throw new NotFoundException(`Draft ${draftId} not found`);
     if (draft.createdBy !== userId) throw new BadRequestException('Cannot send another user\'s draft');
     if (draft.status !== DraftStatus.ACTIVE) throw new BadRequestException('Draft is not in ACTIVE state');
-    if (!draft.body?.trim()) throw new BadRequestException('Draft body is empty');
+
+    // Allow sending with attachments even if body is empty (e.g. image-only message)
+    const hasAttachments = await this.prisma.draftAttachment.count({ where: { draftId } }) > 0;
+    if (!draft.body?.trim() && !hasAttachments) {
+      throw new BadRequestException('Draft has no content and no attachments');
+    }
 
     // Resolve recipient
     const channel = draft.channel;
@@ -215,10 +247,32 @@ export class OutboundController {
       channel,
       to,
       subject: draft.subject ?? undefined,
-      body: draft.body,
+      body: draft.body ?? '',
       userId,
       draftId,
     });
+
+    // Transfer DraftAttachments → MessageAttachments
+    const draftAttachments = await this.prisma.draftAttachment.findMany({
+      where: { draftId },
+    });
+
+    if (draftAttachments.length > 0) {
+      await this.prisma.messageAttachment.createMany({
+        data: draftAttachments.map((da) => ({
+          conversationMessageId: message.id,
+          kind: da.kind,
+          fileName: da.fileName,
+          mimeType: da.mimeType,
+          fileSize: da.fileSize,
+          storageKey: da.storageKey,
+          cdnUrl: da.cdnUrl,
+          width: da.width,
+          height: da.height,
+          durationMs: da.durationMs,
+        })),
+      });
+    }
 
     // Mark draft consumed
     await this.prisma.outboundDraft.update({
@@ -226,8 +280,31 @@ export class OutboundController {
       data: { status: DraftStatus.CLEARED },
     });
 
-    this.logger.log(`📤 Draft ${draftId} sent as message ${message.id}`);
-    return message;
+    // Re-fetch with attachments + sentByUser for the response
+    const enrichedMessage = await this.prisma.conversationMessage.findUnique({
+      where: { id: message.id },
+      include: {
+        attachments: {
+          select: {
+            id: true,
+            kind: true,
+            fileName: true,
+            mimeType: true,
+            fileSize: true,
+            cdnUrl: true,
+            width: true,
+            height: true,
+            durationMs: true,
+          },
+        },
+        sentByUser: {
+          select: { id: true, displayName: true, userName: true },
+        },
+      },
+    });
+
+    this.logger.log(`📤 Draft ${draftId} sent as message ${message.id} with ${draftAttachments.length} attachment(s)`);
+    return enrichedMessage;
   }
 
   // ── GET /outbound/enquiries/:enquiryId/messages ──

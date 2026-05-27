@@ -177,33 +177,34 @@ export default function ContactList({
                                         )}
                                     </div>
 
-                                    {/* Row 2: Last message preview + Unread badge */}
+                                    {/* Row 2: Draft indicator OR last message preview + Unread badge */}
                                     <div className={styles.contactRow}>
-                                        <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
-                                            <span className={styles.channelIcon}>
-                                                {CHANNEL_ICONS[conv.channel || ''] || '💭'}
+                                        {conv.draft ? (
+                                            <span className={styles.contactPreview}>
+                                                <span className={styles.draftLabel}>Draft:</span>
+                                                <span className={styles.draftText}>
+                                                    {conv.draft.body?.trim()
+                                                        ? conv.draft.body.substring(0, 60)
+                                                        : conv.draft.attachmentCount > 0
+                                                            ? `${conv.draft.attachmentCount} attachment${conv.draft.attachmentCount > 1 ? 's' : ''}`
+                                                            : 'Empty draft'}
+                                                </span>
                                             </span>
-                                            {conv.lastMessage?.direction === 'OUTBOUND' && (
-                                                <span className={styles.outboundArrow}>↩ </span>
-                                            )}
-                                            {conv.lastMessage?.content || 'No messages'}
-                                        </span>
+                                        ) : (
+                                            <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
+                                                <span className={styles.channelIcon}>
+                                                    {CHANNEL_ICONS[conv.channel || ''] || '💭'}
+                                                </span>
+                                                {conv.lastMessage?.direction === 'OUTBOUND' && (
+                                                    <span className={styles.outboundArrow}>↩ </span>
+                                                )}
+                                                {conv.lastMessage?.content || 'No messages'}
+                                            </span>
+                                        )}
                                         {/* WhatsApp-style green unread badge */}
                                         {hasUnread && (
                                             <span className={styles.unreadBadge}>
                                                 {unreadCount}
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {/* Row 3: Status + phone */}
-                                    <div className={styles.contactMeta}>
-                                        <span className={styles.statusTag}>
-                                            {conv.enquiryStatus.replace(/_/g, ' ')}
-                                        </span>
-                                        {conv.identifier && (
-                                            <span className={styles.phoneNumber}>
-                                                {conv.identifier}
                                             </span>
                                         )}
                                     </div>
