@@ -19,6 +19,9 @@ import { ContactModule } from './modules/contact/contact.module';
 import { OutboundModule } from './modules/outbound/outbound.module';
 import { PermissionModule } from './modules/permission/permission.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
+import { WebsocketModule } from './websocket/websocket.module';
+import { EventsModule } from './events/events.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -59,6 +62,9 @@ import { MessagingModule } from './modules/messaging/messaging.module';
     WebhookModule,
     OutboundModule,
     PermissionModule,
+    WebsocketModule,
+    EventsModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [

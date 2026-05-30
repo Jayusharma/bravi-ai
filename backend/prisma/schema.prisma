@@ -430,6 +430,12 @@ model ConversationMessage {
   // Source draft (nullable — only set for draft-originated outbound messages)
   draftId String?
 
+  // Outbound queue correlation
+  queueJobId  String?   // BullMQ job ID for correlation
+  failReason  String?   // Provider error message / bounce reason
+  retryCount  Int       @default(0)
+  lastRetryAt DateTime?
+
   // Threaded reply (Phase 4)
   replyToId String?
   replyTo   ConversationMessage?  @relation("MessageReply", fields: [replyToId], references: [id])
@@ -448,6 +454,7 @@ model ConversationMessage {
   @@index([enquiryId, createdAt])
   @@index([externalId])
   @@index([createdAt])
+  @@index([queueJobId])
 }
 
 // ============================================================================
@@ -568,7 +575,7 @@ model OutboundDraft {
 
   attachments DraftAttachment[]
 
-  @@unique([enquiryId, channel, createdBy, status])
+  @@index([enquiryId, channel, createdBy, status])
   @@index([enquiryId, channel])
   @@index([expiresAt, status])
 }
@@ -666,4 +673,23 @@ model ConversationRead {
 
   @@id([userId, enquiryId])
   @@index([userId])
+}
+
+// ============================================================================
+// OUTBOUND DEAD LETTER — Permanently failed outbound messages awaiting admin action
+// ============================================================================
+
+model OutboundDeadLetter {
+  id                    String    @id @default(uuid())
+  conversationMessageId String    @unique
+  jobName               String    // outbound.email | outbound.whatsapp
+  payload               Json      // full BullMQ job data for replay
+  lastError             String    // final error message from provider
+  attemptCount          Int
+  createdAt             DateTime  @default(now())
+  resolvedAt            DateTime?
+  resolvedBy            String?   // userId of admin who resolved
+
+  @@index([createdAt])
+  @@index([resolvedAt])
 }

@@ -10,11 +10,9 @@ import {
     type MessageAttachment,
     type ConversationPreview,
 } from '@/services/dashboard/conversation.services';
-import { createDraft, updateDraft, sendDraft, getActiveDraft, deleteDraftAttachment, type DraftAttachment } from '@/services/messaging/outbound.service';
-import { getSocket, joinEnquiryRoom, leaveEnquiryRoom } from '@/lib/socket';
-import { useUpload } from '@/hooks/useUpload';
-import { AttachmentPreview } from '@/components/messaging/AttachmentPreview';
+import { getSocket } from '@/lib/socket';
 import { ImageLightbox } from '@/components/messaging/ImageLightbox';
+import { Composer } from '@/components/messaging/Composer';
 import type { Socket } from 'socket.io-client';
 import styles from '@/styles/ContactList.module.css';
 
@@ -346,11 +344,11 @@ function EnquiryBlock({ enq, newMessageIds, activeChannel, onImageClick }: { enq
                                             <div className={styles.msgDeleted}>🚫 This message was deleted</div>
                                         ) : (
                                             <>
-                                                {msg.attachments && msg.attachments.length > 0 && (
-                                                    <MessageAttachments attachments={msg.attachments} onImageClick={onImageClick} />
-                                                )}
                                                 {msg.content && (
                                                     <div className={styles.msgContent}>{msg.content}</div>
+                                                )}
+                                                {msg.attachments && msg.attachments.length > 0 && (
+                                                    <MessageAttachments attachments={msg.attachments} onImageClick={onImageClick} />
                                                 )}
                                             </>
                                         )}
@@ -463,6 +461,17 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
                 }) => {
                     if (!mounted) return;
                     if (data.contactId !== contactId) return;
+
+                    // Dispatch local event to sync contact list preview instantly!
+                    window.dispatchEvent(new CustomEvent('last-message-updated', {
+                        detail: {
+                            contactId: data.contactId,
+                            content: data.message.content,
+                            direction: 'INBOUND',
+                            createdAt: data.message.createdAt,
+                            channel: data.message.channel,
+                        }
+                    }));
 
                     setThread(prev => {
                         if (!prev) return prev;
@@ -637,13 +646,9 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
         };
     }, [contactId]);
 
-    // ── Join enquiry room so outbound:sent / outbound:delivery_updated are received ──
-    const activeEnquiryId = thread?.enquiries[0]?.enquiryId ?? null;
-    useEffect(() => {
-        if (!activeEnquiryId) return;
-        joinEnquiryRoom(activeEnquiryId);
-        return () => { leaveEnquiryRoom(activeEnquiryId); };
-    }, [activeEnquiryId]);
+    // Parent (MessagingPage) already joins the contact room via contact:join.
+    // All events (inbound messages, outbound status, typing) are scoped to contact:{contactId}.
+    // No additional room join needed here.
 
     // ── Auto-scroll only when message count increases (not on delivery status ticks) ──
     useEffect(() => {
@@ -689,6 +694,8 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
     const primaryChannel = thread.contact.channels?.[0];
     const channelInfo = CHANNEL_LABELS[primaryChannel?.channel || ''] || { icon: '💭', label: 'Chat' };
     const statusColor = STATUS_COLORS[activeEnquiry?.status || ''] || '#6b7280';
+
+
 
     const handleChannelSwitch = (channel: 'WHATSAPP' | 'EMAIL') => {
         setActiveChannel(channel);
@@ -843,14 +850,13 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
                 )}
             </div>
 
-            {/* ── Composer ─────────────────────────────────────────── */}
-            <InlineComposer
+            {/* ── Composer (socket send, draft auto-save, WhatsApp window detection) ── */}
+            <Composer
                 enquiryId={activeEnquiry?.enquiryId ?? null}
                 channel={activeChannel}
                 contact={thread.contact}
                 onPreviewImage={(src, name) => setLightbox({ src, fileName: name })}
                 onMessageSent={(msg) => {
-                    // Optimistically append to thread
                     setThread(prev => {
                         if (!prev || !activeEnquiry) return prev;
                         const updated = prev.enquiries.map(enq => {
@@ -863,7 +869,18 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
                         });
                         return { ...prev, enquiries: updated };
                     });
-                    // Scroll to bottom
+
+                    // Dispatch local event to sync contact list preview instantly!
+                    window.dispatchEvent(new CustomEvent('last-message-updated', {
+                        detail: {
+                            contactId,
+                            content: msg.content,
+                            direction: 'OUTBOUND',
+                            createdAt: msg.createdAt,
+                            channel: msg.channel,
+                        }
+                    }));
+
                     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
                 }}
             />
@@ -877,584 +894,6 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
                 />
             )}
 
-        </div>
-    );
-}
-
-// ── Inline Composer ────────────────────────────────────────────────
-
-interface InlineComposerProps {
-    enquiryId: string | null;
-    channel: 'WHATSAPP' | 'EMAIL';
-    contact: ConversationThread['contact'];
-    onMessageSent: (msg: ThreadMessage) => void;
-    onPreviewImage?: (src: string, fileName: string) => void;
-}
-
-function InlineComposer({ enquiryId, channel, contact, onMessageSent, onPreviewImage }: InlineComposerProps) {
-    const [body, setBody] = useState('');
-    const [subject, setSubject] = useState('');
-    const [sending, setSending] = useState(false);
-    const [isDragOver, setIsDragOver] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    // Sync React State (for re-renders & useUpload hook) and Ref (for async callbacks)
-    const [draftId, setDraftId] = useState<string | null>(null);
-    const draftIdRef = useRef<string | null>(null);
-    const updateDraftId = (id: string | null) => {
-        draftIdRef.current = id;
-        setDraftId(id);
-    };
-
-    // States for attachment popup and contact selector modal
-    const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
-    const [showContactSelector, setShowContactSelector] = useState(false);
-    const [contactSearch, setContactSearch] = useState('');
-    const [contacts, setContacts] = useState<ConversationPreview[]>([]);
-    const [loadingContacts, setLoadingContacts] = useState(false);
-
-    // Already-uploaded attachments restored from a saved draft
-    const [existingAttachments, setExistingAttachments] = useState<DraftAttachment[]>([]);
-
-    const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const isSendingRef = useRef(false);
-    const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const isTypingRef = useRef(false);
-    const draftLoadedRef = useRef(false);
-    
-    // Refs for attachment popover & inputs
-    const attachmentMenuRef = useRef<HTMLDivElement>(null);
-    const paperclipBtnRef = useRef<HTMLButtonElement>(null);
-    const photoVideoInputRef = useRef<HTMLInputElement>(null);
-    const documentInputRef = useRef<HTMLInputElement>(null);
-    const audioInputRef = useRef<HTMLInputElement>(null);
-
-    const { uploads, addFiles, removeFile, retryFile, clearAll: clearUploads, isUploading } = useUpload(draftId);
-
-    // Draft isolation + restore: reset state then load saved draft from backend
-    useEffect(() => {
-        if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
-        if (typingTimerRef.current) { clearTimeout(typingTimerRef.current); typingTimerRef.current = null; }
-        updateDraftId(null);
-        setBody('');
-        setSubject('');
-        setError(null);
-        setSending(false);
-        setShowAttachmentMenu(false);
-        setExistingAttachments([]);
-        clearUploads();
-        isTypingRef.current = false;
-        isSendingRef.current = false;
-        draftLoadedRef.current = false;
-
-        if (!enquiryId) { draftLoadedRef.current = true; return; }
-
-        let cancelled = false;
-        (async () => {
-            try {
-                const draft = await getActiveDraft(enquiryId);
-                if (cancelled) return;
-                if (draft && draft.channel === channel && draft.status === 'ACTIVE') {
-                    updateDraftId(draft.id);
-                    setBody(draft.body ?? '');
-                    setSubject(draft.subject ?? '');
-                    if (draft.attachments && draft.attachments.length > 0) {
-                        setExistingAttachments(draft.attachments);
-                    }
-                }
-            } catch {
-                // Draft restore failure is non-blocking
-            } finally {
-                if (!cancelled) draftLoadedRef.current = true;
-            }
-        })();
-
-        return () => { cancelled = true; };
-    }, [enquiryId, channel]);
-
-    // Click outside handler for the attachment menu
-    useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
-            if (
-                attachmentMenuRef.current && 
-                !attachmentMenuRef.current.contains(event.target as Node) &&
-                paperclipBtnRef.current &&
-                !paperclipBtnRef.current.contains(event.target as Node)
-            ) {
-                setShowAttachmentMenu(false);
-            }
-        }
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    // Load actual contacts for selector modal
-    useEffect(() => {
-        if (!showContactSelector) return;
-        let active = true;
-        async function load() {
-            setLoadingContacts(true);
-            try {
-                const res = await getConversations({ search: contactSearch });
-                if (active) {
-                    setContacts(res.data);
-                }
-            } catch (err) {
-                console.error('Failed to load contacts for selector:', err);
-            } finally {
-                if (active) setLoadingContacts(false);
-            }
-        }
-        const timer = setTimeout(load, contactSearch ? 250 : 0);
-        return () => {
-            active = false;
-            clearTimeout(timer);
-        };
-    }, [showContactSelector, contactSearch]);
-
-    // Handle Contact Selection
-    const handleSelectContact = (selectedContact: ConversationPreview) => {
-        const detail = selectedContact.identifier || 'N/A';
-        const formattedCard = `👤 Contact Card:\nName: ${selectedContact.contactName}\nDetails: ${detail}`;
-        setBody(prev => {
-            const space = prev.trim() ? '\n\n' : '';
-            return prev + space + formattedCard;
-        });
-        // Close modal and focus textarea/enable sending
-        setShowContactSelector(false);
-        setContactSearch('');
-    };
-
-    // Resolve recipient for the selected channel
-    const recipientChannel = contact.channels.find(c => c.channel === channel)
-        ?? contact.channels.find(c => c.isPrimary)
-        ?? contact.channels[0]
-        ?? null;
-    const to = recipientChannel?.identifier ?? null;
-
-    const hasAnyAttachment = uploads.some(u => u.status === 'done') || existingAttachments.length > 0;
-    const canSend = !!enquiryId && !!to && (body.trim().length > 0 || hasAnyAttachment) && !sending && !isUploading;
-
-    // Auto-save draft 3s after user stops typing.
-    // Skipped when handleSend is in-flight to prevent race: both writing to same draft.
-    const scheduleSave = useCallback(() => {
-        if (!enquiryId || !body.trim() || !draftLoadedRef.current) return;
-        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-        autoSaveTimer.current = setTimeout(async () => {
-            if (isSendingRef.current) return;
-            try {
-                if (draftIdRef.current) {
-                    await updateDraft(draftIdRef.current, { channel, subject, body });
-                } else {
-                    const d = await createDraft(enquiryId, { channel, subject, body });
-                    updateDraftId(d.id);
-                }
-            } catch {
-                // silent — draft save failure is non-blocking
-            }
-        }, 3000);
-    }, [enquiryId, channel, subject, body]);
-
-    // Cleanup timer on unmount
-    useEffect(() => () => {
-        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    }, []);
-
-    const handleSend = async () => {
-        if (!canSend || !enquiryId) return;
-        isSendingRef.current = true;
-        setSending(true);
-        setError(null);
-        // Cancel any pending auto-save — handleSend will manage the draft
-        if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
-        // Stop typing indicator
-        if (typingTimerRef.current) { clearTimeout(typingTimerRef.current); typingTimerRef.current = null; }
-        if (isTypingRef.current) {
-            isTypingRef.current = false;
-            getSocket().then(s => s.emit('typing:stop', { enquiryId })).catch(() => {});
-        }
-        try {
-            // Ensure draft exists before sending
-            if (!draftIdRef.current) {
-                const d = await createDraft(enquiryId, { channel, subject, body });
-                updateDraftId(d.id);
-            } else {
-                await updateDraft(draftIdRef.current, { channel, subject, body });
-            }
-
-            const sent = await sendDraft(draftIdRef.current!, to ?? undefined);
-            updateDraftId(null);
-
-            // Build optimistic thread message shape (includes attachments from response)
-            const optimisticMsg: ThreadMessage = {
-                id: sent.id,
-                content: sent.content,
-                direction: 'OUTBOUND',
-                channel: sent.channel,
-                from: sent.from,
-                to: sent.to ?? null,
-                subject: sent.subject ?? null,
-                deliveryStatus: 'PENDING',
-                createdAt: sent.createdAt,
-                sentByUser: sent.sentByUser ?? null,
-                attachments: sent.attachments?.map((a) => ({
-                    id: a.id,
-                    kind: a.kind,
-                    fileName: a.fileName,
-                    mimeType: a.mimeType,
-                    fileSize: a.fileSize,
-                    cdnUrl: a.cdnUrl,
-                    width: a.width,
-                    height: a.height,
-                    durationMs: a.durationMs,
-                })),
-            };
-            onMessageSent(optimisticMsg);
-
-            // Reset form
-            setBody('');
-            setSubject('');
-            setExistingAttachments([]);
-            clearUploads();
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : 'Send failed. Please try again.';
-            setError(msg);
-        } finally {
-            isSendingRef.current = false;
-            setSending(false);
-        }
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey && channel === 'WHATSAPP') {
-            e.preventDefault();
-            handleSend();
-        }
-        if (e.key === 'Enter' && e.ctrlKey && channel === 'EMAIL') {
-            e.preventDefault();
-            handleSend();
-        }
-    };
-
-    const emitTyping = useCallback(async () => {
-        if (channel !== 'WHATSAPP' || !enquiryId) return;
-        try {
-            const sock = await getSocket();
-            if (!isTypingRef.current) {
-                isTypingRef.current = true;
-                sock.emit('typing:start', { enquiryId });
-            }
-            if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-            typingTimerRef.current = setTimeout(async () => {
-                isTypingRef.current = false;
-                sock.emit('typing:stop', { enquiryId });
-            }, 3000);
-        } catch { /* silent */ }
-    }, [channel, enquiryId]);
-
-    const MAX_ATTACHMENTS = 20;
-
-    const handleAddFiles = async (files: FileList | File[]) => {
-        if (!enquiryId) return;
-        setError(null);
-        const fileArray = Array.from(files);
-        const currentCount = uploads.length;
-        if (currentCount + fileArray.length > MAX_ATTACHMENTS) {
-            setError(`Maximum ${MAX_ATTACHMENTS} attachments per message. You have ${currentCount}, tried to add ${fileArray.length}.`);
-            return;
-        }
-        if (!draftIdRef.current) {
-            try {
-                const d = await createDraft(enquiryId, { channel, subject: '', body: '' });
-                updateDraftId(d.id);
-            } catch (err) {
-                setError('Failed to initialize attachment draft.');
-                return;
-            }
-        }
-        addFiles(fileArray);
-    };
-
-    const handlePaste = (e: React.ClipboardEvent) => {
-        const files = Array.from(e.clipboardData.files);
-        if (files.length > 0) {
-            e.preventDefault();
-            handleAddFiles(files);
-        }
-    };
-
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragOver(false);
-        const files = Array.from(e.dataTransfer.files);
-        if (files.length > 0) handleAddFiles(files);
-    };
-
-    if (!enquiryId) {
-        return (
-            <div className={styles.composer}>
-                <input
-                    type="text"
-                    className={styles.composerInput}
-                    placeholder="No active enquiry"
-                    disabled
-                />
-                <button className={styles.composerBtn} disabled>➤</button>
-            </div>
-        );
-    }
-
-    if (!to) {
-        return (
-            <div className={styles.composer}>
-                <input
-                    type="text"
-                    className={styles.composerInput}
-                    placeholder={`No ${channel} channel configured for this contact`}
-                    disabled
-                />
-                <button className={styles.composerBtn} disabled>➤</button>
-            </div>
-        );
-    }
-
-    return (
-        <div
-            className={styles.composerWrapper}
-            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-            onDragLeave={() => setIsDragOver(false)}
-            onDrop={handleDrop}
-            style={isDragOver ? { outline: '2px dashed #6366f1', outlineOffset: '-2px' } : undefined}
-        >
-            {error && (
-                <div className={styles.composerError}>
-                    ⚠️ {error}
-                    <button onClick={() => setError(null)} className={styles.composerErrorDismiss}>✕</button>
-                </div>
-            )}
-            {channel === 'EMAIL' && (
-                <input
-                    type="text"
-                    value={subject}
-                    onChange={e => { setSubject(e.target.value); scheduleSave(); }}
-                    placeholder="Subject (optional)"
-                    className={styles.composerSubjectInput}
-                    disabled={sending}
-                />
-            )}
-
-            {/* Attachment preview strip */}
-            <AttachmentPreview
-                uploads={uploads}
-                existingAttachments={existingAttachments}
-                onRemove={removeFile}
-                onRetry={retryFile}
-                onPreview={onPreviewImage}
-                onRemoveExisting={async (attId) => {
-                    if (!draftIdRef.current) return;
-                    try {
-                        await deleteDraftAttachment(draftIdRef.current, attId);
-                        setExistingAttachments(prev => prev.filter(a => a.id !== attId));
-                    } catch { /* silent */ }
-                }}
-            />
-
-            {/* Hidden file inputs for distinct media types */}
-            <input
-                ref={photoVideoInputRef}
-                type="file"
-                multiple
-                accept="image/*,video/*"
-                style={{ display: 'none' }}
-                onChange={(e) => { if (e.target.files) { handleAddFiles(e.target.files); e.target.value = ''; } }}
-            />
-
-            <input
-                ref={documentInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip,.rar"
-                style={{ display: 'none' }}
-                onChange={(e) => { if (e.target.files) { handleAddFiles(e.target.files); e.target.value = ''; } }}
-            />
-
-            <input
-                ref={audioInputRef}
-                type="file"
-                multiple
-                accept="audio/*"
-                style={{ display: 'none' }}
-                onChange={(e) => { if (e.target.files) { handleAddFiles(e.target.files); e.target.value = ''; } }}
-            />
-
-            {/* WhatsApp-style Attachment Popover Menu */}
-            {showAttachmentMenu && (
-                <div ref={attachmentMenuRef} className={styles.attachmentMenu}>
-                    <button
-                        type="button"
-                        className={styles.attachmentMenuItem}
-                        onClick={() => {
-                            documentInputRef.current?.click();
-                            setShowAttachmentMenu(false);
-                        }}
-                    >
-                        <div className={`${styles.attachmentIconCircle} ${styles.iconDocument}`}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                            </svg>
-                        </div>
-                        <span>Document</span>
-                    </button>
-                    <button
-                        type="button"
-                        className={styles.attachmentMenuItem}
-                        onClick={() => {
-                            photoVideoInputRef.current?.click();
-                            setShowAttachmentMenu(false);
-                        }}
-                    >
-                        <div className={`${styles.attachmentIconCircle} ${styles.iconPhotos}`}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a6 6 0 0 1 8.486 0L21.75 16.5m-19.5 3.75h19.5a2.25 2.25 0 0 0 2.25-2.25L21.75 7.5a2.25 2.25 0 0 0-2.25-2.25H2.25A2.25 2.25 0 0 0 0 7.5v9.25a2.25 2.25 0 0 0 2.25 2.25Z" />
-                                <circle cx="7.5" cy="9.5" r="1.5" stroke="currentColor" strokeWidth="2" fill="none" />
-                            </svg>
-                        </div>
-                        <span>Photos & videos</span>
-                    </button>
-                    <button
-                        type="button"
-                        className={styles.attachmentMenuItem}
-                        onClick={() => {
-                            audioInputRef.current?.click();
-                            setShowAttachmentMenu(false);
-                        }}
-                    >
-                        <div className={`${styles.attachmentIconCircle} ${styles.iconAudio}`}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H18a2.25 2.25 0 0 1-2.25-2.25V5.25A2.25 2.25 0 0 1 18 3h.75A2.25 2.25 0 0 1 21 5.25Zm-12 0V15A2.25 2.25 0 0 1 6.75 17.25H6A2.25 2.25 0 0 1 3.75 15V5.25A2.25 2.25 0 0 1 6 3h.75A2.25 2.25 0 0 1 9 5.25Z" />
-                            </svg>
-                        </div>
-                        <span>Audio</span>
-                    </button>
-                    <button
-                        type="button"
-                        className={styles.attachmentMenuItem}
-                        onClick={() => {
-                            setShowContactSelector(true);
-                            setShowAttachmentMenu(false);
-                        }}
-                    >
-                        <div className={`${styles.attachmentIconCircle} ${styles.iconContact}`}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-                            </svg>
-                        </div>
-                        <span>Contact</span>
-                    </button>
-                </div>
-            )}
-
-            {/* Contact Selector Modal */}
-            {showContactSelector && (
-                <div className={styles.modalOverlay} onClick={() => setShowContactSelector(false)}>
-                    <div className={styles.contactSelectorModal} onClick={e => e.stopPropagation()}>
-                        <div className={styles.modalHeader}>
-                            <h3>Select Contact</h3>
-                            <button
-                                type="button"
-                                className={styles.modalCloseBtn}
-                                onClick={() => setShowContactSelector(false)}
-                            >
-                                ✕
-                            </button>
-                        </div>
-                        <div className={styles.modalSearchBox}>
-                            <input
-                                type="text"
-                                className={styles.modalSearchInput}
-                                placeholder="Search by name..."
-                                value={contactSearch}
-                                onChange={e => setContactSearch(e.target.value)}
-                                autoFocus
-                            />
-                        </div>
-                        <div className={styles.contactSelectorList}>
-                            {loadingContacts && contacts.length === 0 ? (
-                                <div className={styles.emptyState}>Loading contacts...</div>
-                            ) : contacts.length === 0 ? (
-                                <div className={styles.emptyState}>No contacts found</div>
-                            ) : (
-                                contacts.map(c => (
-                                    <div
-                                        key={c.contactId}
-                                        className={styles.contactSelectorItem}
-                                        onClick={() => handleSelectContact(c)}
-                                    >
-                                        <div className={styles.selectorAvatar}>
-                                            {c.contactName.charAt(0).toUpperCase()}
-                                        </div>
-                                        <div className={styles.selectorInfo}>
-                                            <div className={styles.selectorName}>{c.contactName}</div>
-                                            {c.identifier && (
-                                                <div className={styles.selectorDetail}>{c.identifier}</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div className={styles.composer}>
-                {/* Paperclip attachment button */}
-                <button
-                    ref={paperclipBtnRef}
-                    type="button"
-                    className={styles.composerIconBtn}
-                    onClick={() => setShowAttachmentMenu(prev => !prev)}
-                    disabled={sending}
-                    title="Attach"
-                    style={{ opacity: sending ? 0.4 : 1 }}
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
-                    </svg>
-                </button>
-
-                <textarea
-                    value={body}
-                    onChange={e => { setBody(e.target.value); scheduleSave(); emitTyping(); }}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
-                    placeholder={channel === 'WHATSAPP' ? 'Type a message...' : 'Write an email draft...'}
-                    className={styles.composerTextarea}
-                    rows={1}
-                    disabled={sending}
-                />
-                <button
-                    className={styles.composerBtn}
-                    disabled={!canSend}
-                    onClick={handleSend}
-                    title={channel === 'EMAIL' ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
-                >
-                    {sending ? (
-                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                    ) : isUploading ? (
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                        </svg>
-                    ) : (
-                        <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" style={{ transform: 'rotate(45deg)', marginLeft: '-2px' }}>
-                            <path d="M24 0l-6 22-8.129-7.239 7.802-8.234-10.458 7.227-7.215-1.754 24-12zm-15 16.668v7.332l3.258-4.431-3.258-2.901z" />
-                        </svg>
-                    )}
-                </button>
-            </div>
         </div>
     );
 }

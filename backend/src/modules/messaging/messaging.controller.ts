@@ -20,11 +20,13 @@ export class ConversationController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('channel') channel?: string,
   ) {
     return this.conversationService.listConversations({
       search,
       page: page ? parseInt(page) : undefined,
       limit: limit ? parseInt(limit) : undefined,
+      channel,
     });
   }
 

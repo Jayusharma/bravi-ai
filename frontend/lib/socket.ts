@@ -38,11 +38,10 @@ async function createConnection(): Promise<Socket> {
 
   sock.on('connect', () => {
     console.log('🔌 WebSocket connected:', sock.id);
-    // Re-join all rooms after reconnect
+    // Re-join all contact rooms after reconnect
     for (const room of joinedRooms) {
       const [ns, id] = room.split(':');
-      if (ns === 'enquiry') sock.emit('enquiry:join', { enquiryId: id });
-      if (ns === 'contact') sock.emit('chat:join', { contactId: id });
+      if (ns === 'contact') sock.emit('contact:join', { contactId: id });
     }
   });
 
@@ -81,23 +80,24 @@ export async function getSocket(): Promise<Socket> {
 }
 
 /**
- * Join an enquiry room and register it for auto-rejoin on reconnect.
+ * Joins a contact room and registers it for auto-rejoin on reconnect.
+ * All real-time events (inbound messages, outbound status, typing) are scoped to this room.
  */
-export async function joinEnquiryRoom(enquiryId: string): Promise<void> {
+export async function joinContactRoom(contactId: string): Promise<void> {
   const sock = await getSocket();
-  const key = `enquiry:${enquiryId}`;
+  const key = `contact:${contactId}`;
   joinedRooms.add(key);
-  sock.emit('enquiry:join', { enquiryId });
+  sock.emit('contact:join', { contactId });
 }
 
 /**
- * Leave an enquiry room and remove it from the reconnect registry.
+ * Leaves a contact room and removes it from the reconnect registry.
  */
-export async function leaveEnquiryRoom(enquiryId: string): Promise<void> {
-  const key = `enquiry:${enquiryId}`;
+export async function leaveContactRoom(contactId: string): Promise<void> {
+  const key = `contact:${contactId}`;
   joinedRooms.delete(key);
   if (socket?.connected) {
-    socket.emit('enquiry:leave', { enquiryId });
+    socket.emit('contact:leave', { contactId });
   }
 }
 

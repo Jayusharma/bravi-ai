@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { uploadAttachment, UploadedAttachment } from '@/lib/upload';
+import { deleteDraftAttachment } from '@/services/messaging/outbound.service';
 
 export type UploadStatus = 'pending' | 'uploading' | 'done' | 'failed';
 
@@ -101,9 +102,19 @@ export function useUpload(draftId: string | null): UseUploadReturn {
 
   const removeFile = useCallback((id: string) => {
     const upload = uploadsRef.current.find((u) => u.id === id);
-    upload?.abortController.abort();
+    if (!upload) return;
+
+    if (upload.status === 'done' && upload.result && draftId) {
+      // Upload already completed — the DraftAttachment row exists in the DB.
+      // Must delete it so send() does not transfer it to MessageAttachment.
+      deleteDraftAttachment(draftId, upload.result.attachmentId).catch(() => {});
+    } else {
+      // Still in progress — aborting the XHR prevents the row from being created.
+      upload.abortController.abort();
+    }
+
     setAndSync((prev) => prev.filter((u) => u.id !== id));
-  }, []);
+  }, [draftId]);
 
   const retryFile = useCallback(
     (id: string) => {

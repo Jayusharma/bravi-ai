@@ -29,8 +29,6 @@ export function SidebarClient({ children }: SidebarClientProps) {
 
     // ── Topbar lock/unlock ──
     const [topbarLocked, setTopbarLocked] = useState<boolean>(true);
-    const [topbarHovered, setTopbarHovered] = useState(false);
-    const topbarHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Client-side settings hydration to prevent SSR hydration mismatches ──
     useEffect(() => {
@@ -58,21 +56,9 @@ export function SidebarClient({ children }: SidebarClientProps) {
         setTopbarLocked((prev) => {
             const next = !prev;
             localStorage.setItem('topbar-locked', String(next));
-            if (next) setTopbarHovered(false);
             return next;
         });
     }, []);
-
-    const handleTopbarEnter = useCallback(() => {
-        if (topbarLocked) return;
-        if (topbarHoverTimeoutRef.current) clearTimeout(topbarHoverTimeoutRef.current);
-        setTopbarHovered(true);
-    }, [topbarLocked]);
-
-    const handleTopbarLeave = useCallback(() => {
-        if (topbarLocked) return;
-        topbarHoverTimeoutRef.current = setTimeout(() => setTopbarHovered(false), 300);
-    }, [topbarLocked]);
 
     const toggleSidebarLock = useCallback(() => {
         setSidebarLocked((prev) => {
@@ -97,7 +83,6 @@ export function SidebarClient({ children }: SidebarClientProps) {
     useEffect(() => {
         return () => {
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-            if (topbarHoverTimeoutRef.current) clearTimeout(topbarHoverTimeoutRef.current);
         };
     }, []);
 
@@ -371,26 +356,9 @@ export function SidebarClient({ children }: SidebarClientProps) {
             )}
 
             {/* ═════════ MAIN CONTENT ═════════ */}
-            <div className={`flex min-w-0 flex-1 flex-col transition-[margin] duration-300 ease-in-out ${!sidebarLocked ? 'md:ml-[52px]' : ''} ${!topbarLocked ? 'topbar-collapsed' : ''} ${topbarHovered ? 'topbar-open' : ''}`}>
-                {!topbarLocked && (
-                    <div 
-                        className="topbar-sensor" 
-                        onMouseEnter={handleTopbarEnter}
-                        style={{
-                            position: 'fixed',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: '24px', // Increased sensor height to cover the peek strip + arrow button
-                            zIndex: 999,
-                            background: 'transparent'
-                        }}
-                    />
-                )}
+            <div className={`flex min-w-0 flex-1 flex-col transition-[margin] duration-300 ease-in-out ${!sidebarLocked ? 'md:ml-[52px]' : ''} ${!topbarLocked ? 'topbar-collapsed' : ''}`}>
                 <header 
                     className="dashboard-topbar sticky top-0 z-30 border-b border-border/70 px-4 md:px-8"
-                    onMouseEnter={handleTopbarEnter}
-                    onMouseLeave={handleTopbarLeave}
                     style={{ position: 'relative' }}
                 >
                     {/* Topbar short arrow button perfectly centered on the bottom border line */}

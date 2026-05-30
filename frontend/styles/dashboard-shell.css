@@ -25,15 +25,8 @@
   mask-image: linear-gradient(180deg, hsl(0 0% 0% / 0.45), transparent 90%);
 }
 
-.dashboard-sidebar {
-  background:
-    linear-gradient(180deg, hsl(var(--sidebar-background) / 0.94) 0%, hsl(var(--sidebar-background) / 0.86) 100%);
-  box-shadow: inset -1px 0 0 hsl(var(--sidebar-border) / 0.65);
-  backdrop-filter: blur(18px);
-}
-
+.dashboard-sidebar,
 .dashboard-topbar {
-  background: linear-gradient(180deg, hsl(var(--background) / 0.82), hsl(var(--background) / 0.66));
   backdrop-filter: blur(18px);
 }
 
@@ -230,26 +223,38 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 .sidebar-surface {
+  box-shadow: inset -1px 0 0 hsl(var(--sidebar-border) / 0.65);
+  backdrop-filter: blur(18px);
+}
+
+/* ── Standardize Premium Shared Sidebar & Topbar Backdrop Gradient ── */
+.dashboard-sidebar,
+.sidebar-surface,
+.dashboard-topbar {
   background:
     linear-gradient(
       180deg,
       hsl(var(--sidebar-background) / 0.98) 0%,
       hsl(var(--sidebar-background) / 0.92) 100%
     );
-  box-shadow: inset -1px 0 0 hsl(var(--sidebar-border) / 0.65);
-  backdrop-filter: blur(18px);
 }
 
-/* Light mode: give sidebar a subtle cool-gray tint so it's clearly different */
-:root .sidebar-surface {
+/* Light mode: premium cool-gray (slightly darker for unified visibility) */
+:root .dashboard-sidebar,
+:root .sidebar-surface,
+:root .dashboard-topbar {
   background:
-    linear-gradient(180deg, hsl(220 20% 97%) 0%, hsl(220 14% 95%) 100%);
+    linear-gradient(180deg, hsl(220 16% 94.5%) 0%, hsl(220 14% 92.5%) 100%) !important;
+  border-color: hsl(220 12% 88% / 0.8) !important;
 }
 
-/* Dark mode: give sidebar a slightly lighter tint */
-.dark .sidebar-surface {
+/* Dark mode: premium deep midnight slate background */
+.dark .dashboard-sidebar,
+.dark .sidebar-surface,
+.dark .dashboard-topbar {
   background:
-    linear-gradient(180deg, hsl(240 8% 8%) 0%, hsl(240 6% 6.5%) 100%);
+    linear-gradient(180deg, hsl(224 12% 8%) 0%, hsl(224 10% 7%) 100%) !important;
+  border-color: hsl(224 10% 14% / 0.8) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -284,11 +289,11 @@
 }
 
 :root .sidebar-rail::before {
-  background: linear-gradient(180deg, hsl(220 20% 97% / 0.7) 0%, hsl(220 14% 95% / 0.4) 100%);
+  background: linear-gradient(180deg, hsl(220 16% 94.5% / 0.7) 0%, hsl(220 14% 92.5% / 0.4) 100%) !important;
 }
 
 .dark .sidebar-rail::before {
-  background: linear-gradient(180deg, hsl(240 8% 8% / 0.7) 0%, hsl(240 6% 6.5% / 0.4) 100%);
+  background: linear-gradient(180deg, hsl(224 12% 8% / 0.7) 0%, hsl(224 10% 7% / 0.4) 100%) !important;
 }
 
 .sidebar-rail:hover::before {

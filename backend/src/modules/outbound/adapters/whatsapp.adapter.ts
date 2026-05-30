@@ -65,7 +65,26 @@ export class WhatsAppAdapter implements ChannelAdapter {
       return { success: true, externalId: message.sid };
     } catch (error: any) {
       this.logger.error(`WhatsApp send error: ${error.message}`);
-      return { success: false, error: error.message };
+      return {
+        success: false,
+        error: error.message,
+        failReason: this.mapTwilioError(error),
+      };
     }
+  }
+
+  /** Maps Twilio error codes to agent-readable failure reasons */
+  private mapTwilioError(error: any): string {
+    const code = error?.code ?? error?.status;
+    const twilioMessages: Record<number, string> = {
+      21211: 'Invalid phone number — check the contact\'s WhatsApp number.',
+      21408: 'Permission denied to send to this number.',
+      21610: 'This number has opted out of WhatsApp messages.',
+      21614: 'Number is not a valid mobile number.',
+      63003: 'WhatsApp channel is not available for this number.',
+      63016: 'Message failed — WhatsApp 24-hour window may be closed.',
+      63032: 'Template required — customer hasn\'t messaged in 24 hours.',
+    };
+    return twilioMessages[code] ?? error.message ?? 'WhatsApp delivery failed.';
   }
 }

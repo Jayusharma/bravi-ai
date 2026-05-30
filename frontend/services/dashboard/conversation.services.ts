@@ -103,6 +103,7 @@ export async function getConversations(params?: {
   search?: string;
   page?: number;
   limit?: number;
+  channel?: string;
 }): Promise<ConversationsResponse> {
   return apiClient<ConversationsResponse>(API.CONVERSATION.LIST, { params });
 }

@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
 import { MessageChannel } from '@prisma/client';
 
 export class CreateDraftDto {
@@ -12,4 +12,8 @@ export class CreateDraftDto {
   @IsOptional()
   @IsString()
   body?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  saveForLater?: boolean;
 }

@@ -121,8 +121,8 @@ export default function MessagingPage() {
             return next;
         });
 
-        // Join the chat room for real-time messages
-        socketRef.current?.emit('chat:join', { contactId: conv.contactId });
+        // Join the contact room — all real-time events (messages, outbound status, typing) come here
+        socketRef.current?.emit('contact:join', { contactId: conv.contactId });
     }, []);
 
     // ── Handle notification click (jump to that chat) ──
@@ -142,7 +142,7 @@ export default function MessagingPage() {
     const prevContactIdRef = useRef<string | null>(null);
     useEffect(() => {
         if (prevContactIdRef.current && prevContactIdRef.current !== activeConversation?.contactId) {
-            socketRef.current?.emit('chat:leave', { contactId: prevContactIdRef.current });
+            socketRef.current?.emit('contact:leave', { contactId: prevContactIdRef.current });
         }
         prevContactIdRef.current = activeConversation?.contactId || null;
     }, [activeConversation?.contactId]);

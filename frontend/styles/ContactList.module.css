@@ -300,8 +300,8 @@
 }
 
 .listHeader {
-  padding: 16px 14px 12px;
-  border-bottom: 1px solid var(--panel-border);
+  padding: 16px 14px 8px;
+  border-bottom: none !important;
   flex-shrink: 0;
   background: var(--cl-bg);
 }
@@ -407,7 +407,7 @@
   text-overflow: ellipsis;
 }
 .contactNameUnread {
-  font-weight: 800;
+  font-weight: 600; /* Subtle premium semi-bold */
 }
 
 .contactTime {
@@ -433,7 +433,7 @@
 }
 .contactPreviewUnread {
   color: var(--text-primary) !important;
-  font-weight: 700;
+  font-weight: 400; /* Clean normal weight matching WhatsApp */
 }
 
 /* Draft indicator in contact list */
@@ -1270,10 +1270,11 @@
 
 .channelWhatsapp .composer {
   background: var(--wa-bubble-in);
-  padding: 5px 10px;
+  padding: 6px 12px !important; /* Elegant thinner vertical padding */
   border-radius: 24px;
   border: 1px solid var(--wa-border);
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  align-items: center !important; /* Perfect vertical parallel alignment when empty/single line */
 }
 
 .composerTextarea {
@@ -1300,7 +1301,10 @@
 .channelWhatsapp .composerTextarea {
   border: none !important;
   background: transparent !important;
-  padding: 6px 2px !important;
+  padding: 2px 2px !important; /* Ultra-thin padding matching WhatsApp reference */
+  min-height: 24px !important; /* Thinner min-height matching reference */
+  margin: 0 !important;
+  line-height: 20px !important;
   box-shadow: none !important;
   color: var(--wa-bubble-in-text) !important;
 }
@@ -1785,4 +1789,75 @@
   overflow: hidden;
   text-overflow: ellipsis;
   margin-top: 1px;
+}
+
+/* ══════════════════════════ CHANNEL FILTER TABS ═══════════════ */
+.channelTabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--cl-bg);
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.channelTab {
+  padding: 6px 14px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  line-height: 1;
+}
+
+.channelTab:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.channelTabActive.tabAll {
+  background: #e0e7ff !important;
+  color: #4338ca !important;
+  border-color: #c7d2fe !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.12) !important;
+}
+
+:global(.dark) .channelTabActive.tabAll {
+  background: rgba(99, 102, 241, 0.22) !important;
+  color: #a5b4fc !important;
+  border-color: rgba(99, 102, 241, 0.45) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+}
+
+.channelTabActive.tabWhatsapp {
+  background: var(--wa-accent) !important;
+  color: #ffffff !important;
+  border-color: var(--wa-accent) !important;
+  box-shadow: 0 2px 8px rgba(37, 211, 102, 0.22) !important;
+}
+
+.channelTabActive.tabEmail {
+  background: var(--email-accent) !important;
+  color: #ffffff !important;
+  border-color: var(--email-accent) !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.22) !important;
+}
+
+.channelTabDot {
+  width: 6px;
+  height: 6px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulseDot 1.8s infinite;
 }

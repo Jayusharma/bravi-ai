@@ -66,25 +66,25 @@ User picks file via attachment menu
 ## WebSocket Events
 
 ### Emitted (client → server)
-| Event          | Component                   | When                         | Payload         |
-|----------------|-----------------------------|------------------------------|-----------------|
-| `chat:join`    | `ChatView`                  | Contact selected (mount)     | `{ contactId }` |
-| `chat:leave`   | `ChatView`                  | Contact deselected (unmount) | `{ contactId }` |
-| `enquiry:join` | `ChatView`                  | After thread loaded          | `{ enquiryId }` |
-| `typing:start` | `ChatView` (InlineComposer) | User starts typing           | `{ enquiryId }` |
-| `typing:stop`  | `ChatView` (InlineComposer) | 2s after last keystroke      | `{ enquiryId }` |
+| Event          | Component      | When                         | Payload     |
+|----------------|----------------|------------------------------|-------------|
+| `chat:join`    | `ChatView`     | Contact selected (mount)     | `{ contactId }` |
+| `chat:leave`   | `ChatView`     | Contact deselected (unmount) | `{ contactId }` |
+| `enquiry:join` | `ChatView`     | After thread loaded          | `{ enquiryId }` |
+| `typing:start` | `ChatView` (InlineComposer) | User starts typing | `{ enquiryId }` |
+| `typing:stop`  | `ChatView` (InlineComposer) | 2s after last keystroke | `{ enquiryId }` |
 
 ### Subscribed (server → client)
-| Event                       | Handler                     | Effect                                                           |
-|-----------------------------|-----------------------------|------------------------------------------------------------------|
-| `notification:new-message`  | `messaging/page.tsx`        | Show `<MessageToast>`, increment unread badge for that contactId |
-| `contact-list:update`       | `ContactList`               | Replace contact list (only if no active search)                  |
-| `chat:new-message`          | `ChatView`                  | Append inbound message to thread                                 |
-| `outbound:sent`             | `ChatView`                  | Append outbound message to thread                                |
-| `outbound:delivery_updated` | `ChatView`                  | Update delivery status badge on message                          |
-| `message:reaction_updated`  | `ChatView`                  | Re-render reaction row on message                                |
-| `message:deleted`           | `ChatView`                  | Mark message as deleted in thread                                |
-| `message:edited`            | `ChatView`                  | Update message content + show edited timestamp                   |
+| Event                     | Handler              | Effect               |
+|------------|--------------|----------------------|-----------------------
+| `notification:new-message`  | `messaging/page.tsx` | Show `<MessageToast>`, increment unread badge for that contactId |
+| `contact-list:update`       | `ContactList`        | Replace contact list (only if no active search)                  |
+| `chat:new-message`          | `ChatView`           | Append inbound message to thread                                 |
+| `outbound:sent`             | `ChatView`           | Append outbound message to thread                                |
+| `outbound:delivery_updated` | `ChatView`           | Update delivery status badge on message                          |
+| `message:reaction_updated`  | `ChatView`           | Re-render reaction row on message                                |
+| `message:deleted`           | `ChatView`           | Mark message as deleted in thread                                |
+| `message:edited`            | `ChatView`           | Update message content + show edited timestamp                   |
 | `typing:update`             | `ChatView` (InlineComposer) | Show/hide typing indicator with user name                        |
 
 ## State Management

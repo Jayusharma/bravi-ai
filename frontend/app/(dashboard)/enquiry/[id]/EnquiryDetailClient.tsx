@@ -4,14 +4,15 @@ import { useEffect, useState } from 'react';
 import { getSocket } from '@/lib/socket';
 import { EnquiryDetail } from '@/services/messaging/enquiry.service';
 import { OutboundDraft, OutboundMessage } from '@/services/messaging/outbound.service';
-import { OutboundComposer } from '@/components/outbound/OutboundComposer';
-import { OutboundHistory } from '@/components/outbound/OutboundHistory';
+
+// OutboundComposer and OutboundHistory were consolidated into the main messaging view (ChatView).
+// This enquiry-detail page renders a simplified read-only message list + link to the main view.
 
 const STATUS_COLOR: Record<string, string> = {
     NEW: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
     OPEN: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
     IN_PROGRESS: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-    AWAITING_CUSTOMER: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+    AWAITING_CUSTOMER: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-amber-300',
     QUOTATION_SENT: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
     FOLLOW_UP: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
     STALE: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
@@ -29,25 +30,11 @@ interface Props {
 
 export function EnquiryDetailClient({
     enquiry,
-    initialDraft,
     initialMessages,
-    recipientChannel,
-    recipientAddress,
 }: Props) {
-    const [historyKey, setHistoryKey] = useState(0);
-
     useEffect(() => {
-        let sock: Awaited<ReturnType<typeof getSocket>> | null = null;
-        getSocket().then((s) => {
-            sock = s;
-            s.emit('enquiry:join', { enquiryId: enquiry.id });
-        });
-        return () => {
-            sock?.emit('enquiry:leave', { enquiryId: enquiry.id });
-        };
+        // Enquiry room join removed — all real-time events now go through contact:{contactId} room in the messaging view.
     }, [enquiry.id]);
-
-    const refreshHistory = () => setHistoryKey((k) => k + 1);
 
     const initials = enquiry.contact.displayName
         .split(' ')
@@ -57,7 +44,6 @@ export function EnquiryDetailClient({
         .toUpperCase();
 
     return (
-        // Break out of the dashboard padding wrapper to fill full height
         <div className="-mx-4 -my-4 md:-mx-8 md:-my-8 flex flex-col overflow-hidden" style={{ height: 'calc(100vh - 80px)' }}>
 
             {/* ── Chat header ── */}
@@ -93,30 +79,34 @@ export function EnquiryDetailClient({
                 </div>
             </div>
 
-            {/* ── Messages area ── */}
-            <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950/50">
-                <OutboundHistory
-                    key={historyKey}
-                    enquiryId={enquiry.id}
-                    initialMessages={initialMessages}
-                />
+            {/* ── Message history (read-only) ── */}
+            <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950/50 p-4 space-y-3">
+                {initialMessages.length === 0 && (
+                    <p className="text-center text-sm text-muted-foreground py-8">No messages yet.</p>
+                )}
+                {initialMessages.map((msg) => (
+                    <div key={msg.id} className={`flex ${msg.direction === 'OUTBOUND' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[70%] rounded-lg px-3 py-2 text-sm ${msg.direction === 'OUTBOUND' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-foreground border border-border/60'}`}>
+                            {msg.content}
+                            <div className="text-[10px] opacity-60 mt-1 text-right">
+                                {new Date(msg.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                {' · '}
+                                {msg.deliveryStatus}
+                            </div>
+                        </div>
+                    </div>
+                ))}
             </div>
 
-            {/* ── Composer ── */}
-            <div className="shrink-0 border-t border-border/60 bg-background">
-                {recipientAddress ? (
-                    <OutboundComposer
-                        enquiryId={enquiry.id}
-                        contactChannel={recipientChannel}
-                        recipientAddress={recipientAddress}
-                        initialDraft={initialDraft}
-                        onMessageSent={refreshHistory}
-                    />
-                ) : (
-                    <p className="px-4 py-3 text-sm text-muted-foreground text-center">
-                        No contact channel configured. Add an email or phone number to send messages.
-                    </p>
-                )}
+            {/* ── Send via messaging view ── */}
+            <div className="shrink-0 border-t border-border/60 bg-background px-4 py-3">
+                <p className="text-sm text-muted-foreground text-center">
+                    To reply, open the{' '}
+                    <a href="/messaging" className="text-indigo-500 underline hover:text-indigo-400">
+                        Messaging view
+                    </a>
+                    {' '}and select this contact.
+                </p>
             </div>
         </div>
     );

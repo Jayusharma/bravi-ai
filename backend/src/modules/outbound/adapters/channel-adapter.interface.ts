@@ -26,7 +26,8 @@ export interface SendParams {
 export interface SendResult {
   success: boolean;
   externalId?: string;  // Provider's message ID for tracking
-  error?: string;       // Error message if failed
+  error?: string;       // Technical error string (for logs/retry decisions)
+  failReason?: string;  // Human-readable failure reason (shown to agents in UI tooltip)
 }
 
 export interface ChannelAdapter {

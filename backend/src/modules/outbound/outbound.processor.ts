@@ -37,7 +37,14 @@ export const OUTBOUND_QUEUE = 'OUTBOUND_QUEUE';
 export const JOB_EMAIL = 'outbound:email';
 export const JOB_WHATSAPP = 'outbound:whatsapp';
 
-@Processor(OUTBOUND_QUEUE)
+@Processor(OUTBOUND_QUEUE, {
+  concurrency: parseInt(process.env.OUTBOUND_WORKER_CONCURRENCY ?? '5', 10),
+  limiter: { max: 10, duration: 1000 },  // conservative limit safe for WhatsApp (10/s)
+  settings: {
+    backoffStrategy: (attemptsMade: number): number =>
+      ([1000, 4000, 16000][attemptsMade - 1] ?? 16000),
+  },
+})
 export class OutboundProcessor extends WorkerHost {
   private readonly logger = new Logger(OutboundProcessor.name);
 
@@ -65,7 +72,7 @@ export class OutboundProcessor extends WorkerHost {
 
   /**
    * Called by BullMQ after ALL retry attempts are exhausted.
-   * This is the correct place to mark the message FAILED permanently.
+   * Marks the message FAILED, inserts an OutboundDeadLetter row, and emits outbound.failed.
    */
   @OnWorkerEvent('failed')
   async onJobFailed(job: Job<EmailJobPayload | WhatsAppJobPayload>, error: Error) {
@@ -73,18 +80,40 @@ export class OutboundProcessor extends WorkerHost {
     this.logger.error(`💀 Job ${job.id} failed permanently after ${job.attemptsMade} attempts: ${error.message}`);
 
     try {
+      const failReason = error.message ?? 'Delivery failed after all retry attempts.';
+
       await this.prisma.conversationMessage.update({
         where: { id: messageId },
-        data: { deliveryStatus: DeliveryStatus.FAILED },
+        data: { deliveryStatus: DeliveryStatus.FAILED, failReason },
       });
+
+      // Insert dead letter row (upsert in case onJobFailed fires twice — e.g. from a crash)
+      await this.prisma.outboundDeadLetter.upsert({
+        where: { conversationMessageId: messageId },
+        create: {
+          conversationMessageId: messageId,
+          jobName: job.name,
+          payload: job.data as any,
+          lastError: failReason,
+          attemptCount: job.attemptsMade,
+        },
+        update: {
+          lastError: failReason,
+          attemptCount: job.attemptsMade,
+          resolvedAt: null,
+          resolvedBy: null,
+        },
+      });
+
       this.eventEmitter.emit('outbound.failed', {
         messageId,
         enquiryId,
         error: error.message,
+        failReason,
         attemptCount: job.attemptsMade,
       });
     } catch (err: any) {
-      this.logger.error(`Failed to update message ${messageId} to FAILED state: ${err.message}`);
+      this.logger.error(`Failed to handle permanent failure for message ${messageId}: ${err.message}`);
     }
   }
 

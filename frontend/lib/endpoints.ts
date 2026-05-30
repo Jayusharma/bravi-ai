@@ -49,6 +49,11 @@ export const API = {
         THREAD: (enquiryId: string) => `/conversations/${enquiryId}/thread`,
     },
 
+    // ── Search ──
+    SEARCH: {
+        QUERY: '/search',
+    },
+
     // ── Outbound ──
     OUTBOUND: {
         CREATE_DRAFT: (enquiryId: string) => `/outbound/enquiries/${enquiryId}/drafts`,

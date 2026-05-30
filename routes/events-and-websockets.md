@@ -48,36 +48,252 @@ getSocket()                            Socket.IO server
 
 ## Complete WebSocket Event Registry
 
-### Client → Server (emit from frontend, subscribe on backend)
+How to read this:
+- **Client → Server**: Frontend calls `socket.emit(event, payload)` → Backend `@SubscribeMessage(event)` handler fires
+- **Server → Client**: Backend calls `this.server.emit(...)` or `socket.to(room).emit(...)` → Frontend `sock.on(event, callback)` fires
 
-| Event | Backend Handler | Payload | Effect |
-|-------|----------------|---------|--------|
-| `chat:join` | `MessagingGateway.handleJoin()` | `{ contactId: string }` | Client joins `contact:{contactId}` room |
-| `chat:leave` | `MessagingGateway.handleLeave()` | `{ contactId: string }` | Client leaves `contact:{contactId}` room |
-| `enquiry:join` | `OutboundGateway.handleEnquiryJoin()` | `{ enquiryId: string }` | Client joins `enquiry:{enquiryId}` room |
-| `enquiry:leave` | `OutboundGateway.handleEnquiryLeave()` | `{ enquiryId: string }` | Client leaves `enquiry:{enquiryId}` room |
-| `typing:start` | `OutboundGateway.handleTypingStart()` | `{ enquiryId: string }` | Broadcasts `typing:update` to room (excluding sender) |
-| `typing:stop` | `OutboundGateway.handleTypingStop()` | `{ enquiryId: string }` | Broadcasts `typing:update` to room (excluding sender) |
+---
 
-### Server → Client (emit from backend, listen on frontend)
+### Client → Server Events
+*(Frontend emits → Backend `@SubscribeMessage` handler receives)*
 
-| Event | Gateway | Room Target | Payload | Frontend Listeners |
-|-------|---------|-------------|---------|-------------------|
-| `chat:new-message` | MessagingGateway | `contact:{contactId}` | ThreadMessage | `ChatView.tsx` |
-| `notification:new-message` | MessagingGateway | ALL | `{ contactId, enquiryId }` | `messaging/page.tsx` (toast + badge) |
-| `contact-list:update` | MessagingGateway | ALL | `{ conversations: ConversationPreview[] }` | `ContactList.tsx`, `messaging/page.tsx` |
-| `outbound:draft_saved` | OutboundGateway | `enquiry:{enquiryId}` | `{ draft }` | ⚠️ UNHANDLED — emitted but no frontend listener found |
-| `outbound:sent` | OutboundGateway | `enquiry:{enquiryId}` | OutboundMessage | `EnquiryDetailClient.tsx`, `ChatView.tsx`, `OutboundHistory.tsx` |
-| `outbound:failed` | OutboundGateway | `enquiry:{enquiryId}` | `{ messageId, error }` | `OutboundHistory.tsx` |
-| `outbound:retry_queued` | OutboundGateway | `enquiry:{enquiryId}` | `{ messageId }` | ⚠️ UNHANDLED — emitted but no frontend listener found |
-| `outbound:delivery_updated` | OutboundGateway | `enquiry:{enquiryId}` | `{ messageId, deliveryStatus, deliveredAt?, readAt? }` | `EnquiryDetailClient.tsx`, `ChatView.tsx`, `OutboundHistory.tsx` |
-| `outbound:attachment_added` | OutboundGateway | `enquiry:{enquiryId}` | `{ draftId, attachment }` | ⚠️ UNHANDLED — emitted but no frontend listener found |
-| `message:reaction_updated` | OutboundGateway | `enquiry:{enquiryId}` | `{ messageId, reactions[] }` | `ChatView.tsx` |
-| `message:deleted` | OutboundGateway | `enquiry:{enquiryId}` | `{ messageId }` | `ChatView.tsx` |
-| `message:edited` | OutboundGateway | `enquiry:{enquiryId}` | `{ messageId, content, editedAt }` | `ChatView.tsx` |
-| `typing:update` | OutboundGateway | `enquiry:{enquiryId}` (excl. sender) | `{ userId, isTyping: boolean }` | `ChatView.tsx` (InlineComposer) |
-| `presence:online` | OutboundGateway | ALL | `{ userId }` | ⚠️ UNHANDLED — emitted but no frontend listener found |
-| `presence:offline` | OutboundGateway | ALL | `{ userId }` | ⚠️ UNHANDLED — emitted but no frontend listener found |
+---
+
+#### `chat:join`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Frontend emits** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `socket.emit('chat:join', { contactId })` — on mount when a contact is selected |
+| **Backend receives** | `backend/src/modules/messaging/messaging.gateway.ts` | `@SubscribeMessage('chat:join') handleJoin()` — runs `client.join('contact:{contactId}')` |
+
+**Payload:** `{ contactId: string }`
+
+---
+
+#### `chat:leave`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Frontend emits** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `socket.emit('chat:leave', { contactId })` — on unmount |
+| **Backend receives** | `backend/src/modules/messaging/messaging.gateway.ts` | `@SubscribeMessage('chat:leave') handleLeave()` — runs `client.leave('contact:{contactId}')` |
+
+**Payload:** `{ contactId: string }`
+
+---
+
+#### `enquiry:join`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Frontend emits** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `socket.emit('enquiry:join', { enquiryId })` — after thread loads |
+| **Frontend emits** | `frontend/app/(dashboard)/enquiry/[id]/EnquiryDetailClient.tsx` | `socket.emit('enquiry:join', { enquiryId })` — on mount |
+| **Backend receives** | `backend/src/modules/outbound/outbound.gateway.ts` | `@SubscribeMessage('enquiry:join') handleEnquiryJoin()` — runs `client.join('enquiry:{enquiryId}')` |
+
+**Payload:** `{ enquiryId: string }`
+
+---
+
+#### `enquiry:leave`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Frontend emits** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `socket.emit('enquiry:leave', { enquiryId })` — on unmount |
+| **Frontend emits** | `frontend/app/(dashboard)/enquiry/[id]/EnquiryDetailClient.tsx` | `socket.emit('enquiry:leave', { enquiryId })` — on unmount |
+| **Backend receives** | `backend/src/modules/outbound/outbound.gateway.ts` | `@SubscribeMessage('enquiry:leave') handleEnquiryLeave()` — runs `client.leave('enquiry:{enquiryId}')` |
+
+**Payload:** `{ enquiryId: string }`
+
+---
+
+#### `typing:start`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Frontend emits** | `frontend/components/dashboard/Messaging/ChatView.tsx` (InlineComposer) | `socket.emit('typing:start', { enquiryId })` — debounced on keypress |
+| **Backend receives** | `backend/src/modules/outbound/outbound.gateway.ts` | `@SubscribeMessage('typing:start') handleTypingStart()` — broadcasts `typing:update {isTyping:true}` to room excluding sender |
+
+**Payload:** `{ enquiryId: string }`
+
+---
+
+#### `typing:stop`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Frontend emits** | `frontend/components/dashboard/Messaging/ChatView.tsx` (InlineComposer) | `socket.emit('typing:stop', { enquiryId })` — ~2s after last keystroke |
+| **Backend receives** | `backend/src/modules/outbound/outbound.gateway.ts` | `@SubscribeMessage('typing:stop') handleTypingStop()` — broadcasts `typing:update {isTyping:false}` to room |
+
+**Payload:** `{ enquiryId: string }`
+
+---
+
+### Server → Client Events
+*(Backend emits → Frontend `sock.on(event, callback)` fires)*
+
+---
+
+#### `notification:new-message`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/messaging/messaging.gateway.ts` | `onInboundMessage()` — triggered by `@OnEvent('message.inbound.appended')` → `this.server.emit('notification:new-message', ...)` to ALL |
+| **Backend emits** | `backend/src/modules/messaging/messaging.gateway.ts` | `onNewEnquiry()` — triggered by `@OnEvent('enquiry.created')` → `this.server.emit('notification:new-message', ...)` to ALL |
+| **Frontend listens** | `frontend/app/(dashboard)/messaging/page.tsx` | `sock.on('notification:new-message', data => ...)` — shows `<MessageToast>`, increments unread badge for `data.contactId` |
+
+**Payload:** `{ contactId: string, enquiryId: string, messagePreview: string, messageId: string }`
+**Room target:** ALL connected clients
+
+---
+
+#### `contact-list:update`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/messaging/messaging.gateway.ts` | `broadcastContactListUpdate()` — called from `onInboundMessage()` and `onNewEnquiry()` → `this.server.emit('contact-list:update', { conversations })` to ALL |
+| **Frontend listens** | `frontend/components/dashboard/Messaging/ContactList.tsx` | `sock.on('contact-list:update', data => ...)` — replaces conversation list (skipped if search is active) |
+
+**Payload:** `{ conversations: ConversationPreview[] }`
+**Room target:** ALL connected clients
+
+---
+
+#### `chat:new-message`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/messaging/messaging.gateway.ts` | `onInboundMessage()` — triggered by `@OnEvent('message.inbound.appended')` → `this.server.to('contact:{contactId}').emit('chat:new-message', message)` |
+| **Frontend listens** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `sock.on('chat:new-message', msg => ...)` — appends inbound message to thread |
+
+**Payload:** `ThreadMessage` object
+**Room target:** `contact:{contactId}` room
+
+---
+
+#### `outbound:sent`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.processor.ts` | `updateAndEmit()` — on successful delivery → `eventEmitter.emit('outbound.sent', ...)` → `OutboundGateway.onSent()` → `this.server.to('enquiry:{id}').emit('outbound:sent', message)` |
+| **Frontend listens** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `sock.on('outbound:sent', msg => ...)` — appends sent message to thread |
+| **Frontend listens** | `frontend/app/(dashboard)/enquiry/[id]/EnquiryDetailClient.tsx` | `sock.on('outbound:sent', msg => ...)` — adds to outbound history |
+| **Frontend listens** | `frontend/components/outbound/OutboundHistory.tsx` | `sock.on('outbound:sent', msg => ...)` — adds to outbound history |
+| **Frontend listens** | `frontend/components/outbound/OutboundComposer.tsx` | `sock.on('outbound:sent', msg => ...)` — clears composer after send |
+
+**Payload:** `OutboundMessage` object
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `outbound:delivery_updated`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.service.ts` | `updateDeliveryStatus()` — called when delivery webhook arrives → `eventEmitter.emit('outbound.delivery_updated', ...)` → `OutboundGateway.onDeliveryUpdated()` → `this.server.to('enquiry:{id}').emit('outbound:delivery_updated', ...)` |
+| **Frontend listens** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `sock.on('outbound:delivery_updated', data => ...)` — updates delivery badge on message |
+| **Frontend listens** | `frontend/app/(dashboard)/enquiry/[id]/EnquiryDetailClient.tsx` | `sock.on('outbound:delivery_updated', data => ...)` — updates delivery badge |
+| **Frontend listens** | `frontend/components/outbound/OutboundHistory.tsx` | `sock.on('outbound:delivery_updated', data => ...)` — updates delivery badge |
+
+**Payload:** `{ messageId, deliveryStatus, deliveredAt?, readAt? }`
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `outbound:failed`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.processor.ts` | `onJobFailed()` + `updateAndEmit()` → `eventEmitter.emit('outbound.failed', ...)` → `OutboundGateway.onFailed()` → `this.server.to('enquiry:{id}').emit('outbound:failed', ...)` |
+| **Frontend listens** | `frontend/components/outbound/OutboundHistory.tsx` | `sock.on('outbound:failed', data => ...)` — shows FAILED badge + retry button |
+
+**Payload:** `{ messageId, error }`
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `message:reaction_updated`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.controller.ts` | `addReaction()` / `removeReaction()` → `eventEmitter.emit('message.reaction_updated', ...)` → `OutboundGateway.onReactionUpdated()` → `this.server.to('enquiry:{id}').emit('message:reaction_updated', ...)` |
+| **Frontend listens** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `sock.on('message:reaction_updated', data => ...)` — re-renders reaction row on message |
+
+**Payload:** `{ messageId, reactions[] }`
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `message:deleted`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.controller.ts` | `softDeleteMessage()` → `eventEmitter.emit('message.deleted', ...)` → `OutboundGateway.onMessageDeleted()` → `this.server.to('enquiry:{id}').emit('message:deleted', ...)` |
+| **Frontend listens** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `sock.on('message:deleted', data => ...)` — marks message as deleted in thread |
+
+**Payload:** `{ messageId }`
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `message:edited`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.controller.ts` | `editMessage()` → `eventEmitter.emit('message.edited', ...)` → `OutboundGateway.onMessageEdited()` → `this.server.to('enquiry:{id}').emit('message:edited', ...)` |
+| **Frontend listens** | `frontend/components/dashboard/Messaging/ChatView.tsx` | `sock.on('message:edited', data => ...)` — updates message content + shows edited timestamp |
+
+**Payload:** `{ messageId, content, editedAt }`
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `typing:update`
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.gateway.ts` | `handleTypingStart()` / `handleTypingStop()` → `client.to('enquiry:{id}').emit('typing:update', { userId, isTyping })` (sent to room, excluding the sender's own socket) |
+| **Frontend listens** | `frontend/components/dashboard/Messaging/ChatView.tsx` (InlineComposer) | `sock.on('typing:update', data => ...)` — shows/hides "{name} is typing..." indicator |
+
+**Payload:** `{ userId: string, isTyping: boolean }`
+**Room target:** `enquiry:{enquiryId}` room, excluding sender
+
+---
+
+#### `outbound:draft_saved` ⚠️ UNHANDLED ON FRONTEND
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.controller.ts` | `updateDraft()` → `eventEmitter.emit('outbound.draft_saved', ...)` → `OutboundGateway.onDraftSaved()` → `this.server.to('enquiry:{id}').emit('outbound:draft_saved', ...)` |
+| **Frontend listens** | — | No `sock.on('outbound:draft_saved', ...)` found anywhere in the frontend |
+
+**Payload:** `{ enquiryId, draft }`
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `outbound:retry_queued` ⚠️ UNHANDLED ON FRONTEND
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.controller.ts` | `retryMessage()` → `eventEmitter.emit('outbound.retry_queued', ...)` → `OutboundGateway.onRetryQueued()` → `this.server.to('enquiry:{id}').emit('outbound:retry_queued', ...)` |
+| **Frontend listens** | — | No `sock.on('outbound:retry_queued', ...)` found anywhere in the frontend |
+
+**Payload:** `{ enquiryId, messageId }`
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `outbound:attachment_added` ⚠️ UNHANDLED ON FRONTEND
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.controller.ts` | `uploadDraftAttachment()` → `eventEmitter.emit('outbound.attachment_added', ...)` → `OutboundGateway.onAttachmentAdded()` → `this.server.to('enquiry:{id}').emit('outbound:attachment_added', ...)` |
+| **Frontend listens** | — | No `sock.on('outbound:attachment_added', ...)` found anywhere in the frontend |
+
+**Payload:** `{ enquiryId, draftId, attachment }`
+**Room target:** `enquiry:{enquiryId}` room
+
+---
+
+#### `presence:online` ⚠️ UNHANDLED ON FRONTEND
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.gateway.ts` | `handleConnection()` — on every new WS connection → upserts `UserPresence {isOnline:true}` → `this.server.emit('presence:online', { userId })` to ALL |
+| **Frontend listens** | — | No `sock.on('presence:online', ...)` found anywhere in the frontend |
+
+**Payload:** `{ userId: string }`
+**Room target:** ALL connected clients
+
+---
+
+#### `presence:offline` ⚠️ UNHANDLED ON FRONTEND
+| Side | File | Method / Handler |
+|------|------|-----------------|
+| **Backend emits** | `backend/src/modules/outbound/outbound.gateway.ts` | `handleDisconnect()` — on WS disconnect → upserts `UserPresence {isOnline:false}` → `this.server.emit('presence:offline', { userId })` to ALL |
+| **Frontend listens** | — | No `sock.on('presence:offline', ...)` found anywhere in the frontend |
+
+**Payload:** `{ userId: string }`
+**Room target:** ALL connected clients
 
 ---
 
@@ -235,3 +451,107 @@ OutboundGateway.handleDisconnect()
 | `frontend/components/outbound/OutboundComposer.tsx` | `outbound:sent` | — |
 | `frontend/components/outbound/OutboundHistory.tsx` | `outbound:sent`, `outbound:delivery_updated`, `outbound:failed` | — |
 | `frontend/app/(dashboard)/playground/page.tsx` | `new-message` (non-production event) | `send-message` (non-production event) |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+==================================================================
+
+websockets functions and uses 
+
+1. for client side methods :- 
+
+sock.on('event', fn)      // add listener
+sock.off('event', fn)     // remove specific listener
+sock.once('event', fn)    // listen once then auto-remove
+sock.emit('event', data)  // send event to backend
+sock.connected            // boolean
+sock.id                   // string, server-assigned
+sock.disconnect()         // manually close connection
+
+
+2. client and server simple connection 
+
+  -> server emits = client.emit 
+        
+          @SubscribeMessage('message:send')
+          handleMessage(
+                @ConnectedSocket() client: Socket,
+                @MessageBody() data: { text: string },
+              ) {
+                console.log('message received:', data.text);
+            
+                // send back to sender only
+                client.emit('message:received', {
+                  text: data.text,
+                  from: 'server',
+                });
+              }   |
+                  |
+                  |
+                  |
+                  |
+                  |
+                  |
+                  |
+                  |
+      
+    -> client listens for emit = socket.on (message:received)
+
+
+
+//all teh server ways to emit 
+    
+    // 1. to one specific client (the one who sent the message)
+client.emit('event', data)
+
+// 2. to everyone connected (all clients)
+this.server.emit('event', data)
+
+// 3. to everyone in a room
+this.server.to('enquiry:123').emit('event', data)
+
+// 4. to everyone in a room EXCEPT the sender
+client.to('enquiry:123').emit('event', data)
+
+// 5. to multiple rooms at once
+this.server.to('enquiry:123').to('enquiry:456').emit('event', data)
+
+// 6. to one specific socket by their socket id
+this.server.to(socketId).emit('event', data)
+
+// 7. to everyone EXCEPT one specific socket
+client.broadcast.emit('event', data)
+
+
+//all the client ways to emit 
+// 1. send to backend (only option from frontend)
+sock.emit('event', data)
+
+// 2. send with acknowledgement — wait for backend to confirm
+sock.emit('event', data, (ack) => {
+  console.log(ack) // whatever backend returned
+})
+
+// 3. listen for event from backend
+sock.on('event', (data) => {})
+
+// 4. listen once then auto remove
+sock.once('event', (data) => {})
+
+// 5. remove listener
+sock.off('event', handler)
+
+// 6. disconnect manually
+sock.disconnect()

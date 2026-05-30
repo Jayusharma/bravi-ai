@@ -38,15 +38,21 @@ export class ConversationService {
     search?: string;
     page?: number;
     limit?: number;
+    channel?: string;
   }) {
     const page = query?.page || 1;
     const limit = query?.limit || 30;
     const skip = (page - 1) * limit;
+
+    const messageFilter = query?.channel
+      ? { some: { channel: query.channel as any } }
+      : { some: {} };
+
     // Build WHERE — only contacts that have messages
     const where: any = {
       enquiries: {
         some: {
-          messages: { some: {} },
+          messages: messageFilter,
         },
       },
     };

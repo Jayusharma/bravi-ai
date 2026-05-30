@@ -88,7 +88,25 @@ export class EmailAdapter implements ChannelAdapter {
     } catch (error: any) {
       const detail = error?.response?.body?.errors?.[0]?.message ?? error.message;
       this.logger.error(`Email send error to ${params.to}: ${detail}`);
-      return { success: false, error: detail };
+      return {
+        success: false,
+        error: detail,
+        failReason: this.mapSendGridError(error),
+      };
     }
+  }
+
+  /** Maps SendGrid error responses to agent-readable failure reasons */
+  private mapSendGridError(error: any): string {
+    const status = error?.response?.status ?? error?.code;
+    const sgMessages: Record<number, string> = {
+      400: 'Email rejected — invalid request (check subject and recipient address).',
+      401: 'SendGrid authentication failed — contact an admin.',
+      403: 'Sender address not verified in SendGrid.',
+      413: 'Attachments are too large — total must be under 25MB.',
+      429: 'Too many emails sent too quickly — message queued for retry.',
+    };
+    const firstError = error?.response?.body?.errors?.[0]?.message;
+    return sgMessages[status] ?? firstError ?? error.message ?? 'Email delivery failed.';
   }
 }

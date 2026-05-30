@@ -35,6 +35,7 @@ const SUBJECTS = [
   'dashboard',
   'outbounddraft',
   'conversationmessage',
+  'deadletter',
   'all',
 ];
 const ACTIONS = ['create', 'read', 'update', 'delete', 'assign', 'manage'];
@@ -74,6 +75,9 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'read', subject: 'conversationmessage' },
         { action: 'create', subject: 'conversationmessage' },
         { action: 'update', subject: 'conversationmessage' },
+        // Dead letter queue — managers can read and retry
+        { action: 'read', subject: 'deadletter' },
+        { action: 'manage', subject: 'deadletter' },
     ],
 
     SALES: [

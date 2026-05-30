@@ -1,7 +1,29 @@
 # ARCHITECTURE.md — Enquiry Hub
 
+> **DOC HIERARCHY:**
+> **ARCHITECTURE.md is law** (describes real code).
+> `spine.md` = data model & build order. `blueprint.md` = strategy.
+> On any conflict, ARCHITECTURE.md wins. Build against it.
+
 > Reference this file when building any new module. It defines every contract,
 > boundary, pattern, and decision. Building without reading this = wrong code.
+
+---
+
+> [!CAUTION]
+> ## ⛔ Blocker Before Customer #1 — Redis Persistence
+>
+> Pending follow-ups live **only** in BullMQ's delayed set (a Redis sorted-set).
+> The default Redis configuration runs **in-memory only with no persistence**.
+> A Redis restart (server reboot, OOM kill, deployment) **silently loses every
+> scheduled follow-up** — there is no Postgres record to recover from.
+>
+> **Required before go-live:** enable AOF (`appendonly yes`) or RDB snapshots
+> in `redis.conf`, or use a managed Redis with persistence guaranteed (e.g.
+> Redis Cloud, Upstash with persistence, AWS ElastiCache with backup enabled).
+>
+> Until this is done, every QUOTATION_SENT follow-up that was delayed by 24h
+> is invisible to both staff and the audit trail if Redis restarts.
 
 ---
 
@@ -29,7 +51,7 @@ Twilio/SendGrid webhook
   → event: 'enquiry.qualified'
   → EnquiryService
       ├── find open Enquiry for this Contact (status NOT IN [CONVERTED, CLOSED_LOST])
-      ├── if exists: append ConversationMessage (INBOUND)
+      ├── if exists: append ConversationMessage (INBOUND) + update lastCustomerReplyAt
       └── if not: create Enquiry + first ConversationMessage
   → MessagingGateway.emit('new_message') → frontend realtime
 
@@ -50,9 +72,21 @@ Staff sends reply via UI
 AUTOMATION
 ──────────────────────────────────────────────────────────────
 EnquiryService (on status → QUOTATION_SENT)
-  → BullMQ: enqueue 'automation' job { enquiryId, delay: 24h }
+  → BullMQ: enqueue 'automation' job {
+        enquiryId,
+        scheduledAt: Date.now(),   ← REQUIRED in payload (see §4 contract)
+        delay: 24h
+    }
   → automation.worker.ts (separate process)
       ├── re-fetch enquiry (validate still QUOTATION_SENT)
+      ├── customer-reply guard:
+      │     if enquiry.lastCustomerReplyAt &&
+      │        enquiry.lastCustomerReplyAt > job.data.scheduledAt
+      │     → skip send, write EnquiryTimeline {
+      │           type: FOLLOWUP_SKIPPED,
+      │           createdBy: 'SYSTEM',
+      │           metadata: { reason: 'CUSTOMER_REPLIED' }
+      │       }
       ├── idempotency check (EnquiryTimeline FOLLOWUP_SENT exists?)
       ├── send follow-up via template
       └── write EnquiryTimeline { type: FOLLOWUP_SENT, createdBy: 'SYSTEM' }
@@ -130,6 +164,8 @@ Rule: QualificationResult is 1:1 with InboundMessage (unique constraint)
 Rule: Layer order is always: Rule → AI → Manual. Never skip Rule layer.
 Rule: AI only called if Rule layer returns uncertain (no clear SPAM/REAL)
 Rule: Track aiInputTokens + aiOutputTokens + estimatedCostUsd on every AI call
+      (on QualificationResult for qualification calls; on AiUsageLog for all
+       other AI features — see §5 AI Reply Assist)
 Rule: hitCount + lastHitAt updated on QualificationRule when it fires
 Rule: contentFingerprint = SHA-256(channel + from + body) — dedup across channels
 ```
@@ -150,7 +186,7 @@ Rule: FAILED messages must not be retried automatically — require manual actio
 
 ### 1. Template Module (build first — everything else depends on it)
 
-**Schema:**
+**Schema (flat, no versioning for V1 — correct as-is):**
 ```prisma
 model MessageTemplate {
   id          String         @id @default(uuid())
@@ -169,6 +205,11 @@ model MessageTemplate {
   @@index([category])
 }
 ```
+
+> **V1 decision: MessageTemplate stays flat (no versioning).** Template versioning
+> (TemplateVersion, whatsappApprovalStatus, etc.) is a V2 concern referenced in
+> spine.md. Do not introduce version tables in V1 — the complexity doesn't pay off
+> until you have WhatsApp Business API template approval flows.
 
 **Service methods:**
 ```typescript
@@ -273,22 +314,71 @@ model AutomationRule {
 
 ### 4. Follow-up Scheduler (extends automation worker)
 
-**Current state:** `automation.worker.ts` has a placeholder that checks `QUOTATION_SENT` only.
+**Current state:** `automation.worker.ts` has a placeholder that checks `QUOTATION_SENT` status only.
+The existing guard is **insufficient**: an inbound reply updates `lastCustomerReplyAt` and
+appends a `ConversationMessage` but may NOT change status off `QUOTATION_SENT`
+(e.g. ingestion service only auto-transitions from `QUOTATION_SENT → IN_PROGRESS` on
+`getStatusTransition()`, which requires a write to go through `appendToExistingEnquiry`).
+The follow-up would fire even after the customer already replied.
 
-**Production design:**
+**Production contract:**
+
+**Enqueue (caller side):**
 ```typescript
-// When AutomationRule trigger fires (e.g. status → QUOTATION_SENT):
-// Schedule a delayed BullMQ job with the rule's delay config
-await automationQueue.add('followup', { enquiryId, ruleId }, { delay: hours * 3600000 });
-
-// Worker on job execution:
-// 1. Re-fetch enquiry — validate status still matches (CRITICAL — state may have changed)
-// 2. Check idempotency (EnquiryTimeline: FOLLOWUP_SENT for this ruleId)
-// 3. Resolve contact primary channel
-// 4. Render template with contact variables
-// 5. emit('message.outbound') → reuse outbound pipeline
-// 6. Write EnquiryTimeline { type: FOLLOWUP_SENT, metadata: { ruleId } }
+// scheduledAt MUST be included in the job payload
+await automationQueue.add(
+  'followup',
+  { enquiryId, ruleId, scheduledAt: new Date().toISOString() },
+  { delay: hours * 3600000 },
+);
 ```
+
+**Worker execution (automation.worker.ts):**
+```typescript
+// 1. Re-fetch enquiry (validate status still matches — CRITICAL, state may have changed)
+const enquiry = await prisma.enquiry.findUnique({ where: { id: enquiryId } });
+if (!enquiry || enquiry.status !== 'QUOTATION_SENT') return;
+
+// 2. Customer-reply guard — THE MISSING CHECK
+//    An inbound reply sets lastCustomerReplyAt but may not change status.
+//    If customer replied AFTER this job was scheduled, skip the follow-up.
+if (
+  enquiry.lastCustomerReplyAt &&
+  enquiry.lastCustomerReplyAt > new Date(job.data.scheduledAt)
+) {
+  await prisma.enquiryTimeline.create({
+    data: {
+      enquiryId,
+      type: 'FOLLOWUP_SKIPPED',
+      createdBy: 'SYSTEM',
+      metadata: { reason: 'CUSTOMER_REPLIED', ruleId },
+    },
+  });
+  return;
+}
+
+// 3. Idempotency check (EnquiryTimeline: FOLLOWUP_SENT for this ruleId)
+const alreadySent = await prisma.enquiryTimeline.findFirst({
+  where: { enquiryId, type: 'FOLLOWUP_SENT' },
+});
+if (alreadySent) return;
+
+// 4. Resolve contact primary channel
+// 5. Render template with contact variables
+// 6. emit('message.outbound') → reuse outbound pipeline
+// 7. Write audit
+await prisma.enquiryTimeline.create({
+  data: {
+    enquiryId,
+    type: 'FOLLOWUP_SENT',
+    createdBy: 'SYSTEM',
+    metadata: { ruleId },
+  },
+});
+```
+
+> **Note:** `FOLLOWUP_SKIPPED` is not yet in the `EnquiryEventType` enum in schema.prisma.
+> It must be added before this logic is implemented.
 
 ---
 
@@ -305,9 +395,39 @@ await automationQueue.add('followup', { enquiryId, ruleId }, { delay: hours * 36
 //     Conversation: [last 10 messages]
 //     Write 3 reply options. Be professional, concise. JSON array."
 // 4. Return suggestions[] to frontend
-// 5. Track tokens/cost on QualificationResult or new AiUsageLog model
+// 5. Track tokens/cost on AiUsageLog (NOT on QualificationResult — see model below)
 // Frontend: show suggestions above composer, one click to insert
 ```
+
+**Token/cost tracking — AiUsageLog model (document now; do not create migration yet):**
+```prisma
+// Proposed model — add to schema when AI Reply Assist is built
+model AiUsageLog {
+  id               String   @id @default(uuid())
+  feature          String   // 'REPLY_ASSIST' | 'QUALIFICATION' | 'LEAD_SCORE' | etc
+  model            String   // e.g. 'gemini-1.5-flash', 'gemini-2.0-flash'
+  inputTokens      Int
+  outputTokens     Int
+  estimatedCostUsd Decimal  @db.Decimal(10, 6)
+  latencyMs        Int
+  wasUsed          Boolean  @default(false) // did the user accept the suggestion?
+
+  // Actor
+  userId           String?  // null for SYSTEM calls (e.g. qualification)
+  enquiryId        String?  // null for non-enquiry features
+
+  createdAt        DateTime @default(now())
+
+  @@index([feature, createdAt])
+  @@index([userId])
+  @@index([enquiryId])
+}
+```
+
+> **Existing `QualificationResult` keeps its own `aiInputTokens` / `aiOutputTokens` /
+> `estimatedCostUsd` columns** — those are 1:1 with qualification decisions and belong
+> on that model. `AiUsageLog` is for all OTHER AI features (reply assist, lead scoring,
+> etc.) where a 1:1 link to QualificationResult doesn't apply.
 
 ---
 
@@ -340,20 +460,67 @@ enquiriesByIntent(): Promise<Record<EnquiryIntent, number>>
 
 ---
 
+## V2/V3 Seams — Add Now While Tables Are Empty
+
+These are **nullable columns to introduce now** on hot tables (`Enquiry`,
+`ConversationMessage`) so they are **never altered later under live data**.
+Document them here; do not run a migration until templates/automation are
+shipping (a single batched migration is cheaper than many small ones).
+
+### ConversationMessage
+
+```prisma
+// Add to ConversationMessage model:
+source MessageSource @default(HUMAN)
+
+enum MessageSource {
+  HUMAN       // typed by a staff member
+  AI_ASSISTED // staff used the AI reply suggestion
+  AUTOMATION  // sent by the automation worker (follow-up, bulk)
+  VOICE       // V3: AI voice call transcript segment
+}
+```
+
+### Enquiry
+
+```prisma
+// Add to Enquiry model (all nullable — no existing rows affected):
+leadSourceId    String?   // → LeadSource (attribution — which campaign/number)
+aiScore         Int?      // V2 lead scoring
+estimatedValue  Decimal?  // V2 deal-value estimation
+slaState        SlaState  @default(OK)  // V2 SLA tracking
+
+enum SlaState {
+  OK
+  AT_RISK
+  BREACHED
+}
+```
+
+### EnquiryTimeline
+
+`EnquiryTimeline.createdBy` already accepts `'SYSTEM'` | userId strings and covers
+actor type for V1. **No change needed here.** The `actorType` enum column (USER /
+SYSTEM / AI / VOICE) referenced in spine.md is a V2 addition — defer until automation
+events need to be distinguished analytically.
+
+---
+
 ## Production Checklist (before go-live)
 
+- [ ] **Redis persistence (AOF or RDB)** — see blocker callout at top of this file
 - [ ] Twilio webhook signature validation (`X-Twilio-Signature` header check)
 - [ ] `@nestjs/throttler` rate limiting on all public/webhook routes
 - [ ] Wire email adapter in `channel-router.service.ts` (currently commented out)
 - [ ] Implement `OutboundDraft` controller (schema exists, no API yet)
 - [ ] File upload flow for `MessageAttachment` (schema exists, no upload endpoint)
-- [ ] Redis persistence config (AOF or RDB — default is in-memory only)
 - [ ] BullMQ dead letter queue for failed jobs
 - [ ] Structured logging (replace Logger with pino/winston + correlation IDs)
 - [ ] Health check endpoint (`/health` — check DB, Redis, queue connectivity)
 - [ ] Prisma connection pooling config (PgBouncer or pg Pool size tuning)
 - [ ] Environment-based config validation (Joi schema on startup)
 - [ ] CORS origin whitelist (currently probably wide open)
+- [ ] Add `FOLLOWUP_SKIPPED` to `EnquiryEventType` enum in schema.prisma
 
 ---
 

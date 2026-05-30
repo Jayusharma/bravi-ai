@@ -85,7 +85,7 @@ export async function getActiveDraft(enquiryId: string): Promise<OutboundDraft |
 
 export async function createDraft(
     enquiryId: string,
-    data: { channel: MessageChannel; subject?: string; body?: string },
+    data: { channel: MessageChannel; subject?: string; body?: string; saveForLater?: boolean },
 ): Promise<OutboundDraft> {
     return apiClient<OutboundDraft>(API.OUTBOUND.CREATE_DRAFT(enquiryId), {
         method: 'POST',

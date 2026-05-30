@@ -1,0 +1,225 @@
+// app.gateway.ts — SINGLE SOURCE OF TRUTH for all WebSocket events (see registry below).
+
+/**
+ * =====================================================
+ * SOCKET EVENT REGISTRY — Single source of truth
+ * =====================================================
+ * ALL @SubscribeMessage handlers live in this file.
+ * ALL server.to().emit() calls originate from this file.
+ * Business logic lives in injected services.
+ *
+ * INBOUND (client → server):
+ *   - contact:join        → joins contact room
+ *   - contact:leave       → leaves contact room
+ *   - outbound:send       → queues outbound message (Step 5)
+ *   - draft:typing        → broadcasts typing indicator (renamed in Step 11, kept as typing:start/stop for now)
+ *   - typing:start        → broadcasts typing indicator (legacy name — renamed to draft:typing in Step 11)
+ *   - typing:stop         → stops typing indicator (legacy name — renamed in Step 11)
+ *
+ * OUTBOUND (server → client) — all emitted from AppEventHandler via this.server:
+ *   - chat:new-message         → new inbound message (renamed to message:new in Step 10)
+ *   - notification:new-message → global notification badge
+ *   - outbound:sent            → agent sent message (to others in room)
+ *   - outbound:status          → delivery status changed (Step 5+)
+ *   - outbound:failed          → delivery permanently failed
+ *   - outbound:retry_queued    → message re-queued
+ *   - outbound:delivery_updated → DELIVERED/READ webhook
+ *   - typing:update            → someone is typing (renamed to draft:composing in Step 11)
+ *   - message:reaction_updated → reaction changed
+ *   - message:deleted          → message soft deleted
+ *   - message:edited           → message edited
+ *   - contact-list:update      → sidebar refresh (renamed to contact:updated in Step 12)
+ *   - presence:online          → user came online
+ *   - presence:offline         → user went offline
+ * =====================================================
+ */
+
+import {
+  WebSocketGateway,
+  WebSocketServer,
+  SubscribeMessage,
+  MessageBody,
+  ConnectedSocket,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+} from '@nestjs/websockets';
+import { Logger, Optional } from '@nestjs/common';
+import { Server, Socket } from 'socket.io';
+import { PrismaService } from 'src/database/prisma.service';
+import { ROOMS, SOCKET_EVENTS } from 'src/common/constants/socket-events';
+import { OutboundSendService } from '../modules/outbound/outbound-send.service';
+import { MessageChannel } from '@prisma/client';
+import * as jwt from 'jsonwebtoken';
+
+interface AuthenticatedSocket extends Socket {
+  data: {
+    userId: string;
+    role: string;
+  };
+}
+
+@WebSocketGateway({
+  cors: {
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true,
+  },
+})
+export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server: Server;
+
+  private readonly logger = new Logger(AppGateway.name);
+  private readonly jwtSecret = process.env.JWT_SECERET || 'dev-secret';
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly outboundSendService?: OutboundSendService,
+  ) {}
+
+  // ─── CONNECTION LIFECYCLE ─────────────────────────────────────────────────
+
+  handleConnection(client: AuthenticatedSocket) {
+    try {
+      const token = client.handshake.auth?.token || client.handshake.query?.token;
+      if (!token) {
+        client.emit('auth-error', { message: 'No token provided' });
+        client.disconnect(true);
+        return;
+      }
+      const payload = jwt.verify(token as string, this.jwtSecret) as { sub: string; role: string };
+      client.data.userId = payload.sub;
+      client.data.role = payload.role;
+      this.logger.log(`🔌 Connected: ${client.id} user=${payload.sub}`);
+
+      this.prisma.userPresence.upsert({
+        where: { userId: payload.sub },
+        create: { userId: payload.sub, isOnline: true },
+        update: { isOnline: true, lastSeenAt: new Date() },
+      }).catch(() => {});
+
+      this.server.emit('presence:online', { userId: payload.sub });
+    } catch (err: any) {
+      this.logger.warn(`🚫 Invalid token — disconnecting ${client.id}: ${err.message}`);
+      client.emit('auth-error', { message: 'Invalid or expired token' });
+      client.disconnect(true);
+    }
+  }
+
+  handleDisconnect(client: AuthenticatedSocket) {
+    this.logger.log(`🔌 Disconnected: ${client.id}`);
+    if (client.data?.userId) {
+      this.prisma.userPresence.upsert({
+        where: { userId: client.data.userId },
+        create: { userId: client.data.userId, isOnline: false },
+        update: { isOnline: false, lastSeenAt: new Date() },
+      }).catch(() => {});
+      this.server.emit('presence:offline', { userId: client.data.userId });
+    }
+  }
+
+  // ─── ROOM MANAGEMENT ─────────────────────────────────────────────────────
+
+  /** Joins the contact room — all events for this contact are scoped here */
+  @SubscribeMessage('contact:join')
+  handleContactJoin(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { contactId: string },
+  ) {
+    if (!client.data?.userId) return { status: 'error', message: 'Not authenticated' };
+    const room = ROOMS.contact(data.contactId);
+    client.join(room);
+    this.logger.log(`👁️ User ${client.data.userId} joined room ${room}`);
+    return { status: 'joined', room };
+  }
+
+  /** Leaves the contact room */
+  @SubscribeMessage('contact:leave')
+  handleContactLeave(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { contactId: string },
+  ) {
+    const room = ROOMS.contact(data.contactId);
+    client.leave(room);
+    this.logger.log(`👁️ User ${client.data?.userId} left room ${room}`);
+    return { status: 'left', room };
+  }
+
+  // ─── TYPING INDICATORS ───────────────────────────────────────────────────
+  // NOTE: event names 'typing:start'/'typing:stop' are legacy — renamed to
+  //       'draft:typing'/'draft:composing'/'draft:stopped' in Step 11.
+
+  /** Broadcasts typing indicator to contact room (excludes sender) */
+  @SubscribeMessage('typing:start')
+  handleTypingStart(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { enquiryId?: string; contactId?: string },
+  ) {
+    const contactId = data.contactId;
+    if (!contactId) return;
+    client.to(ROOMS.contact(contactId)).emit('typing:update', {
+      userId: client.data.userId,
+      isTyping: true,
+    });
+  }
+
+  /** Clears typing indicator in contact room (excludes sender) */
+  @SubscribeMessage('typing:stop')
+  handleTypingStop(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { enquiryId?: string; contactId?: string },
+  ) {
+    const contactId = data.contactId;
+    if (!contactId) return;
+    client.to(ROOMS.contact(contactId)).emit('typing:update', {
+      userId: client.data.userId,
+      isTyping: false,
+    });
+  }
+
+  // ─── SEND ────────────────────────────────────────────────────────────────
+
+  /**
+   * Queues an outbound message and emits the sent message to others in the contact room.
+   * Returns ack to sender: { messageId, jobId, status: 'PENDING' }.
+   */
+  @SubscribeMessage(SOCKET_EVENTS.OUTBOUND_SEND)
+  async handleOutboundSend(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: {
+      enquiryId: string;
+      channel?: MessageChannel;
+      subject?: string;
+      body?: string;
+      draftId?: string;
+      recipientOverride?: string;
+    },
+  ) {
+    if (!client.data?.userId) return { error: 'Not authenticated' };
+    if (!this.outboundSendService) return { error: 'Send service unavailable' };
+
+    try {
+      const result = await this.outboundSendService.send({
+        enquiryId: data.enquiryId,
+        channel: data.channel,
+        subject: data.subject,
+        body: data.body,
+        draftId: data.draftId,
+        recipientOverride: data.recipientOverride,
+        userId: client.data.userId,
+      });
+
+      // Broadcast to others in the contact room (exclude the sender)
+      client.to(ROOMS.contact(result.contactId)).emit(SOCKET_EVENTS.OUTBOUND_SENT, {
+        messageId: result.messageId,
+        enquiryId: data.enquiryId,
+        sentByUserId: client.data.userId,
+        status: 'PENDING',
+      });
+
+      return { messageId: result.messageId, jobId: result.jobId, status: 'PENDING' };
+    } catch (err: any) {
+      this.logger.error(`outbound:send failed for user ${client.data.userId}: ${err.message}`);
+      return { error: err.message ?? 'Send failed' };
+    }
+  }
+}
