@@ -1,7 +1,7 @@
 'use client';
 
 import styles from '@/styles/ContactList.module.css';
-import type { MessageAttachment } from '@/services/dashboard/conversation.services';
+import type { MessageAttachment } from '@/services/messaging/chat.service';
 
 const DOC_ICONS: Record<string, string> = {
   'application/pdf': '📄',

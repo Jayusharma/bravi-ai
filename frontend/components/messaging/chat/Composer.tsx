@@ -1,15 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { ConversationThread, ThreadMessage } from '@/services/dashboard/conversation.services';
-import { getConversations, type ConversationPreview } from '@/services/dashboard';
+import type { ConversationThread, ThreadMessage } from '@/services/messaging/chat.service';
+import { getConversations, type ConversationPreview } from '@/services/messaging/chat.service';
 
 import { getSocket } from '@/lib/socket';
-import { useUpload } from '@/hooks/useUpload';
-import { useDraft } from '@/hooks/useDraft';
-import { useOutboundSend } from '@/hooks/useOutboundSend';
-import { AttachmentPreview } from '@/components/messaging/AttachmentPreview';
-import { DraftStatusIndicator } from '@/components/messaging/DraftStatusIndicator';
+import { useUpload } from '@/hooks/messaging/useUpload';
+import { useDraft } from '@/hooks/messaging/useDraft';
+import { useOutboundSend } from '@/hooks/messaging/useOutboundSend';
+import { AttachmentPreview } from '@/components/messaging/chat/AttachmentPreview';
+import { DraftStatusIndicator } from '@/components/messaging/chat/DraftStatusIndicator';
 import styles from '@/styles/ContactList.module.css';
 
 interface ComposerProps {

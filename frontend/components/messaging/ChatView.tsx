@@ -9,10 +9,10 @@ import {
     type ThreadMessage,
     type MessageAttachment,
     type ConversationPreview,
-} from '@/services/dashboard/conversation.services';
+} from '@/services/messaging/chat.service';
 import { getSocket } from '@/lib/socket';
-import { ImageLightbox } from '@/components/messaging/ImageLightbox';
-import { Composer } from '@/components/messaging/Composer';
+import { ImageLightbox } from '@/components/messaging/chat/ImageLightbox';
+import { Composer } from '@/components/messaging/chat/Composer';
 import type { Socket } from 'socket.io-client';
 import styles from '@/styles/ContactList.module.css';
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { logout } from '@/services/auth/login.service';
-import { useAction } from '@/hooks/use-action';
+import { useAction } from '@/hooks/messaging/use-action';
 
 export function LogoutButton() {
     const { execute, pending } = useAction(logout, {

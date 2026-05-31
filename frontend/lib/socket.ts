@@ -57,7 +57,7 @@ async function createConnection(): Promise<Socket> {
     console.error('🔒 WebSocket auth error:', data.message);
     sock.disconnect();
     socket = null;
-    window.location.href = '/login';
+    window.location.href = '/auth/login';
   });
 
   socket = sock;

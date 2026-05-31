@@ -92,7 +92,7 @@ export async function login(formData: FormData): Promise<LoginResult> {
 
 export async function logout() {
     await clearAuthToken();
-    redirect('/login');
+    redirect('/auth/login');
 }
 
 // ═══════════════════════════════════════════════════════════════════

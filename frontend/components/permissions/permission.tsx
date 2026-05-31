@@ -12,7 +12,7 @@
         updatePermission,
         type PermissionRecord,
         type RolePermissionRecord,
-    } from '@/services/dashboard';
+    } from '@/services/permissions';
 
     // ═══════════════════════════════════════════════════════════════════
     // DISPLAY COLUMNS — Maps CRUD actions to user-friendly labels

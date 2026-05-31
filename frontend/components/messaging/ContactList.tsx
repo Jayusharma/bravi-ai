@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getConversations, type ConversationPreview } from '@/services/dashboard';
-import { searchUnified } from '@/services/messaging/search.service';
+import { getConversations, type ConversationPreview } from '@/services/messaging/chat.service';
+import { searchUnified } from '@/services/messaging/contact.service';
 import styles from '@/styles/ContactList.module.css';
 import { getSocket } from '@/lib/socket';
 import type { Socket } from 'socket.io-client';

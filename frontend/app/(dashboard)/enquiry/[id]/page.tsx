@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
-import { getEnquiry } from '@/services/messaging/enquiry.service';
-import { getActiveDraft, getOutboundMessages } from '@/services/messaging/outbound.service';
-import { EnquiryDetailClient } from './EnquiryDetailClient';
+import { getEnquiry } from '@/services/enquiry/enquiry.service';
+import { getActiveDraft, getOutboundMessages } from '@/services/messaging/chat.service';
+import { EnquiryDetailClient } from '@/components/enquiry/EnquiryDetailClient';
 
 interface Props {
     params: Promise<{ id: string }>;

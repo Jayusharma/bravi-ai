@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import ContactList from '@/components/dashboard/Messaging/ContactList';
-import ChatView from '@/components/dashboard/Messaging/ChatView';
-import MessageToast, { type ToastMessage } from '@/components/dashboard/Messaging/MessageToast';
-import type { ConversationPreview } from '@/services/dashboard';
+import ContactList from '@/components/messaging/ContactList';
+import ChatView from '@/components/messaging/ChatView';
+import MessageToast, { type ToastMessage } from '@/components/messaging/MessageToast';
+import type { ConversationPreview } from '@/services/messaging/chat.service';
 import { getSocket, disconnectSocket } from '@/lib/socket';
 import type { Socket } from 'socket.io-client';
 import styles from './messaging.module.css';

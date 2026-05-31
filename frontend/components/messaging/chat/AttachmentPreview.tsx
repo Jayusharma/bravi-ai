@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { UploadState } from '@/hooks/useUpload';
+import { UploadState } from '@/hooks/messaging/useUpload';
 import { formatFileSize } from '@/lib/upload';
-import type { DraftAttachment } from '@/services/messaging/outbound.service';
+import type { DraftAttachment } from '@/services/messaging/chat.service';
 
 interface AttachmentPreviewProps {
   uploads: UploadState[];

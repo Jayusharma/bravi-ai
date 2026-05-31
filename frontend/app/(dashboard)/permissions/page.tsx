@@ -1,5 +1,5 @@
-import { Permission } from '@/components/dashboard';
-import { getPermissions, getRoleAssignments } from '@/services/dashboard';
+import { Permission } from '@/components/permissions';
+import { getPermissions, getRoleAssignments } from '@/services/permissions';
 
 export default async function PermissionsPage() {
     const [permissionsResult, assignmentsResult] = await Promise.all([

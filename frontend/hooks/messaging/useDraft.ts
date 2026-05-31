@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { createDraft, updateDraft, deleteDraft, getActiveDraft, deleteDraftAttachment, type OutboundDraft, type DraftAttachment } from '@/services/messaging/outbound.service';
+import { createDraft, updateDraft, deleteDraft, getActiveDraft, deleteDraftAttachment, type OutboundDraft, type DraftAttachment } from '@/services/messaging/chat.service';
 import { ERROR_MESSAGES } from '@/lib/error-messages';
 
 const DEBOUNCE_MS = 2000;

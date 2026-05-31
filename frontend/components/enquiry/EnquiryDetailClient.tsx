@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { getSocket } from '@/lib/socket';
-import { EnquiryDetail } from '@/services/messaging/enquiry.service';
-import { OutboundDraft, OutboundMessage } from '@/services/messaging/outbound.service';
+import { EnquiryDetail } from '@/services/enquiry/enquiry.service';
+import { OutboundDraft, OutboundMessage } from '@/services/messaging/chat.service';
 
 // OutboundComposer and OutboundHistory were consolidated into the main messaging view (ChatView).
 // This enquiry-detail page renders a simplified read-only message list + link to the main view.

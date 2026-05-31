@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { getEnquiries, getEnquiryStats, type EnquiryListItem } from '@/services/messaging';
+import { getEnquiries, getEnquiryStats, type EnquiryListItem } from '@/services/enquiry';
 
 const STATUS_CONFIG: Record<string, { label: string; dotColor: string; accent: string }> = {
     NEW: { label: 'New', dotColor: 'bg-sky-500', accent: 'text-sky-600 dark:text-sky-300' },

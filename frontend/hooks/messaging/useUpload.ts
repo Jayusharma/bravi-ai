@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { uploadAttachment, UploadedAttachment } from '@/lib/upload';
-import { deleteDraftAttachment } from '@/services/messaging/outbound.service';
+import { deleteDraftAttachment } from '@/services/messaging/chat.service';
 
 export type UploadStatus = 'pending' | 'uploading' | 'done' | 'failed';
 

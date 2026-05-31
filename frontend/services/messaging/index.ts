@@ -1,2 +1,2 @@
-export * from './enquiry.service';
-export * from './outbound.service'
+export * from './chat.service';
+export * from './contact.service';
