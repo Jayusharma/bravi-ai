@@ -1,6 +1,7 @@
 'use client';
 
 import { io, Socket } from 'socket.io-client';
+import { SOCKET_EVENTS } from './socket-events';
 
 let socket: Socket | null = null;
 let connectionPromise: Promise<Socket> | null = null;
@@ -41,7 +42,7 @@ async function createConnection(): Promise<Socket> {
     // Re-join all contact rooms after reconnect
     for (const room of joinedRooms) {
       const [ns, id] = room.split(':');
-      if (ns === 'contact') sock.emit('contact:join', { contactId: id });
+      if (ns === 'contact') sock.emit(SOCKET_EVENTS.CONTACT_JOIN, { contactId: id });
     }
   });
 
@@ -87,7 +88,7 @@ export async function joinContactRoom(contactId: string): Promise<void> {
   const sock = await getSocket();
   const key = `contact:${contactId}`;
   joinedRooms.add(key);
-  sock.emit('contact:join', { contactId });
+  sock.emit(SOCKET_EVENTS.CONTACT_JOIN, { contactId });
 }
 
 /**
@@ -97,7 +98,7 @@ export async function leaveContactRoom(contactId: string): Promise<void> {
   const key = `contact:${contactId}`;
   joinedRooms.delete(key);
   if (socket?.connected) {
-    socket.emit('contact:leave', { contactId });
+    socket.emit(SOCKET_EVENTS.CONTACT_LEAVE, { contactId });
   }
 }
 

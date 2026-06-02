@@ -5,6 +5,7 @@ import { getConversations, type ConversationPreview } from '@/services/messaging
 import { searchUnified } from '@/services/messaging/contact.service';
 import styles from '@/styles/ContactList.module.css';
 import { getSocket } from '@/lib/socket';
+import { SOCKET_EVENTS } from '@/lib/socket-events';
 import type { Socket } from 'socket.io-client';
 
 const CLOSED_STATUSES = ['CONVERTED', 'CLOSED_LOST'];
@@ -121,12 +122,12 @@ export default function ContactList({
           }
         }
 
-        sock.on('contact-list:update', onContactListUpdate);
-        sock.on('contact:updated', onContactUpdated);
+        sock.on(SOCKET_EVENTS.CONTACT_LIST_UPDATE, onContactListUpdate);
+        sock.on(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
 
         return () => {
-          sock.off('contact-list:update', onContactListUpdate);
-          sock.off('contact:updated', onContactUpdated);
+          sock.off(SOCKET_EVENTS.CONTACT_LIST_UPDATE, onContactListUpdate);
+          sock.off(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
         };
       } catch (err) {
         console.error('WebSocket setup failed:', err);

@@ -97,7 +97,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         update: { isOnline: true, lastSeenAt: new Date() },
       }).catch(() => {});
 
-      this.server.emit('presence:online', { userId: payload.sub });
+      this.server.emit(SOCKET_EVENTS.PRESENCE_ONLINE, { userId: payload.sub });
     } catch (err: any) {
       this.logger.warn(`🚫 Invalid token — disconnecting ${client.id}: ${err.message}`);
       client.emit('auth-error', { message: 'Invalid or expired token' });
@@ -113,14 +113,14 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         create: { userId: client.data.userId, isOnline: false },
         update: { isOnline: false, lastSeenAt: new Date() },
       }).catch(() => {});
-      this.server.emit('presence:offline', { userId: client.data.userId });
+      this.server.emit(SOCKET_EVENTS.PRESENCE_OFFLINE, { userId: client.data.userId });
     }
   }
 
   // ─── ROOM MANAGEMENT ─────────────────────────────────────────────────────
 
   /** Joins the contact room — all events for this contact are scoped here */
-  @SubscribeMessage('contact:join')
+  @SubscribeMessage(SOCKET_EVENTS.CONTACT_JOIN)
   handleContactJoin(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { contactId: string },
@@ -133,7 +133,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /** Leaves the contact room */
-  @SubscribeMessage('contact:leave')
+  @SubscribeMessage(SOCKET_EVENTS.CONTACT_LEAVE)
   handleContactLeave(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { contactId: string },
@@ -149,28 +149,28 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   //       'draft:typing'/'draft:composing'/'draft:stopped' in Step 11.
 
   /** Broadcasts typing indicator to contact room (excludes sender) */
-  @SubscribeMessage('typing:start')
+  @SubscribeMessage(SOCKET_EVENTS.TYPING_START)
   handleTypingStart(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { enquiryId?: string; contactId?: string },
   ) {
     const contactId = data.contactId;
     if (!contactId) return;
-    client.to(ROOMS.contact(contactId)).emit('typing:update', {
+    client.to(ROOMS.contact(contactId)).emit(SOCKET_EVENTS.TYPING_UPDATE, {
       userId: client.data.userId,
       isTyping: true,
     });
   }
 
   /** Clears typing indicator in contact room (excludes sender) */
-  @SubscribeMessage('typing:stop')
+  @SubscribeMessage(SOCKET_EVENTS.TYPING_STOP)
   handleTypingStop(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { enquiryId?: string; contactId?: string },
   ) {
     const contactId = data.contactId;
     if (!contactId) return;
-    client.to(ROOMS.contact(contactId)).emit('typing:update', {
+    client.to(ROOMS.contact(contactId)).emit(SOCKET_EVENTS.TYPING_UPDATE, {
       userId: client.data.userId,
       isTyping: false,
     });

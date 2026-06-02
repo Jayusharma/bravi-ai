@@ -6,6 +6,7 @@ import ChatView from '@/components/messaging/ChatView';
 import MessageToast, { type ToastMessage } from '@/components/messaging/MessageToast';
 import type { ConversationPreview } from '@/services/messaging/chat.service';
 import { getSocket, disconnectSocket } from '@/lib/socket';
+import { SOCKET_EVENTS } from '@/lib/socket-events';
 import type { Socket } from 'socket.io-client';
 import styles from './messaging.module.css';
 
@@ -48,7 +49,7 @@ export default function MessagingPage() {
 
                 // ── Global notification: for badges + toasts ──
                 // This event is broadcast to ALL users (not room-specific)
-                sock.on('notification:new-message', (data: {
+                sock.on(SOCKET_EVENTS.NOTIFICATION_NEW_MESSAGE, (data: {
                     contactId: string;
                     enquiryId: string;
                     messagePreview: string;
@@ -81,7 +82,7 @@ export default function MessagingPage() {
                 });
 
                 // ── Track contact list for name resolution ──
-                sock.on('contact-list:update', (data: { conversations: ConversationPreview[] }) => {
+                sock.on(SOCKET_EVENTS.CONTACT_LIST_UPDATE, (data: { conversations: ConversationPreview[] }) => {
                     if (!mounted) return;
                     conversationsRef.current = data.conversations;
                 });
@@ -98,8 +99,8 @@ export default function MessagingPage() {
             mounted = false;
             socketRef.current?.off('connect');
             socketRef.current?.off('disconnect');
-            socketRef.current?.off('notification:new-message');
-            socketRef.current?.off('contact-list:update');
+            socketRef.current?.off(SOCKET_EVENTS.NOTIFICATION_NEW_MESSAGE);
+            socketRef.current?.off(SOCKET_EVENTS.CONTACT_LIST_UPDATE);
             disconnectSocket();
         };
     }, []);
@@ -122,7 +123,7 @@ export default function MessagingPage() {
         });
 
         // Join the contact room — all real-time events (messages, outbound status, typing) come here
-        socketRef.current?.emit('contact:join', { contactId: conv.contactId });
+        socketRef.current?.emit(SOCKET_EVENTS.CONTACT_JOIN, { contactId: conv.contactId });
     }, []);
 
     // ── Handle notification click (jump to that chat) ──
@@ -142,7 +143,7 @@ export default function MessagingPage() {
     const prevContactIdRef = useRef<string | null>(null);
     useEffect(() => {
         if (prevContactIdRef.current && prevContactIdRef.current !== activeConversation?.contactId) {
-            socketRef.current?.emit('contact:leave', { contactId: prevContactIdRef.current });
+            socketRef.current?.emit(SOCKET_EVENTS.CONTACT_LEAVE, { contactId: prevContactIdRef.current });
         }
         prevContactIdRef.current = activeConversation?.contactId || null;
     }, [activeConversation?.contactId]);

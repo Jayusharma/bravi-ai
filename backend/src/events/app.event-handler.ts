@@ -35,7 +35,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { AppGateway } from '../websocket/app.gateway';
 import { ConversationService } from '../modules/messaging/messaging.service';
 import { PrismaService } from '../database/prisma.service';
-import { ROOMS } from '../common/constants/socket-events';
+import { ROOMS, SOCKET_EVENTS } from '../common/constants/socket-events';
 
 @Injectable()
 export class AppEventHandler {
@@ -60,13 +60,13 @@ export class AppEventHandler {
 
     this.gateway.server
       .to(ROOMS.contact(payload.contactId))
-      .emit('chat:new-message', {
+      .emit(SOCKET_EVENTS.MESSAGE_NEW, {
         contactId: payload.contactId,
         enquiryId: payload.enquiryId,
         message: payload.message,
       });
 
-    this.gateway.server.emit('notification:new-message', {
+    this.gateway.server.emit(SOCKET_EVENTS.NOTIFICATION_NEW_MESSAGE, {
       contactId: payload.contactId,
       enquiryId: payload.enquiryId,
       messagePreview:
@@ -84,7 +84,7 @@ export class AppEventHandler {
   async onNewEnquiry(payload: { contactId: string; enquiryId: string }) {
     this.logger.log(`📡 New enquiry ${payload.enquiryId} for contact ${payload.contactId}`);
 
-    this.gateway.server.emit('notification:new-message', {
+    this.gateway.server.emit(SOCKET_EVENTS.NOTIFICATION_NEW_MESSAGE, {
       contactId: payload.contactId,
       enquiryId: payload.enquiryId,
       messagePreview: 'New enquiry created',
@@ -103,7 +103,7 @@ export class AppEventHandler {
     if (!contactId) return;
     this.gateway.server
       .to(ROOMS.contact(contactId))
-      .emit('outbound:sent', { messageId: payload.messageId, enquiryId: payload.enquiryId, sentAt: payload.sentAt });
+      .emit(SOCKET_EVENTS.OUTBOUND_SENT, { messageId: payload.messageId, enquiryId: payload.enquiryId, sentAt: payload.sentAt });
   }
 
   /** All retry attempts exhausted — emit failure to contact room */
@@ -118,7 +118,7 @@ export class AppEventHandler {
     if (!contactId) return;
     this.gateway.server
       .to(ROOMS.contact(contactId))
-      .emit('outbound:failed', {
+      .emit(SOCKET_EVENTS.OUTBOUND_FAILED, {
         messageId: payload.messageId,
         enquiryId: payload.enquiryId,
         error: payload.error,
@@ -133,7 +133,7 @@ export class AppEventHandler {
     if (!contactId) return;
     this.gateway.server
       .to(ROOMS.contact(contactId))
-      .emit('outbound:retry_queued', { messageId: payload.messageId, enquiryId: payload.enquiryId });
+      .emit(SOCKET_EVENTS.OUTBOUND_RETRY_QUEUED, { messageId: payload.messageId, enquiryId: payload.enquiryId });
   }
 
   /** Delivery webhook arrived — emit updated status to contact room */
@@ -149,7 +149,7 @@ export class AppEventHandler {
     if (!contactId) return;
     this.gateway.server
       .to(ROOMS.contact(contactId))
-      .emit('outbound:delivery_updated', payload);
+      .emit(SOCKET_EVENTS.OUTBOUND_DELIVERY_UPDATED, payload);
   }
 
   // ─── MESSAGE MUTATIONS ───────────────────────────────────────────────────
@@ -165,7 +165,7 @@ export class AppEventHandler {
     if (!contactId) return;
     this.gateway.server
       .to(ROOMS.contact(contactId))
-      .emit('message:reaction_updated', payload);
+      .emit(SOCKET_EVENTS.MESSAGE_REACTION_UPDATED, payload);
   }
 
   /** Message soft-deleted — hide from UI */
@@ -175,7 +175,7 @@ export class AppEventHandler {
     if (!contactId) return;
     this.gateway.server
       .to(ROOMS.contact(contactId))
-      .emit('message:deleted', payload);
+      .emit(SOCKET_EVENTS.MESSAGE_DELETED, payload);
   }
 
   /** Message content edited — update in UI */
@@ -190,7 +190,7 @@ export class AppEventHandler {
     if (!contactId) return;
     this.gateway.server
       .to(ROOMS.contact(contactId))
-      .emit('message:edited', payload);
+      .emit(SOCKET_EVENTS.MESSAGE_EDITED, payload);
   }
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────
@@ -213,7 +213,7 @@ export class AppEventHandler {
   private async broadcastContactListUpdate() {
     try {
       const result = await this.conversationService.listConversations({ limit: 50 });
-      this.gateway.server.emit('contact-list:update', { conversations: result.data });
+      this.gateway.server.emit(SOCKET_EVENTS.CONTACT_LIST_UPDATE, { conversations: result.data });
       this.logger.log(`📡 Broadcasted contact-list:update (${result.data.length} contacts)`);
     } catch (err: any) {
       this.logger.error(`Failed to broadcast contact list: ${err.message}`);

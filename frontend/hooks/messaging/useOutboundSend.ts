@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { getSocket } from '@/lib/socket';
+import { SOCKET_EVENTS } from '@/lib/socket-events';
 import { ERROR_MESSAGES } from '@/lib/error-messages';
 
 const ACK_TIMEOUT_MS = 5000;
@@ -72,7 +73,7 @@ export function useOutboundSend(): UseOutboundSendReturn {
           resolve(null);
         }, ACK_TIMEOUT_MS);
 
-        sock.emit('outbound:send', payload, (response: SendAck) => {
+        sock.emit(SOCKET_EVENTS.OUTBOUND_SEND, payload, (response: SendAck) => {
           clearTimeout(timeout);
           resolve(response);
         });

@@ -11,6 +11,7 @@ import {
     type ConversationPreview,
 } from '@/services/messaging/chat.service';
 import { getSocket } from '@/lib/socket';
+import { SOCKET_EVENTS } from '@/lib/socket-events';
 import { ImageLightbox } from '@/components/messaging/chat/ImageLightbox';
 import { Composer } from '@/components/messaging/chat/Composer';
 import type { Socket } from 'socket.io-client';
@@ -616,22 +617,22 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
                     });
                 };
 
-                sock.on('chat:new-message', onNewMessage);
-                sock.on('outbound:sent', onOutboundSent);
-                sock.on('outbound:delivery_updated', onDeliveryUpdated);
-                sock.on('message:reaction_updated', onReactionUpdated);
-                sock.on('message:deleted', onMessageDeleted);
-                sock.on('message:edited', onMessageEdited);
-                sock.on('typing:update', onTypingUpdate);
+                sock.on(SOCKET_EVENTS.MESSAGE_NEW, onNewMessage);
+                sock.on(SOCKET_EVENTS.OUTBOUND_SENT, onOutboundSent);
+                sock.on(SOCKET_EVENTS.OUTBOUND_DELIVERY_UPDATED, onDeliveryUpdated);
+                sock.on(SOCKET_EVENTS.MESSAGE_REACTION_UPDATED, onReactionUpdated);
+                sock.on(SOCKET_EVENTS.MESSAGE_DELETED, onMessageDeleted);
+                sock.on(SOCKET_EVENTS.MESSAGE_EDITED, onMessageEdited);
+                sock.on(SOCKET_EVENTS.TYPING_UPDATE, onTypingUpdate);
 
                 offFns.push(
-                    () => sock.off('chat:new-message', onNewMessage),
-                    () => sock.off('outbound:sent', onOutboundSent),
-                    () => sock.off('outbound:delivery_updated', onDeliveryUpdated),
-                    () => sock.off('message:reaction_updated', onReactionUpdated),
-                    () => sock.off('message:deleted', onMessageDeleted),
-                    () => sock.off('message:edited', onMessageEdited),
-                    () => sock.off('typing:update', onTypingUpdate),
+                    () => sock.off(SOCKET_EVENTS.MESSAGE_NEW, onNewMessage),
+                    () => sock.off(SOCKET_EVENTS.OUTBOUND_SENT, onOutboundSent),
+                    () => sock.off(SOCKET_EVENTS.OUTBOUND_DELIVERY_UPDATED, onDeliveryUpdated),
+                    () => sock.off(SOCKET_EVENTS.MESSAGE_REACTION_UPDATED, onReactionUpdated),
+                    () => sock.off(SOCKET_EVENTS.MESSAGE_DELETED, onMessageDeleted),
+                    () => sock.off(SOCKET_EVENTS.MESSAGE_EDITED, onMessageEdited),
+                    () => sock.off(SOCKET_EVENTS.TYPING_UPDATE, onTypingUpdate),
                 );
             } catch (err) {
                 console.error('Chat WebSocket setup failed:', err);

@@ -5,6 +5,7 @@ import type { ConversationThread, ThreadMessage } from '@/services/messaging/cha
 import { getConversations, type ConversationPreview } from '@/services/messaging/chat.service';
 
 import { getSocket } from '@/lib/socket';
+import { SOCKET_EVENTS } from '@/lib/socket-events';
 import { useUpload } from '@/hooks/messaging/useUpload';
 import { useDraft } from '@/hooks/messaging/useDraft';
 import { useOutboundSend } from '@/hooks/messaging/useOutboundSend';
@@ -137,11 +138,11 @@ export function Composer({
     try {
       const sock = await getSocket();
       const payload = { enquiryId, contactId: contact.id };
-      if (!isTypingRef.current) { isTypingRef.current = true; sock.emit('typing:start', payload); }
+      if (!isTypingRef.current) { isTypingRef.current = true; sock.emit(SOCKET_EVENTS.TYPING_START, payload); }
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       typingTimerRef.current = setTimeout(() => {
         isTypingRef.current = false;
-        sock.emit('typing:stop', payload);
+        sock.emit(SOCKET_EVENTS.TYPING_STOP, payload);
       }, 3000);
     } catch { /* silent */ }
   }, [channel, enquiryId, contact.id]);
@@ -153,7 +154,7 @@ export function Composer({
     if (typingTimerRef.current) { clearTimeout(typingTimerRef.current); typingTimerRef.current = null; }
     if (isTypingRef.current) {
       isTypingRef.current = false;
-      getSocket().then((s) => s.emit('typing:stop', { enquiryId, contactId: contact.id })).catch(() => {});
+      getSocket().then((s) => s.emit(SOCKET_EVENTS.TYPING_STOP, { enquiryId, contactId: contact.id })).catch(() => {});
     }
 
     const ack = await send({
