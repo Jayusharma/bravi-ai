@@ -4,9 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getConversations, type ConversationPreview } from '@/services/messaging/chat.service';
 import { searchUnified } from '@/services/messaging/contact.service';
 import styles from '@/styles/ContactList.module.css';
-import { getSocket } from '@/lib/socket';
+import { useSocket } from '@/contexts/SocketContext';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
-import type { Socket } from 'socket.io-client';
 
 const CLOSED_STATUSES = ['CONVERTED', 'CLOSED_LOST'];
 
@@ -39,7 +38,8 @@ export default function ContactList({
   const [isSearching, setIsSearching] = useState(false);
   // Track which channel tabs have unseen messages
   const [unseenChannels, setUnseenChannels] = useState<Set<string>>(new Set());
-  const socketRef = useRef<Socket | null>(null);
+  // Socket comes from SocketProvider — already connected, no lifecycle management needed here
+  const { socket } = useSocket();
 
   // Fetch conversations from API (with channel filter)
   const fetchConversations = useCallback(async (searchTerm?: string, ch?: ChannelTab) => {
@@ -98,50 +98,30 @@ export default function ContactList({
     return () => clearTimeout(timer);
   }, [search]);
 
-  // WebSocket: real-time contact list updates + unseen channel dots
+  // Real-time contact list updates — socket is guaranteed connected by SocketProvider
   useEffect(() => {
-    let mounted = true;
+    if (!socket) return;
 
-    async function setupSocket() {
-      try {
-        const sock = await getSocket();
-        if (!mounted) return;
-        socketRef.current = sock;
+    function onContactListUpdate(data: { conversations: ConversationPreview[] }) {
+      if (searchRef.current.trim()) return; // don't override active search results
+      setConversations(data.conversations);
+    }
 
-        function onContactListUpdate(data: { conversations: ConversationPreview[] }) {
-          if (!mounted) return;
-          if (searchRef.current.trim()) return; // don't override active search
-          setConversations(data.conversations);
-        }
-
-        function onContactUpdated(data: { contactId: string; channel?: string }) {
-          if (!mounted) return;
-          // If viewing a different channel tab, mark that channel as having unseen activity
-          if (data.channel && data.channel !== channelTab && channelTab !== 'ALL') {
-            setUnseenChannels((prev) => new Set(prev).add(data.channel!));
-          }
-        }
-
-        sock.on(SOCKET_EVENTS.CONTACT_LIST_UPDATE, onContactListUpdate);
-        sock.on(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
-
-        return () => {
-          sock.off(SOCKET_EVENTS.CONTACT_LIST_UPDATE, onContactListUpdate);
-          sock.off(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
-        };
-      } catch (err) {
-        console.error('WebSocket setup failed:', err);
+    function onContactUpdated(data: { contactId: string; channel?: string }) {
+      // If viewing a different channel tab, mark it as having unseen activity
+      if (data.channel && data.channel !== channelTab && channelTab !== 'ALL') {
+        setUnseenChannels(prev => new Set(prev).add(data.channel!));
       }
     }
 
-    let cleanup: (() => void) | undefined;
-    setupSocket().then((fn) => { cleanup = fn; });
+    socket.on(SOCKET_EVENTS.CONTACT_LIST_UPDATE, onContactListUpdate);
+    socket.on(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
 
     return () => {
-      mounted = false;
-      cleanup?.();
+      socket.off(SOCKET_EVENTS.CONTACT_LIST_UPDATE, onContactListUpdate);
+      socket.off(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
     };
-  }, [channelTab]);
+  }, [socket, channelTab]);
 
   // ── Real-time local draft and message synchronization ──
   useEffect(() => {

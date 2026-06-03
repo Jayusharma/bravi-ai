@@ -125,39 +125,5 @@
     color: rgba(255, 255, 255, 0.3);
 }
 
-/* ═══════════════════════════ CONNECTION STATUS ═════════════════ */
-
-.connectionBanner {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 6px 12px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    flex-shrink: 0;
-    transition: all 0.3s ease;
-}
-.connectionBanner.connected {
-    background: rgba(34, 197, 94, 0.1);
-    color: #22c55e;
-}
-.connectionBanner.disconnected {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-}
-.connectionBanner.connecting {
-    background: rgba(234, 179, 8, 0.1);
-    color: #eab308;
-}
-.connectionDot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-    animation: pulse 2s infinite;
-}
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-}
+/* Connection status banner moved to globals.css (socket-reconnecting-banner)
+   — now rendered by SocketProvider so it persists across all dashboard routes */

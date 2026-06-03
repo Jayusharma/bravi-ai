@@ -10,11 +10,10 @@ import {
     type MessageAttachment,
     type ConversationPreview,
 } from '@/services/messaging/chat.service';
-import { getSocket } from '@/lib/socket';
+import { useSocket } from '@/contexts/SocketContext';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
 import { ImageLightbox } from '@/components/messaging/chat/ImageLightbox';
 import { Composer } from '@/components/messaging/chat/Composer';
-import type { Socket } from 'socket.io-client';
 import styles from '@/styles/ContactList.module.css';
 
 interface ChatViewProps {
@@ -354,8 +353,8 @@ function EnquiryBlock({ enq, newMessageIds, activeChannel, onImageClick }: { enq
                                             </>
                                         )}
 
-                                        {/* Timestamp: always visible on last bubble, hover-only on others */}
-                                        <div className={`${styles.msgFooterHover} ${isLast ? styles.msgFooterVisible : ''}`}>
+                                        {/* Timestamp: always visible, right-aligned via msgFooterHover layout + msgFooterVisible opacity override */}
+                                        <div className={`${styles.msgFooterHover} ${styles.msgFooterVisible}`}>
                                             <span className={styles.msgTime}>{formatMsgTime(msg.createdAt)}</span>
                                             {msg.editedAt && <span className={styles.editedLabel}>edited</span>}
                                             {!isInbound && (
@@ -401,9 +400,10 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
     const [lightbox, setLightbox] = useState<{ src: string; fileName: string } | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const socketRef = useRef<Socket | null>(null);
     const prevMsgCountRef = useRef(0);
     const typingTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+    // Socket comes from SocketProvider — already connected and authenticated
+    const { socket } = useSocket();
 
     // ── Load thread from API ──
     useEffect(() => {
@@ -443,19 +443,13 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
         return () => { cancelled = true; };
     }, [contactId]);
 
-    // ── WebSocket: Real-time new messages ──
+    // ── WebSocket: real-time message events — socket guaranteed connected by SocketProvider ──
     useEffect(() => {
+        if (!socket) return;
+
         let mounted = true;
-        // Hold cleanup fns so the unmount return can call them
-        const offFns: (() => void)[] = [];
 
-        async function setupSocket() {
-            try {
-                const sock = await getSocket();
-                if (!mounted) return;
-                socketRef.current = sock;
-
-                const onNewMessage = (data: {
+        const onNewMessage = (data: {
                     contactId: string;
                     enquiryId: string;
                     message: ThreadMessage;
@@ -617,35 +611,25 @@ export default function ChatView({ contactId, contactName }: ChatViewProps) {
                     });
                 };
 
-                sock.on(SOCKET_EVENTS.MESSAGE_NEW, onNewMessage);
-                sock.on(SOCKET_EVENTS.OUTBOUND_SENT, onOutboundSent);
-                sock.on(SOCKET_EVENTS.OUTBOUND_DELIVERY_UPDATED, onDeliveryUpdated);
-                sock.on(SOCKET_EVENTS.MESSAGE_REACTION_UPDATED, onReactionUpdated);
-                sock.on(SOCKET_EVENTS.MESSAGE_DELETED, onMessageDeleted);
-                sock.on(SOCKET_EVENTS.MESSAGE_EDITED, onMessageEdited);
-                sock.on(SOCKET_EVENTS.TYPING_UPDATE, onTypingUpdate);
-
-                offFns.push(
-                    () => sock.off(SOCKET_EVENTS.MESSAGE_NEW, onNewMessage),
-                    () => sock.off(SOCKET_EVENTS.OUTBOUND_SENT, onOutboundSent),
-                    () => sock.off(SOCKET_EVENTS.OUTBOUND_DELIVERY_UPDATED, onDeliveryUpdated),
-                    () => sock.off(SOCKET_EVENTS.MESSAGE_REACTION_UPDATED, onReactionUpdated),
-                    () => sock.off(SOCKET_EVENTS.MESSAGE_DELETED, onMessageDeleted),
-                    () => sock.off(SOCKET_EVENTS.MESSAGE_EDITED, onMessageEdited),
-                    () => sock.off(SOCKET_EVENTS.TYPING_UPDATE, onTypingUpdate),
-                );
-            } catch (err) {
-                console.error('Chat WebSocket setup failed:', err);
-            }
-        }
-
-        setupSocket();
+        socket.on(SOCKET_EVENTS.MESSAGE_NEW, onNewMessage);
+        socket.on(SOCKET_EVENTS.OUTBOUND_SENT, onOutboundSent);
+        socket.on(SOCKET_EVENTS.OUTBOUND_DELIVERY_UPDATED, onDeliveryUpdated);
+        socket.on(SOCKET_EVENTS.MESSAGE_REACTION_UPDATED, onReactionUpdated);
+        socket.on(SOCKET_EVENTS.MESSAGE_DELETED, onMessageDeleted);
+        socket.on(SOCKET_EVENTS.MESSAGE_EDITED, onMessageEdited);
+        socket.on(SOCKET_EVENTS.TYPING_UPDATE, onTypingUpdate);
 
         return () => {
             mounted = false;
-            offFns.forEach(fn => fn());
+            socket.off(SOCKET_EVENTS.MESSAGE_NEW, onNewMessage);
+            socket.off(SOCKET_EVENTS.OUTBOUND_SENT, onOutboundSent);
+            socket.off(SOCKET_EVENTS.OUTBOUND_DELIVERY_UPDATED, onDeliveryUpdated);
+            socket.off(SOCKET_EVENTS.MESSAGE_REACTION_UPDATED, onReactionUpdated);
+            socket.off(SOCKET_EVENTS.MESSAGE_DELETED, onMessageDeleted);
+            socket.off(SOCKET_EVENTS.MESSAGE_EDITED, onMessageEdited);
+            socket.off(SOCKET_EVENTS.TYPING_UPDATE, onTypingUpdate);
         };
-    }, [contactId]);
+    }, [socket, contactId]);
 
     // Parent (MessagingPage) already joins the contact room via contact:join.
     // All events (inbound messages, outbound status, typing) are scoped to contact:{contactId}.

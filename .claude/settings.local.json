@@ -17,7 +17,8 @@
       "Bash(Select-Object -Skip 1)",
       "Bash(xargs grep -l \"keyboard\\\\|hotkey\\\\|shortcut\")",
       "Bash(xargs grep -l \"notification\\\\|pushNotification\\\\|toast\")",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(Sort-Object)"
     ]
   }
 }

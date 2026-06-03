@@ -239,3 +239,92 @@ html {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ══ SocketProvider: reconnecting banner (position:fixed so it overlays every page) ══ */
+.socket-reconnecting-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(234, 179, 8, 0.15);
+  color: #92400e;
+  border-bottom: 1px solid rgba(234, 179, 8, 0.3);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+.dark .socket-reconnecting-banner {
+  background: rgba(234, 179, 8, 0.1);
+  color: #fde68a;
+  border-bottom-color: rgba(234, 179, 8, 0.2);
+}
+.socket-reconnecting-banner .connection-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: socket-pulse 2s infinite;
+}
+@keyframes socket-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+/* ══ SocketProvider: floating sound-toggle button ══ */
+.socket-sound-toggle {
+  position: fixed;
+  bottom: 100px;
+  right: 28px;
+  z-index: 9998;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(20, 20, 30, 0.75);
+  color: rgba(255,255,255,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.socket-sound-toggle:hover {
+  color: #fff;
+  border-color: rgba(255,255,255,0.25);
+  background: rgba(30, 30, 45, 0.9);
+}
+.dark .socket-sound-toggle {
+  background: rgba(15, 15, 25, 0.85);
+}
+[data-theme="light"] .socket-sound-toggle,
+:not(.dark) .socket-sound-toggle {
+  background: rgba(255,255,255,0.85);
+  border-color: rgba(0,0,0,0.1);
+  color: #6b7280;
+}
+[data-theme="light"] .socket-sound-toggle:hover,
+:not(.dark) .socket-sound-toggle:hover {
+  color: #111827;
+  border-color: rgba(0,0,0,0.2);
+}
+
+/* ══ SidebarClient: unread badge on nav items ══ */
+.nav-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
