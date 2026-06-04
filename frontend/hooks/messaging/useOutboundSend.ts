@@ -14,12 +14,15 @@ interface SendInput {
   body?: string;
   draftId?: string | null;
   recipientOverride?: string;
+  tempId?: string;
 }
 
 interface SendAck {
-  messageId: string;
-  jobId: string;
-  status: 'PENDING';
+  success?: boolean;
+  messageId?: string;
+  jobId?: string;
+  status?: 'PENDING';
+  tempId?: string;
   error?: string;
 }
 
@@ -66,6 +69,7 @@ export function useOutboundSend(): UseOutboundSendReturn {
         body: input.body,
         draftId: input.draftId ?? undefined,
         recipientOverride: input.recipientOverride,
+        tempId: input.tempId,
       };
 
       const ack = await new Promise<SendAck | null>((resolve) => {

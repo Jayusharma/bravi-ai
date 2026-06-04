@@ -55,6 +55,7 @@ interface AuthenticatedSocket extends Socket {
   data: {
     userId: string;
     role: string;
+    userName?: string;
   };
 }
 
@@ -90,6 +91,16 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.data.userId = payload.sub;
       client.data.role = payload.role;
       this.logger.log(`🔌 Connected: ${client.id} user=${payload.sub}`);
+
+      // Query and cache userName during connection setup to avoid DB calls on high-frequency events like typing
+      this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { displayName: true, userName: true },
+      }).then(user => {
+        if (user) {
+          client.data.userName = user.displayName || user.userName;
+        }
+      }).catch(() => {});
 
       this.prisma.userPresence.upsert({
         where: { userId: payload.sub },
@@ -129,6 +140,8 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const room = ROOMS.contact(data.contactId);
     client.join(room);
     this.logger.log(`👁️ User ${client.data.userId} joined room ${room}`);
+    console.log("data checking", room )
+    console.log('contact_id',data.contactId )
     return { status: 'joined', room };
   }
 
@@ -145,10 +158,8 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // ─── TYPING INDICATORS ───────────────────────────────────────────────────
-  // NOTE: event names 'typing:start'/'typing:stop' are legacy — renamed to
-  //       'draft:typing'/'draft:composing'/'draft:stopped' in Step 11.
 
-  /** Broadcasts typing indicator to contact room (excludes sender) */
+  /** Broadcasts typing indicator to contact room and globally (excludes sender) */
   @SubscribeMessage(SOCKET_EVENTS.TYPING_START)
   handleTypingStart(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -156,13 +167,26 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const contactId = data.contactId;
     if (!contactId) return;
+    const userName = client.data.userName || 'Someone';
+
+    // Broadcast to specific contact room (excluding sender)
     client.to(ROOMS.contact(contactId)).emit(SOCKET_EVENTS.TYPING_UPDATE, {
+      contactId,
       userId: client.data.userId,
+      userName,
+      isTyping: true,
+    });
+
+    // Broadcast globally to all sidebars (excluding sender)
+    client.broadcast.emit(SOCKET_EVENTS.CONVERSATION_TYPING, {
+      contactId,
+      userId: client.data.userId,
+      userName,
       isTyping: true,
     });
   }
 
-  /** Clears typing indicator in contact room (excludes sender) */
+  /** Clears typing indicator in contact room and globally (excludes sender) */
   @SubscribeMessage(SOCKET_EVENTS.TYPING_STOP)
   handleTypingStop(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -170,7 +194,17 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const contactId = data.contactId;
     if (!contactId) return;
+
+    // Broadcast to specific contact room (excluding sender)
     client.to(ROOMS.contact(contactId)).emit(SOCKET_EVENTS.TYPING_UPDATE, {
+      contactId,
+      userId: client.data.userId,
+      isTyping: false,
+    });
+
+    // Broadcast globally to all sidebars (excluding sender)
+    client.broadcast.emit(SOCKET_EVENTS.CONVERSATION_TYPING, {
+      contactId,
       userId: client.data.userId,
       isTyping: false,
     });
@@ -179,8 +213,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ─── SEND ────────────────────────────────────────────────────────────────
 
   /**
-   * Queues an outbound message and emits the sent message to others in the contact room.
-   * Returns ack to sender: { messageId, jobId, status: 'PENDING' }.
+   * Queues an outbound message, broadcasts to other agents, and returns an ack to the sender.
    */
   @SubscribeMessage(SOCKET_EVENTS.OUTBOUND_SEND)
   async handleOutboundSend(
@@ -192,10 +225,11 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
       body?: string;
       draftId?: string;
       recipientOverride?: string;
+      tempId?: string;
     },
   ) {
-    if (!client.data?.userId) return { error: 'Not authenticated' };
-    if (!this.outboundSendService) return { error: 'Send service unavailable' };
+    if (!client.data?.userId) return { success: false, tempId: data.tempId, error: 'Not authenticated' };
+    if (!this.outboundSendService) return { success: false, tempId: data.tempId, error: 'Send service unavailable' };
 
     try {
       const result = await this.outboundSendService.send({
@@ -208,18 +242,63 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         userId: client.data.userId,
       });
 
-      // Broadcast to others in the contact room (exclude the sender)
-      client.to(ROOMS.contact(result.contactId)).emit(SOCKET_EVENTS.OUTBOUND_SENT, {
-        messageId: result.messageId,
-        enquiryId: data.enquiryId,
-        sentByUserId: client.data.userId,
-        status: 'PENDING',
+      // Load the fully constructed ConversationMessage with relation objects to broadcast
+      const message = await this.prisma.conversationMessage.findUnique({
+        where: { id: result.messageId },
+        include: {
+          sentByUser: {
+            select: { id: true, displayName: true, userName: true },
+          },
+          attachments: {
+            select: {
+              id: true,
+              kind: true,
+              fileName: true,
+              mimeType: true,
+              fileSize: true,
+              cdnUrl: true,
+              width: true,
+              height: true,
+              durationMs: true,
+            },
+          },
+        },
       });
 
-      return { messageId: result.messageId, jobId: result.jobId, status: 'PENDING' };
+      if (message) {
+        // Broadcast MESSAGE_NEW to OTHER agents in the contact room (excludes the sender)
+        client.to(ROOMS.contact(result.contactId)).emit(SOCKET_EVENTS.MESSAGE_NEW, {
+          contactId: result.contactId,
+          enquiryId: data.enquiryId,
+          message,
+        });
+      }
+
+      // Broadcast CONVERSATION_UPDATED globally to update all sidebars
+      this.server.emit(SOCKET_EVENTS.CONVERSATION_UPDATED, {
+        enquiryId: data.enquiryId,
+        contactId: result.contactId,
+        lastMessagePreview: data.body ? data.body.substring(0, 80) : 'New attachment',
+        lastActivityAt: message ? message.createdAt.toISOString() : new Date().toISOString(),
+        status: 'OPEN', // Default to active status
+        unreadDelta: 0,
+        updatedField: 'OUTBOUND_SENT',
+      });
+
+      return {
+        success: true,
+        messageId: result.messageId,
+        tempId: data.tempId,
+        jobId: result.jobId,
+        status: 'PENDING',
+      };
     } catch (err: any) {
       this.logger.error(`outbound:send failed for user ${client.data.userId}: ${err.message}`);
-      return { error: err.message ?? 'Send failed' };
+      return {
+        success: false,
+        tempId: data.tempId,
+        error: err.message ?? 'Send failed',
+      };
     }
   }
 }

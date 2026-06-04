@@ -55,6 +55,7 @@ export type ThreadMessage = {
   sentByUser: { id: string; displayName: string | null; userName: string } | null;
   reactions?: { emoji: string; count: number; userId?: string }[];
   attachments?: MessageAttachment[];
+  tempId?: string;
 };
 
 export type EnquiryThread = {

@@ -20,6 +20,7 @@ interface UseDraftReturn {
   draft: DraftState;
   updateDraft: (patch: { body?: string; subject?: string }) => void;
   discardDraft: () => Promise<void>;
+  clearLocalDraftState: () => void;
   saveForLater: () => Promise<void>;
   /** Deletes an existing attachment from the draft (calls API + updates local state) */
   removeExistingAttachment: (attachmentId: string) => Promise<void>;
@@ -185,6 +186,25 @@ export function useDraft(enquiryId: string | null, channel: MessageChannel): Use
     }, 0);
   }, [enquiryId]);
 
+  const clearLocalDraftStateFn = useCallback(() => {
+    if (debounceTimer.current) { clearTimeout(debounceTimer.current); debounceTimer.current = null; }
+    pendingPatch.current = null;
+    draftIdRef.current = null;
+    setDraft({ id: null, body: '', subject: '', attachments: [] });
+    setIsDirty(false);
+
+    // Dispatch local event to clear draft preview in contact list instantly
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('draft-updated', {
+        detail: {
+          enquiryId,
+          body: '',
+          attachmentCount: 0,
+        }
+      }));
+    }, 0);
+  }, [enquiryId]);
+
   const saveForLaterFn = useCallback(async () => {
     if (!enquiryId) return;
     // Flush any pending changes first
@@ -219,6 +239,7 @@ export function useDraft(enquiryId: string | null, channel: MessageChannel): Use
     draft,
     updateDraft: updateDraftFn,
     discardDraft: discardDraftFn,
+    clearLocalDraftState: clearLocalDraftStateFn,
     saveForLater: saveForLaterFn,
     removeExistingAttachment,
     isDirty,

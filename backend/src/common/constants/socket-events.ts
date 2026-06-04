@@ -19,11 +19,14 @@ export const SOCKET_EVENTS = {
 
   // Server → Client: typing
   TYPING_UPDATE: 'typing:update',
+  CONVERSATION_TYPING: 'conversation:typing',
 
   // Server → Client: contact list
-  CONTACT_LIST_UPDATE:      'contact-list:update',
   CONTACT_UPDATED:          'contact:updated',
   NOTIFICATION_NEW_MESSAGE: 'notification:new-message',
+  // Delta events — patch a single sidebar card instead of broadcasting the full list
+  CONVERSATION_UPDATED:     'conversation:updated',
+  CONVERSATION_NEW:         'conversation:new',
 
   // Server → Client: message mutations
   MESSAGE_REACTION_UPDATED: 'message:reaction_updated',

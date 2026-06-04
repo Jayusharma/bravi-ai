@@ -28,6 +28,7 @@ import {
 import { AppAbility } from '../casl/casl.types';
 import { accessibleBy } from '@casl/prisma';
 import { AuthUser } from 'src/common/types/auth-user.interface';
+import { decodeCursor, buildCursorWhere, paginateResult } from 'src/common/utils/cursor';
 
 @Injectable()
 export class EnquiryService {
@@ -653,21 +654,46 @@ export class EnquiryService {
   // GET MESSAGES — List conversation messages
   // ═══════════════════════════════════════════════════════════════════
 
-  async getMessages(id: string) {
+  async getMessages(id: string, cursorStr?: string, limitStr?: string) {
     const enquiry = await this.prisma.enquiry.findUnique({
       where: { id },
     });
     if (!enquiry) throw new NotFoundException(`Enquiry ${id} not found`);
 
-    return this.prisma.conversationMessage.findMany({
-      where: { enquiryId: id },
-      orderBy: { createdAt: 'asc' },
+    const limit = Math.min(Math.max(parseInt(limitStr ?? '30', 10) || 30, 1), 100);
+    const cursor = decodeCursor(cursorStr);
+
+    const rows = await this.prisma.conversationMessage.findMany({
+      where: {
+        enquiryId: id,
+        ...(cursor ? buildCursorWhere(cursor) : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
       include: {
         sentByUser: {
           select: { id: true, displayName: true, userName: true },
         },
+        attachments: {
+          select: {
+            id: true,
+            kind: true,
+            fileName: true,
+            mimeType: true,
+            fileSize: true,
+            cdnUrl: true,
+            width: true,
+            height: true,
+            durationMs: true,
+          },
+        },
+        reactions: {
+          select: { id: true, emoji: true, userId: true },
+        },
       },
     });
+
+    return paginateResult(rows, limit);
   }
 
   // ═══════════════════════════════════════════════════════════════════

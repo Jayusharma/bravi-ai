@@ -49,7 +49,7 @@ export class AppEventHandler {
 
   // ─── INBOUND MESSAGES ────────────────────────────────────────────────────
 
-  /** Fast path: message appended to existing enquiry — push to chat + global notification + sidebar */
+  /** Fast path: message appended to existing enquiry — push to chat + global notification + sidebar delta */
   @OnEvent('message.inbound.appended')
   async onInboundMessageAppended(payload: {
     contactId: string;
@@ -76,10 +76,10 @@ export class AppEventHandler {
       messageId: payload.message?.id,
     });
 
-    await this.broadcastContactListUpdate();
+    await this.broadcastConversationDelta(payload.enquiryId, 'NEW_INBOUND', 1);
   }
 
-  /** Slow path: new enquiry created after qualification — broadcast sidebar update */
+  /** Slow path: new enquiry created after qualification — insert full card into all sidebars */
   @OnEvent('enquiry.created')
   async onNewEnquiry(payload: { contactId: string; enquiryId: string }) {
     this.logger.log(`📡 New enquiry ${payload.enquiryId} for contact ${payload.contactId}`);
@@ -91,12 +91,12 @@ export class AppEventHandler {
       messageId: `enq-${payload.enquiryId}`,
     });
 
-    await this.broadcastContactListUpdate();
+    await this.broadcastConversationNew(payload.enquiryId);
   }
 
   // ─── OUTBOUND DELIVERY STATUS ────────────────────────────────────────────
 
-  /** Provider accepted the message — emit SENT status to contact room */
+  /** Provider accepted the message — emit SENT status to contact room + sidebar preview delta */
   @OnEvent('outbound.sent')
   async onOutboundSent(payload: { messageId: string; enquiryId: string; sentAt: Date }) {
     const contactId = await this.resolveContactId(payload.enquiryId);
@@ -104,6 +104,7 @@ export class AppEventHandler {
     this.gateway.server
       .to(ROOMS.contact(contactId))
       .emit(SOCKET_EVENTS.OUTBOUND_SENT, { messageId: payload.messageId, enquiryId: payload.enquiryId, sentAt: payload.sentAt });
+    await this.broadcastConversationDelta(payload.enquiryId, 'OUTBOUND_SENT', 0);
   }
 
   /** All retry attempts exhausted — emit failure to contact room */
@@ -168,7 +169,7 @@ export class AppEventHandler {
       .emit(SOCKET_EVENTS.MESSAGE_REACTION_UPDATED, payload);
   }
 
-  /** Message soft-deleted — hide from UI */
+  /** Message soft-deleted — hide from UI + refresh sidebar preview to previous message */
   @OnEvent('message.deleted')
   async onMessageDeleted(payload: { messageId: string; enquiryId: string }) {
     const contactId = await this.resolveContactId(payload.enquiryId);
@@ -176,6 +177,7 @@ export class AppEventHandler {
     this.gateway.server
       .to(ROOMS.contact(contactId))
       .emit(SOCKET_EVENTS.MESSAGE_DELETED, payload);
+    await this.broadcastConversationDelta(payload.enquiryId, 'MESSAGE_DELETED', 0);
   }
 
   /** Message content edited — update in UI */
@@ -209,14 +211,83 @@ export class AppEventHandler {
     }
   }
 
-  /** Fetches current contact list and broadcasts to all connected agents */
-  private async broadcastContactListUpdate() {
+  /**
+   * Fetches one enquiry row and emits a sidebar patch to all connected agents.
+   * Clients patch their local card and debounce re-sort — no full list refetch.
+   */
+  private async broadcastConversationDelta(
+    enquiryId: string,
+    updatedField: 'NEW_INBOUND' | 'OUTBOUND_SENT' | 'MESSAGE_DELETED',
+    unreadDelta: number,
+  ) {
     try {
-      const result = await this.conversationService.listConversations({ limit: 50 });
-      this.gateway.server.emit(SOCKET_EVENTS.CONTACT_LIST_UPDATE, { conversations: result.data });
-      this.logger.log(`📡 Broadcasted contact-list:update (${result.data.length} contacts)`);
+      const enquiry = await this.prisma.enquiry.findUnique({
+        where: { id: enquiryId },
+        select: {
+          id: true,
+          contactId: true,
+          status: true,
+          lastActivityAt: true,
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { content: true, direction: true },
+          },
+        },
+      });
+      if (!enquiry) return;
+      const latest = enquiry.messages[0];
+      this.gateway.server.emit(SOCKET_EVENTS.CONVERSATION_UPDATED, {
+        enquiryId:          enquiry.id,
+        contactId:          enquiry.contactId,
+        lastMessagePreview: latest ? latest.content.substring(0, 80) : '',
+        lastActivityAt:     enquiry.lastActivityAt.toISOString(),
+        status:             enquiry.status,
+        unreadDelta,
+        updatedField,
+      });
     } catch (err: any) {
-      this.logger.error(`Failed to broadcast contact list: ${err.message}`);
+      this.logger.error(`Failed to broadcast conversation delta for ${enquiryId}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Emits a full ConversationPreview card for a brand-new enquiry so all sidebars insert it at the top.
+   * Only called on first enquiry creation — not for subsequent messages.
+   */
+  private async broadcastConversationNew(enquiryId: string) {
+    try {
+      const enquiry = await this.prisma.enquiry.findUnique({
+        where: { id: enquiryId },
+        include: {
+          contact: {
+            include: {
+              channels: {
+                select: { channel: true, identifier: true, isPrimary: true },
+                orderBy: { isPrimary: 'desc' },
+                take: 1,
+              },
+            },
+          },
+        },
+      });
+      if (!enquiry) return;
+      this.gateway.server.emit(SOCKET_EVENTS.CONVERSATION_NEW, {
+        contactId:      enquiry.contact.id,
+        contactName:    enquiry.contact.displayName,
+        organization:   enquiry.contact.organization,
+        channel:        enquiry.contact.channels[0]?.channel ?? null,
+        identifier:     enquiry.contact.channels[0]?.identifier ?? null,
+        enquiryId:      enquiry.id,
+        enquiryStatus:  enquiry.status,
+        assignedTo:     null,
+        messageCount:   0,
+        lastMessage:    null,
+        lastActivityAt: enquiry.lastActivityAt.toISOString(),
+        draft:          null,
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to broadcast new conversation for ${enquiryId}: ${err.message}`);
     }
   }
 }

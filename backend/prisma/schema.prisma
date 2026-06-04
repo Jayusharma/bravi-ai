@@ -154,6 +154,7 @@ model InboundMessage {
 
   // Qualification state
   status QualificationStatus @default(PENDING)
+  isRevoked Boolean @default(false)
 
   // ── NEW: Link to Contact (resolved during ingestion) ──
   contactId String?
@@ -360,6 +361,7 @@ model Enquiry {
   lastCustomerReplyAt DateTime? // When customer last messaged
   firstResponseAt     DateTime? // When staff first replied
   lastActivityAt      DateTime  @default(now()) // Any activity (message, status change)
+  lastReadAt          DateTime? // team read watermark
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -404,6 +406,19 @@ enum DeliveryStatus {
   FAILED // Delivery failed
 }
 
+enum DeleteReason {
+  CUSTOMER_REVOKED
+  AGENT_DELETED
+  ADMIN_PURGED
+}
+
+enum MessageSource {
+  HUMAN
+  AI_ASSISTED
+  AUTOMATION
+  VOICE
+}
+
 model ConversationMessage {
   id        String  @id @default(uuid())
   enquiryId String
@@ -442,8 +457,12 @@ model ConversationMessage {
   replies   ConversationMessage[] @relation("MessageReply")
 
   // Soft delete + edit (Phase 4)
-  isDeleted Boolean   @default(false)
-  editedAt  DateTime?
+  isDeleted       Boolean       @default(false)
+  deletedAt       DateTime?
+  deletedByUserId String?
+  deletedReason   DeleteReason?
+  editedAt        DateTime?
+  source          MessageSource @default(HUMAN)
 
   attachments MessageAttachment[]
   reactions   MessageReaction[]

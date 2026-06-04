@@ -177,9 +177,18 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           }
         });
 
-        // Keeps conversationsRef current so toast name-lookup always has fresh data
-        sock.on(SOCKET_EVENTS.CONTACT_LIST_UPDATE, (data: { conversations: ConversationPreview[] }) => {
-          if (mounted) conversationsRef.current = data.conversations;
+        // Keep conversationsRef current for toast name-lookup — patch single cards, never full replace
+        sock.on(SOCKET_EVENTS.CONVERSATION_UPDATED, (data: { enquiryId: string; lastActivityAt: string }) => {
+          if (!mounted) return;
+          conversationsRef.current = conversationsRef.current.map(c =>
+            c.enquiryId === data.enquiryId ? { ...c, lastActivityAt: data.lastActivityAt } : c
+          );
+        });
+        sock.on(SOCKET_EVENTS.CONVERSATION_NEW, (data: ConversationPreview) => {
+          if (!mounted) return;
+          if (!conversationsRef.current.find(c => c.enquiryId === data.enquiryId)) {
+            conversationsRef.current = [data, ...conversationsRef.current];
+          }
         });
 
       } catch {
@@ -195,7 +204,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       socketRef.current?.off('disconnect');
       socketRef.current?.off('connect_error');
       socketRef.current?.off(SOCKET_EVENTS.NOTIFICATION_NEW_MESSAGE);
-      socketRef.current?.off(SOCKET_EVENTS.CONTACT_LIST_UPDATE);
+      socketRef.current?.off(SOCKET_EVENTS.CONVERSATION_UPDATED);
+      socketRef.current?.off(SOCKET_EVENTS.CONVERSATION_NEW);
       disconnectSocket(); // called only here — no other component should ever call this
     };
   }, []); // socket lifecycle runs once per dashboard mount

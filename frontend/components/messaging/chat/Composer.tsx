@@ -18,6 +18,8 @@ interface ComposerProps {
   channel: 'WHATSAPP' | 'EMAIL';
   contact: ConversationThread['contact'];
   onMessageSent: (msg: ThreadMessage) => void;
+  onMessageAck?: (tempId: string, messageId: string) => void;
+  onMessageError?: (tempId: string, error: string) => void;
   onPreviewImage?: (src: string, fileName: string) => void;
 }
 
@@ -29,6 +31,8 @@ export function Composer({
   channel,
   contact,
   onMessageSent,
+  onMessageAck,
+  onMessageError,
   onPreviewImage,
 }: ComposerProps) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -53,6 +57,7 @@ export function Composer({
     draft,
     updateDraft,
     discardDraft,
+    clearLocalDraftState,
     saveForLater,
     removeExistingAttachment,
     isDirty,
@@ -157,32 +162,21 @@ export function Composer({
       getSocket().then((s) => s.emit(SOCKET_EVENTS.TYPING_STOP, { enquiryId, contactId: contact.id })).catch(() => {});
     }
 
-    const ack = await send({
-      enquiryId,
-      channel,
-      body: draft.body,
-      subject: draft.subject || undefined,
-      draftId: draft.id,
-      recipientOverride: to ?? undefined,
-    });
-
-    if (!ack) {
-      setError(sendError ?? 'Send failed');
-      isSendingRef.current = false;
-      return;
-    }
+    const tempId = crypto.randomUUID();
+    const body = draft.body;
+    const subject = draft.subject;
+    const draftId = draft.id;
 
     // Optimistic message — merge existing draft attachments AND newly uploaded files.
-    // draft.attachments = attachments loaded from a previously saved draft (minus any removed via removeExistingAttachment).
-    // uploads (done) = files the agent uploaded in this session (minus any removed via removeFile which called DELETE).
     const optimisticMsg: ThreadMessage = {
-      id: ack.messageId,
-      content: draft.body,
+      id: tempId,
+      tempId,
+      content: body,
       direction: 'OUTBOUND',
       channel,
       from: 'me',
       to,
-      subject: draft.subject || null,
+      subject: subject || null,
       deliveryStatus: 'PENDING',
       createdAt: new Date().toISOString(),
       sentByUser: null,
@@ -205,9 +199,33 @@ export function Composer({
     };
     onMessageSent(optimisticMsg);
 
-    await discardDraft();
+    // Instantly clear inputs and uploads locally
+    clearLocalDraftState();
     clearUploads();
     isSendingRef.current = false;
+
+    // Trigger send async in background
+    send({
+      enquiryId,
+      channel,
+      body,
+      subject: subject || undefined,
+      draftId,
+      recipientOverride: to ?? undefined,
+      tempId,
+    }).then((ack) => {
+      if (ack && ack.success !== false && ack.messageId) {
+        onMessageAck?.(tempId, ack.messageId);
+      } else {
+        const errorMsg = ack?.error || 'Send failed';
+        setError(errorMsg);
+        onMessageError?.(tempId, errorMsg);
+      }
+    }).catch((err) => {
+      const errorMsg = err.message ?? 'Send failed';
+      setError(errorMsg);
+      onMessageError?.(tempId, errorMsg);
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

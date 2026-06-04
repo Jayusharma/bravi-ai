@@ -9,7 +9,7 @@ import ContactList from '@/components/messaging/ContactList';
 import ChatView from '@/components/messaging/ChatView';
 import type { ConversationPreview } from '@/services/messaging/chat.service';
 import { useSocket } from '@/contexts/SocketContext';
-import { SOCKET_EVENTS } from '@/lib/socket-events';
+import { joinContactRoom, leaveContactRoom } from '@/lib/socket';
 import styles from './messaging.module.css';
 
 // useSearchParams requires a Suspense boundary in the Next.js App Router
@@ -23,6 +23,11 @@ export default function MessagingPage() {
 
 function MessagingPageInner() {
     const [activeConversation, setActiveConversation] = useState<ConversationPreview | null>(null);
+    const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
+    const [highlightEnquiryId, setHighlightEnquiryId] = useState<string | null>(null);
+    const [highlightMessageChannel, setHighlightMessageChannel] = useState<'WHATSAPP' | 'EMAIL' | null>(null);
+    const [highlightQuery, setHighlightQuery] = useState<string | null>(null);
+
     const activeContactIdRef = useRef<string | null>(null);
     const conversationsRef = useRef<ConversationPreview[]>([]);
     // Flag used to auto-select a contact when conversations finish loading (toast-navigation flow)
@@ -32,7 +37,7 @@ function MessagingPageInner() {
     const router = useRouter();
 
     // Pull shared state from SocketProvider — no local connect/disconnect
-    const { socket, unreadContacts, clearUnread, setActiveContactId, setConversations } = useSocket();
+    const { unreadContacts, clearUnread, setActiveContactId, setConversations } = useSocket();
 
     // Keep ref in sync for use inside socket callbacks without causing re-renders
     useEffect(() => {
@@ -40,22 +45,34 @@ function MessagingPageInner() {
     }, [activeConversation]);
 
     // ── Contact selection ──
-    const handleSelectContact = useCallback((conv: ConversationPreview) => {
+    const handleSelectContact = useCallback((
+        conv: ConversationPreview,
+        messageId?: string,
+        enquiryId?: string,
+        messageChannel?: 'WHATSAPP' | 'EMAIL',
+        searchQuery?: string
+    ) => {
         setActiveConversation(conv);
+        setHighlightMessageId(messageId || null);
+        setHighlightEnquiryId(enquiryId || null);
+        setHighlightMessageChannel(messageChannel || null);
+        setHighlightQuery(searchQuery || null);
         // Tell SocketProvider which contact is open so it suppresses badge + toast for it
         setActiveContactId(conv.contactId);
         clearUnread(conv.contactId);
-        socket?.emit(SOCKET_EVENTS.CONTACT_JOIN, { contactId: conv.contactId });
-    }, [socket, clearUnread, setActiveContactId]);
+    }, [clearUnread, setActiveContactId]);
 
-    // Leave previous room when switching contacts
-    const prevContactIdRef = useRef<string | null>(null);
+    // Handle WebSocket room join/leave lifecycle (with auto-reconnect registry and unmount cleanup)
     useEffect(() => {
-        if (prevContactIdRef.current && prevContactIdRef.current !== activeConversation?.contactId) {
-            socket?.emit(SOCKET_EVENTS.CONTACT_LEAVE, { contactId: prevContactIdRef.current });
-        }
-        prevContactIdRef.current = activeConversation?.contactId || null;
-    }, [activeConversation?.contactId, socket]);
+        const contactId = activeConversation?.contactId;
+        if (!contactId) return;
+
+        joinContactRoom(contactId);
+
+        return () => {
+            leaveContactRoom(contactId);
+        };
+    }, [activeConversation?.contactId]);
 
     // Clear activeContactId in SocketProvider when leaving this page
     useEffect(() => {
@@ -136,6 +153,16 @@ function MessagingPageInner() {
                             key={activeConversation.contactId}
                             contactId={activeConversation.contactId}
                             contactName={activeConversation.contactName}
+                            highlightMessageId={highlightMessageId}
+                            highlightEnquiryId={highlightEnquiryId}
+                            highlightMessageChannel={highlightMessageChannel}
+                            highlightQuery={highlightQuery}
+                            onClearHighlight={() => {
+                                setHighlightMessageId(null);
+                                setHighlightEnquiryId(null);
+                                setHighlightMessageChannel(null);
+                                setHighlightQuery(null);
+                            }}
                         />
                     ) : (
                         <div className={styles.emptyView}>

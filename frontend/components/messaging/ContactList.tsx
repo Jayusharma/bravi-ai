@@ -9,6 +9,17 @@ import { SOCKET_EVENTS } from '@/lib/socket-events';
 
 const CLOSED_STATUSES = ['CONVERTED', 'CLOSED_LOST'];
 
+// Payload from server's conversation:updated event — single-card patch, not full list replacement
+interface ConversationDelta {
+  enquiryId: string;
+  contactId: string;
+  lastMessagePreview: string;
+  lastActivityAt: string;
+  status: string;
+  unreadDelta: number;
+  updatedField: 'NEW_INBOUND' | 'OUTBOUND_SENT' | 'MESSAGE_DELETED';
+}
+
 const CHANNEL_ICONS: Record<string, string> = {
   WHATSAPP: '💬',
   EMAIL: '📧',
@@ -19,9 +30,32 @@ type ChannelTab = 'ALL' | 'WHATSAPP' | 'EMAIL';
 
 interface ContactListProps {
   activeContactId: string | null;
-  onSelectContact: (conv: ConversationPreview) => void;
+  onSelectContact: (
+    conv: ConversationPreview,
+    messageId?: string,
+    enquiryId?: string,
+    messageChannel?: 'WHATSAPP' | 'EMAIL',
+    searchQuery?: string
+  ) => void;
   unreadContacts?: Record<string, number>;
   onConversationsLoaded?: (convs: ConversationPreview[]) => void;
+}
+
+interface UnifiedSearchResult {
+  type: 'contact' | 'message';
+  contactId: string;
+  contactName: string;
+  organization: string | null;
+  channel: string | null;
+  identifier: string | null;
+  enquiryId: string;
+  enquiryStatus: string;
+  lastActivityAt: string;
+  // If type === 'message'
+  messageId?: string;
+  messageContent?: string;
+  messageTime?: string;
+  messageDirection?: string;
 }
 
 export default function ContactList({
@@ -34,12 +68,18 @@ export default function ContactList({
   const [search, setSearch] = useState('');
   const [channelTab, setChannelTab] = useState<ChannelTab>('ALL');
   const [loading, setLoading] = useState(true);
-  const [searchResults, setSearchResults] = useState<ConversationPreview[] | null>(null);
+  const [typingContacts, setTypingContacts] = useState<Record<string, boolean>>({});
+  const typingTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [searchResults, setSearchResults] = useState<UnifiedSearchResult[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   // Track which channel tabs have unseen messages
   const [unseenChannels, setUnseenChannels] = useState<Set<string>>(new Set());
-  // Socket comes from SocketProvider — already connected, no lifecycle management needed here
-  const { socket } = useSocket();
+  // Socket + connectionStatus come from SocketProvider — no lifecycle management needed here
+  const { socket, connectionStatus } = useSocket();
+  // Tracks previous connectionStatus to detect reconnects and trigger a full list refetch
+  const prevStatusRef = useRef<string>('connecting');
+  // Debounce timer for visual re-sort — patch data instantly, re-sort once after burst settles
+  const reorderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch conversations from API (with channel filter)
   const fetchConversations = useCallback(async (searchTerm?: string, ch?: ChannelTab) => {
@@ -61,6 +101,14 @@ export default function ContactList({
     fetchConversations(undefined, channelTab);
   }, [channelTab]);
 
+  // Full refetch after reconnect — ensures we catch anything that arrived while disconnected
+  useEffect(() => {
+    if (connectionStatus === 'connected' && prevStatusRef.current === 'disconnected') {
+      fetchConversations(undefined, channelTab);
+    }
+    prevStatusRef.current = connectionStatus;
+  }, [connectionStatus, channelTab]);
+
   // Debounced search — uses /search endpoint when query is non-empty
   const searchRef = useRef(search);
   useEffect(() => { searchRef.current = search; }, [search]);
@@ -74,8 +122,9 @@ export default function ContactList({
     const timer = setTimeout(async () => {
       try {
         const res = await searchUnified(search.trim());
-        // Shape search contact results into ConversationPreview for display
-        const contactPreviews: ConversationPreview[] = res.contacts.map((c) => ({
+        
+        const contactResults: UnifiedSearchResult[] = res.contacts.map((c) => ({
+          type: 'contact',
           contactId: c.id,
           contactName: c.displayName,
           organization: c.organization,
@@ -83,12 +132,26 @@ export default function ContactList({
           identifier: c.channels[0]?.identifier ?? null,
           enquiryId: c.enquiries[0]?.id ?? '',
           enquiryStatus: c.enquiries[0]?.status ?? 'NEW',
-          assignedTo: null,
-          messageCount: 0,
-          lastMessage: null,
           lastActivityAt: new Date().toISOString(),
         }));
-        setSearchResults(contactPreviews);
+
+        const messageResults: UnifiedSearchResult[] = res.messages.map((m) => ({
+          type: 'message',
+          contactId: m.enquiry.contact.id,
+          contactName: m.enquiry.contact.displayName,
+          organization: null,
+          channel: m.channel,
+          identifier: null,
+          enquiryId: m.enquiry.id,
+          enquiryStatus: m.enquiry.status,
+          lastActivityAt: m.createdAt,
+          messageId: m.id,
+          messageContent: m.content,
+          messageTime: m.createdAt,
+          messageDirection: m.direction,
+        }));
+
+        setSearchResults([...contactResults, ...messageResults]);
       } catch (err) {
         console.error('Search failed:', err);
       } finally {
@@ -98,28 +161,125 @@ export default function ContactList({
     return () => clearTimeout(timer);
   }, [search]);
 
+  const handleSelectResult = (item: UnifiedSearchResult) => {
+    const existing = conversations.find((c) => c.contactId === item.contactId);
+    const conv: ConversationPreview = existing || {
+      contactId: item.contactId,
+      contactName: item.contactName,
+      organization: item.organization,
+      channel: item.channel,
+      identifier: item.identifier,
+      enquiryId: item.enquiryId,
+      enquiryStatus: item.enquiryStatus,
+      assignedTo: null,
+      messageCount: 0,
+      lastMessage: item.messageContent ? {
+        content: item.messageContent,
+        direction: item.messageDirection || 'INBOUND',
+        channel: item.channel || 'WHATSAPP',
+        createdAt: item.messageTime || new Date().toISOString(),
+      } : null,
+      lastActivityAt: item.lastActivityAt,
+    };
+
+    if (item.type === 'message') {
+      onSelectContact(conv, item.messageId, item.enquiryId, item.channel as 'WHATSAPP' | 'EMAIL', search.trim());
+    } else {
+      onSelectContact(conv);
+    }
+  };
+
   // Real-time contact list updates — socket is guaranteed connected by SocketProvider
   useEffect(() => {
     if (!socket) return;
 
-    function onContactListUpdate(data: { conversations: ConversationPreview[] }) {
-      if (searchRef.current.trim()) return; // don't override active search results
-      setConversations(data.conversations);
+    // Debounced re-sort: patch data immediately, delay the visual reorder to prevent burst flicker
+    function scheduleReorder() {
+      if (reorderTimerRef.current) clearTimeout(reorderTimerRef.current);
+      reorderTimerRef.current = setTimeout(() => {
+        setConversations(prev =>
+          [...prev].sort((a, b) =>
+            new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime()
+          )
+        );
+      }, 200);
+    }
+
+    // Patch a single card in-place; schedule re-sort once; never replace the full list
+    function onConversationUpdated(data: ConversationDelta) {
+      if (searchRef.current.trim()) return; // don't disrupt active search results
+      setConversations(prev => {
+        const idx = prev.findIndex(c => c.enquiryId === data.enquiryId);
+        if (idx === -1) return prev; // enquiry filtered out of current view — ignore
+        return prev.map((c, i) => i !== idx ? c : {
+          ...c,
+          lastMessage: data.lastMessagePreview ? {
+            content:   data.lastMessagePreview,
+            direction: data.updatedField === 'NEW_INBOUND' ? 'INBOUND' : 'OUTBOUND',
+            channel:   c.channel ?? 'WHATSAPP',
+            createdAt: data.lastActivityAt,
+          } : c.lastMessage,
+          lastActivityAt: data.lastActivityAt,
+          enquiryStatus:  data.status,
+          // Clear draft preview once the message is confirmed sent by the provider
+          draft: data.updatedField === 'OUTBOUND_SENT' ? null : c.draft,
+        });
+      });
+      scheduleReorder();
+    }
+
+    // Insert a brand-new card at the top — fires only on first-ever message from a new contact
+    function onConversationNew(data: ConversationPreview) {
+      if (searchRef.current.trim()) return;
+      setConversations(prev =>
+        prev.find(c => c.enquiryId === data.enquiryId) ? prev : [data, ...prev]
+      );
     }
 
     function onContactUpdated(data: { contactId: string; channel?: string }) {
-      // If viewing a different channel tab, mark it as having unseen activity
+      // Mark the other channel tab as having unseen activity
       if (data.channel && data.channel !== channelTab && channelTab !== 'ALL') {
         setUnseenChannels(prev => new Set(prev).add(data.channel!));
       }
     }
 
-    socket.on(SOCKET_EVENTS.CONTACT_LIST_UPDATE, onContactListUpdate);
+    function onConversationTyping(data: { contactId: string; isTyping: boolean }) {
+      setTypingContacts(prev => ({
+        ...prev,
+        [data.contactId]: data.isTyping,
+      }));
+
+      if (data.isTyping) {
+        if (typingTimeoutsRef.current[data.contactId]) {
+          clearTimeout(typingTimeoutsRef.current[data.contactId]);
+        }
+        typingTimeoutsRef.current[data.contactId] = setTimeout(() => {
+          setTypingContacts(prev => {
+            const next = { ...prev };
+            delete next[data.contactId];
+            return next;
+          });
+        }, 4000);
+      } else {
+        if (typingTimeoutsRef.current[data.contactId]) {
+          clearTimeout(typingTimeoutsRef.current[data.contactId]);
+          delete typingTimeoutsRef.current[data.contactId];
+        }
+      }
+    }
+
+    socket.on(SOCKET_EVENTS.CONVERSATION_UPDATED, onConversationUpdated);
+    socket.on(SOCKET_EVENTS.CONVERSATION_NEW, onConversationNew);
     socket.on(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
+    socket.on(SOCKET_EVENTS.CONVERSATION_TYPING, onConversationTyping);
 
     return () => {
-      socket.off(SOCKET_EVENTS.CONTACT_LIST_UPDATE, onContactListUpdate);
+      socket.off(SOCKET_EVENTS.CONVERSATION_UPDATED, onConversationUpdated);
+      socket.off(SOCKET_EVENTS.CONVERSATION_NEW, onConversationNew);
       socket.off(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
+      socket.off(SOCKET_EVENTS.CONVERSATION_TYPING, onConversationTyping);
+      if (reorderTimerRef.current) clearTimeout(reorderTimerRef.current);
+      Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
     };
   }, [socket, channelTab]);
 
@@ -203,8 +363,6 @@ export default function ContactList({
     return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
   };
 
-  const displayList = searchResults ?? conversations;
-
   return (
     <div className={styles.contactList}>
       {/* Header */}
@@ -239,16 +397,77 @@ export default function ContactList({
 
       {/* Contact items */}
       <div className={styles.listBody}>
-        {(loading && displayList.length === 0) || isSearching ? (
+        {(loading && conversations.length === 0) || isSearching ? (
           <div className={styles.emptyState}>
             {isSearching ? 'Searching…' : 'Loading conversations…'}
           </div>
-        ) : displayList.length === 0 ? (
-          <div className={styles.emptyState}>
-            {search ? 'No results found' : 'No conversations yet'}
-          </div>
+        ) : search.trim() ? (
+          !searchResults || searchResults.length === 0 ? (
+            <div className={styles.emptyState}>No results found</div>
+          ) : (
+            searchResults.map((item) => {
+              const isClosed = CLOSED_STATUSES.includes(item.enquiryStatus);
+              const unreadCount = unreadContacts[item.contactId] || 0;
+              const isActive = activeContactId === item.contactId;
+              const hasUnread = unreadCount > 0 && !isActive;
+              const key = item.type === 'message' ? `${item.contactId}-${item.messageId}` : item.contactId;
+
+              return (
+                <div
+                  key={key}
+                  className={[
+                    styles.contactItem,
+                    isActive ? styles.contactActive : '',
+                    isClosed ? styles.contactClosed : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => handleSelectResult(item)}
+                >
+                  <div className={styles.avatar}>
+                    {item.contactName.charAt(0).toUpperCase()}
+                  </div>
+
+                  <div className={styles.contactContent}>
+                    <div className={styles.contactRow}>
+                      <span className={`${styles.contactName} ${hasUnread ? styles.contactNameUnread : ''}`}>
+                        {item.contactName}
+                      </span>
+                      <span className={`${styles.contactTime} ${hasUnread ? styles.contactTimeUnread : ''}`}>
+                        {formatTime(item.type === 'message' ? item.messageTime! : item.lastActivityAt)}
+                      </span>
+                    </div>
+
+                    <div className={styles.contactRow}>
+                      {item.type === 'message' ? (
+                        <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
+                          <span className={styles.channelIcon}>
+                            {CHANNEL_ICONS[item.channel || ''] || '💭'}
+                          </span>
+                          {item.messageDirection === 'OUTBOUND' && (
+                            <span className={styles.outboundArrow}>↩ </span>
+                          )}
+                          {item.messageContent}
+                        </span>
+                      ) : (
+                        <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
+                          <span className={styles.channelIcon}>
+                            {CHANNEL_ICONS[item.channel || ''] || '💭'}
+                          </span>
+                          {item.identifier || item.organization || 'No messages'}
+                        </span>
+                      )}
+                      {hasUnread && (
+                        <span className={styles.unreadBadge}>{unreadCount}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )
+        ) : conversations.length === 0 ? (
+          <div className={styles.emptyState}>No conversations yet</div>
         ) : (
-          displayList.map((conv) => {
+          conversations.map((conv) => {
             const isClosed = CLOSED_STATUSES.includes(conv.enquiryStatus);
             const unreadCount = unreadContacts[conv.contactId] || 0;
             const isActive = activeContactId === conv.contactId;
@@ -281,7 +500,14 @@ export default function ContactList({
                   </div>
 
                   <div className={styles.contactRow}>
-                    {conv.draft && (conv.draft.body?.trim() || conv.draft.attachmentCount > 0) ? (
+                    {typingContacts[conv.contactId] ? (
+                      <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
+                        <span className={styles.channelIcon}>
+                          {CHANNEL_ICONS[conv.channel || ''] || '💭'}
+                        </span>
+                        <span style={{ color: 'rgba(99,102,241,0.95)', fontWeight: 500 }}>typing...</span>
+                      </span>
+                    ) : conv.draft && !isActive && (conv.draft.body?.trim() || conv.draft.attachmentCount > 0) ? (
                       <span className={styles.contactPreview}>
                         <span className={styles.draftLabel}>Draft:</span>
                         <span className={styles.draftText}>

@@ -1,7 +1,9 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { ConversationService } from './messaging.service';
 import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+import type { Request } from 'express';
+
 @Controller('conversations')
 @UseGuards(CaslGuard)
 export class ConversationController {
@@ -17,17 +19,21 @@ export class ConversationController {
   @Get()
   @CheckAbility({ action: 'read', subject: 'contact' })
   listConversations(
+    @Req() req: Request,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('channel') channel?: string,
   ) {
-    return this.conversationService.listConversations({
-      search,
-      page: page ? parseInt(page) : undefined,
-      limit: limit ? parseInt(limit) : undefined,
-      channel,
-    });
+    return this.conversationService.listConversations(
+      {
+        search,
+        page: page ? parseInt(page) : undefined,
+        limit: limit ? parseInt(limit) : undefined,
+        channel,
+      },
+      req.user!.userId,
+    );
   }
 
 

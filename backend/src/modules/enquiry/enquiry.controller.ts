@@ -126,12 +126,14 @@ export class EnquiryController {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /enquiry/:id/messages — List conversation messages
-  // ═══════════════════════════════════════════════════════════════════
   @Get(':id/messages')
   @CheckAbility({ action: 'read', subject: 'message' })
-  getMessages(@Param('id') id: string) {
-    return this.enquiryService.getMessages(id);
+  getMessages(
+    @Param('id') id: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.enquiryService.getMessages(id, cursor, limit);
   }
 
   // ═══════════════════════════════════════════════════════════════════

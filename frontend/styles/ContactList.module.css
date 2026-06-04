@@ -492,7 +492,7 @@
 .chatView {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   min-width: 0;
   background: var(--msg-page-bg);
   height: 100%;
@@ -1113,8 +1113,11 @@
   color: var(--text-muted);
 }
 .channelWhatsapp .deliveryStatus {
-  color: #53bdeb;
+  color: #8696a0;
   font-weight: bold;
+}
+.channelWhatsapp .deliveryStatus.statusRead {
+  color: #53bdeb;
 }
 
 /* ── Bubble grouping corner fixes ── */
@@ -1436,6 +1439,9 @@
   z-index: 20;
   animation: floatIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.2);
   white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .channelWhatsapp .newMsgFloat {
   background: var(--wa-accent);
@@ -1485,6 +1491,30 @@
 }
 
 /* ══════════════════════════ TYPING INDICATOR ════════════════════ */
+.typingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.typingDots {
+  display: flex;
+  align-items: center;
+  gap: 3.5px;
+}
+
+.typingDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wa-accent);
+  animation: typingDot 1.4s infinite ease-in-out;
+}
+
 @keyframes typingDot {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
   30%            { transform: translateY(-4px); opacity: 1; }
@@ -1860,4 +1890,206 @@
   border-radius: 50%;
   display: inline-block;
   animation: pulseDot 1.8s infinite;
+}
+
+/* ── MESSAGE HIGHLIGHTING ── */
+.textHighlight {
+  background-color: #fef08a !important; /* Tailwind's yellow-200 */
+  color: #1e293b !important;            /* Dark text for contrast */
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* ── CHAT VIEW HORIZONTAL SPLIT ── */
+.chatMainArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chatSearchPanel {
+  width: 320px;
+  border-left: 1px solid var(--panel-border);
+  background-color: var(--cl-bg);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  flex-shrink: 0;
+  animation: searchPanelSlideIn 0.2s ease-out;
+}
+
+@keyframes searchPanelSlideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* ── HEADER SEARCH BUTTON ── */
+.headerSearchBtn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.headerSearchBtn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.headerSearchBtnActive {
+  background: var(--hover-bg);
+  color: var(--wa-accent);
+}
+
+/* ── SEARCH PANEL SUB-COMPONENTS ── */
+.searchPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+.searchPanelHeader h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.closeSearchBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.closeSearchBtn:hover {
+  color: var(--text-primary);
+  background: var(--hover-bg);
+}
+
+.searchPanelBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 0;
+}
+
+.searchPanelInputWrapper {
+  position: relative;
+  margin: 0 16px 12px 16px;
+}
+
+.searchPanelInput {
+  width: 100%;
+  padding: 8px 32px 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.searchPanelInput:focus {
+  outline: none;
+  border-color: var(--wa-accent);
+}
+
+.clearSearchBtn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.clearSearchBtn:hover {
+  color: var(--text-primary);
+  background: var(--hover-bg);
+}
+
+.searchPanelLoading,
+.searchPanelEmpty,
+.searchPanelInfo {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.searchPanelResults {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.searchResultItem {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--panel-border);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.searchResultItem:hover {
+  background-color: var(--hover-bg);
+}
+
+.searchResultItemActive {
+  background-color: #fef9c3 !important; /* light yellow */
+}
+
+:global(.dark) .searchResultItemActive {
+  background-color: rgba(250, 204, 21, 0.15) !important;
+}
+
+.searchResultMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.searchResultSender {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.searchResultTime {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.searchResultText {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

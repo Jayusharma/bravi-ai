@@ -34,12 +34,15 @@ export class ConversationService {
   //     messageCount,
   //   }
   // ═══════════════════════════════════════════════════════════════
-  async listConversations(query?: {
-    search?: string;
-    page?: number;
-    limit?: number;
-    channel?: string;
-  }) {
+  async listConversations(
+    query?: {
+      search?: string;
+      page?: number;
+      limit?: number;
+      channel?: string;
+    },
+    userId?: string,
+  ) {
     const page = query?.page || 1;
     const limit = query?.limit || 30;
     const skip = (page - 1) * limit;
@@ -124,6 +127,7 @@ export class ConversationService {
             enquiryId: { in: enquiryIds },
             status: 'ACTIVE',
             expiresAt: { gt: new Date() },
+            ...(userId ? { createdBy: userId } : {}),
           },
           select: {
             enquiryId: true,
@@ -227,8 +231,6 @@ export class ConversationService {
       throw new NotFoundException(`Contact "${contactId}" not found`);
     }
 
-    // 2. Load all enquiries for this contact that have at least 1 message
-    //    Each enquiry includes its full message list (oldest first)
     const enquiries = await this.prisma.enquiry.findMany({
       where: {
         contactId,
@@ -238,41 +240,6 @@ export class ConversationService {
       include: {
         assignedTo: {
           select: { id: true, displayName: true, userName: true },
-        },
-        messages: {
-          orderBy: { createdAt: 'asc' },
-          select: {
-            id: true,
-            content: true,
-            direction: true,
-            channel: true,
-            from: true,
-            to: true,
-            subject: true,
-            deliveryStatus: true,
-            createdAt: true,
-            editedAt: true,
-            isDeleted: true,
-            sentByUser: {
-              select: { id: true, displayName: true, userName: true },
-            },
-            attachments: {
-              select: {
-                id: true,
-                kind: true,
-                fileName: true,
-                mimeType: true,
-                fileSize: true,
-                cdnUrl: true,
-                width: true,
-                height: true,
-                durationMs: true,
-              },
-            },
-            reactions: {
-              select: { id: true, emoji: true, userId: true },
-            },
-          },
         },
         _count: { select: { messages: true } },
       },
@@ -296,7 +263,7 @@ export class ConversationService {
         messageCount: enq._count.messages,
         createdAt: enq.createdAt,
         lastActivityAt: enq.lastActivityAt,
-        messages: enq.messages,
+        messages: [],
       })),
     };
   }

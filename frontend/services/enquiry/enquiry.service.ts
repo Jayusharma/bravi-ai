@@ -130,8 +130,22 @@ export async function getEnquiryStats(): Promise<EnquiryStats> {
     return apiClient<EnquiryStats>(API.ENQUIRY.STATS);
 }
 
-export async function getMessages(id: string) {
-    return apiClient<EnquiryDetail['messages']>(API.ENQUIRY.MESSAGES(id));
+export interface PaginatedMessagesResponse {
+    data: EnquiryDetail['messages'];
+    cursor: string | null;
+    hasMore: boolean;
+}
+
+export async function getMessages(
+    id: string,
+    params?: { cursor?: string; limit?: number }
+): Promise<PaginatedMessagesResponse> {
+    return apiClient<PaginatedMessagesResponse>(API.ENQUIRY.MESSAGES(id), {
+        params: {
+            cursor: params?.cursor,
+            limit: params?.limit,
+        },
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════
