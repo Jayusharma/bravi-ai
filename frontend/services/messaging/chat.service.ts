@@ -234,3 +234,22 @@ export async function getOutboundMessages(
 export async function retryMessage(messageId: string): Promise<{ queued: boolean }> {
   return apiClient<{ queued: boolean }>(API.OUTBOUND.RETRY(messageId), { method: 'POST' });
 }
+
+// ── Forward ──────────────────────────────────────────────────────
+
+export interface ForwardResult {
+  messageId: string;
+  jobId: string;
+  deliveryStatus: 'PENDING';
+  contactId: string;
+}
+
+export async function forwardMessage(
+  messageId: string,
+  targetEnquiryId: string,
+): Promise<ForwardResult> {
+  return apiClient<ForwardResult>(API.OUTBOUND.FORWARD(messageId), {
+    method: 'POST',
+    body: { targetEnquiryId },
+  });
+}

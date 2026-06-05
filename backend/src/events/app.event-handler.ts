@@ -94,6 +94,45 @@ export class AppEventHandler {
     await this.broadcastConversationNew(payload.enquiryId);
   }
 
+  /** Outbound message created via REST (e.g. forward) — push full message to the target contact room + sidebar delta */
+  @OnEvent('message.outbound.broadcast')
+  async onOutboundMessageBroadcast(payload: {
+    contactId: string;
+    enquiryId: string;
+    messageId: string;
+  }) {
+    const message = await this.prisma.conversationMessage.findUnique({
+      where: { id: payload.messageId },
+      include: {
+        sentByUser: { select: { id: true, displayName: true, userName: true } },
+        attachments: {
+          select: {
+            id: true,
+            kind: true,
+            fileName: true,
+            mimeType: true,
+            fileSize: true,
+            cdnUrl: true,
+            width: true,
+            height: true,
+            durationMs: true,
+          },
+        },
+      },
+    });
+    if (!message) return;
+
+    this.gateway.server
+      .to(ROOMS.contact(payload.contactId))
+      .emit(SOCKET_EVENTS.MESSAGE_NEW, {
+        contactId: payload.contactId,
+        enquiryId: payload.enquiryId,
+        message,
+      });
+
+    await this.broadcastConversationDelta(payload.enquiryId, 'OUTBOUND_SENT', 0);
+  }
+
   // ─── OUTBOUND DELIVERY STATUS ────────────────────────────────────────────
 
   /** Provider accepted the message — emit SENT status to contact room + sidebar preview delta */

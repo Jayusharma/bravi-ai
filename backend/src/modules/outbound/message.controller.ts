@@ -19,11 +19,18 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { IsUUID } from 'class-validator';
 import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { PrismaService } from 'src/database/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { decodeCursor, buildCursorWhere, paginateResult } from 'src/common/utils/cursor';
+import { OutboundSendService } from './outbound-send.service';
+
+class ForwardMessageDto {
+  @IsUUID()
+  targetEnquiryId: string;
+}
 
 @Controller('outbound')
 @UseGuards(CaslGuard)
@@ -33,6 +40,7 @@ export class MessageController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly outboundSendService: OutboundSendService,
   ) {}
 
   // ── GET /outbound/enquiries/:enquiryId/messages ──
@@ -109,6 +117,23 @@ export class MessageController {
 
     const reactions = await this.buildReactionSummary(messageId);
     this.eventEmitter.emit('message.reaction_updated', { messageId, enquiryId: msg.enquiryId, reactions });
+  }
+
+  // ── POST /outbound/messages/:messageId/forward ──
+
+  /** Forwards a message into another conversation (re-sends content + attachments) */
+  @Post('messages/:messageId/forward')
+  @CheckAbility({ action: 'create', subject: 'conversationmessage' })
+  async forwardMessage(
+    @Param('messageId') messageId: string,
+    @Body() body: ForwardMessageDto,
+    @Req() req: Request,
+  ) {
+    return this.outboundSendService.forward({
+      sourceMessageId: messageId,
+      targetEnquiryId: body.targetEnquiryId,
+      userId: req.user!.userId,
+    });
   }
 
   // ── PATCH /outbound/messages/:messageId/delete ──

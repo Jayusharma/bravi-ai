@@ -7,6 +7,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from 'src/database/prisma.service';
 import { EnquiryService } from '../enquiry/enquiry.service';
 import { OutboundService } from './outbound.service';
@@ -37,6 +38,7 @@ export class OutboundSendService {
     private readonly prisma: PrismaService,
     private readonly enquiryService: EnquiryService,
     private readonly outboundService: OutboundService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /** Validates payload, creates PENDING ConversationMessage, queues BullMQ job, returns ack */
@@ -147,6 +149,112 @@ export class OutboundSendService {
     }
 
     this.logger.log(`📤 Sent message ${message.id} (jobId: ${jobId}) for enquiry ${enquiryId}`);
+
+    return {
+      messageId: message.id,
+      jobId,
+      deliveryStatus: 'PENDING',
+      contactId: enquiry.contactId,
+    };
+  }
+
+  /**
+   * Forwards an existing message into another conversation.
+   * Creates a NEW outbound message in the target enquiry, copying the source
+   * message's text + attachments, then queues it through the normal send pipeline.
+   */
+  async forward(input: {
+    sourceMessageId: string;
+    targetEnquiryId: string;
+    userId: string;
+  }): Promise<SendResult> {
+    const { sourceMessageId, targetEnquiryId, userId } = input;
+
+    // ── Load source message + attachments ──
+    const source = await this.prisma.conversationMessage.findUnique({
+      where: { id: sourceMessageId },
+      include: { attachments: true },
+    });
+    if (!source) throw new NotFoundException(`Message ${sourceMessageId} not found`);
+    if (source.isDeleted) throw new BadRequestException('Cannot forward a deleted message');
+    if (!source.content?.trim() && source.attachments.length === 0) {
+      throw new BadRequestException('Message has no content or attachments to forward');
+    }
+
+    // ── Load target enquiry + contact channels ──
+    const enquiry = await this.prisma.enquiry.findUnique({
+      where: { id: targetEnquiryId },
+      include: { contact: { include: { channels: true } } },
+    });
+    if (!enquiry) throw new NotFoundException(`Enquiry ${targetEnquiryId} not found`);
+
+    // Prefer the source channel if the target contact has it, else the first channel.
+    const channels = enquiry.contact.channels;
+    const matching = channels.find((c) => c.channel === source.channel);
+    const contactChannel = matching ?? channels[0];
+    if (!contactChannel) {
+      throw new BadRequestException(
+        'Target contact has no channel configured to forward to.',
+      );
+    }
+    const channel = contactChannel.channel;
+    const to = contactChannel.identifier;
+
+    // ── Create the outbound message (writes timeline + emits message.outbound) ──
+    const message = await this.enquiryService.addOutboundMessage(targetEnquiryId, {
+      channel,
+      to,
+      subject: source.subject ?? undefined,
+      body: source.content,
+      userId,
+    });
+
+    // ── Copy attachments onto the new message BEFORE enqueue (enqueue reads them) ──
+    if (source.attachments.length > 0) {
+      await this.prisma.messageAttachment.createMany({
+        data: source.attachments.map((a) => ({
+          conversationMessageId: message.id,
+          kind: a.kind,
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          fileSize: a.fileSize,
+          storageKey: a.storageKey,
+          cdnUrl: a.cdnUrl,
+          width: a.width,
+          height: a.height,
+          durationMs: a.durationMs,
+        })),
+      });
+    }
+
+    // ── Queue via enqueue() — idempotency guard in handleOutbound prevents double-queue ──
+    const { jobId } = await this.outboundService.enqueue({
+      messageId: message.id,
+      enquiryId: targetEnquiryId,
+      channel,
+      to,
+      content: source.content,
+      subject: source.subject ?? undefined,
+      fromUserId: userId,
+    });
+
+    if (jobId) {
+      await this.prisma.conversationMessage.update({
+        where: { id: message.id },
+        data: { queueJobId: jobId },
+      });
+    }
+
+    // ── Broadcast the forwarded message live into the target conversation ──
+    this.eventEmitter.emit('message.outbound.broadcast', {
+      contactId: enquiry.contactId,
+      enquiryId: targetEnquiryId,
+      messageId: message.id,
+    });
+
+    this.logger.log(
+      `↪️ Forwarded message ${sourceMessageId} → enquiry ${targetEnquiryId} as ${message.id} (jobId: ${jobId})`,
+    );
 
     return {
       messageId: message.id,

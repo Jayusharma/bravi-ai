@@ -839,6 +839,9 @@
   position: relative;
   z-index: 2;
 }
+.msgRow:has([data-msg-menu]) {
+  z-index: 50 !important;
+}
 .msgInbound {
   justify-content: flex-start;
 }
@@ -853,6 +856,12 @@
   position: relative;
   word-wrap: break-word;
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+.bubbleInbound:not(:has(.msgAttachments)) {
+  padding-right: 54px !important;
+}
+.bubbleOutbound:not(:has(.msgAttachments)) {
+  padding-right: 66px !important;
 }
 
 /* WhatsApp branded bubbles */
@@ -1139,14 +1148,17 @@
 
 /* Timestamps on hover vs group-last bubble visible */
 .msgFooterHover {
+  position: absolute;
+  bottom: 0px;
+  right: 8px;
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 3px;
-  margin-top: 2px;
   opacity: 0;
   transition: opacity 0.15s ease;
-  height: 12px;
+  height: auto;
+  pointer-events: none;
 }
 .msgBubble:hover .msgFooterHover {
   opacity: 1;
@@ -2092,4 +2104,115 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── Per-message hover action menu (Forward / Copy / Info / Select all) ── */
+
+.msgActions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Inside a chat bubble, float the trigger in the top-right corner */
+.msgBubble .msgActions {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  z-index: 6;
+}
+
+.msgMenuBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: transparent !important;
+  box-shadow: none !important;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+/* Reveal the trigger on bubble/email-card hover, or while its menu is open */
+.msgBubble:hover .msgMenuBtn,
+.emailCard:hover .msgMenuBtn,
+.msgActions:has(.msgActionMenu) .msgMenuBtn {
+  opacity: 1;
+}
+
+.msgMenuBtn:hover {
+  background: transparent !important;
+  color: var(--text-primary);
+  box-shadow: none !important;
+}
+
+.msgActionMenu {
+  position: absolute;
+  top: 26px;
+  right: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(16px);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  z-index: 1000;
+  animation: slideUpFade 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top right;
+}
+
+.msgActionItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.msgActionItem:hover {
+  background: var(--hover-bg);
+}
+
+.msgActionItem svg {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.msgActionItem:hover svg {
+  color: var(--text-primary);
+}
+
+.msgActionDivider {
+  height: 1px;
+  background-color: var(--panel-border);
+  margin: 6px 4px;
+}
+
+.msgActionItemDisabled {
+  color: var(--text-secondary);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.msgActionItemDisabled:hover {
+  background: transparent;
 }

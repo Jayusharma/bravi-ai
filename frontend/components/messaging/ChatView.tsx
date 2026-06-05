@@ -16,6 +16,8 @@ import { useSocket } from '@/contexts/SocketContext';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
 import { ImageLightbox } from '@/components/messaging/chat/ImageLightbox';
 import { Composer } from '@/components/messaging/chat/Composer';
+import { ForwardPicker } from '@/components/messaging/chat/ForwardPicker';
+import { useToast } from '@/components/ui/Toast';
 import styles from '@/styles/ContactList.module.css';
 
 type ChatAction =
@@ -383,8 +385,139 @@ function buildMessageGroups(messages: ThreadMessage[]): MessageGroup[] {
 
 // ── Sub-component: single enquiry thread ─────────────────────────
 
+/**
+ * Hover arrow button + dropdown menu for a single message.
+ * Forward and Copy are functional; Info and Select all are placeholders for now.
+ */
+function MessageActions({
+    msg,
+    isOpen,
+    onToggle,
+    onForward,
+}: {
+    msg: ThreadMessage;
+    isOpen: boolean;
+    onToggle: () => void;
+    onForward: () => void;
+}) {
+    const toast = useToast();
+
+    // Don't offer actions on deleted messages
+    if (msg.isDeleted) return null;
+
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(msg.content ?? '');
+            toast.success('Copied to clipboard');
+        } catch {
+            toast.error('Could not copy', 'Clipboard access was blocked');
+        }
+    };
+
+    return (
+        <div className={styles.msgActions} data-msg-menu-btn>
+            <button
+                type="button"
+                className={styles.msgMenuBtn}
+                aria-label="Message actions"
+                onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="6 9 12 15 18 9" />
+                </svg>
+            </button>
+            {isOpen && (
+                <div className={styles.msgActionMenu} data-msg-menu onClick={(e) => e.stopPropagation()}>
+                    <button
+                        type="button"
+                        className={styles.msgActionItem}
+                        onClick={() => {
+                            void handleCopy();
+                            onToggle();
+                        }}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                        Copy
+                    </button>
+                    <button
+                        type="button"
+                        className={styles.msgActionItem}
+                        onClick={onForward}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="13 17 18 12 13 7" />
+                            <polyline points="6 17 11 12 6 7" />
+                        </svg>
+                        Forward
+                    </button>
+                    <button
+                        type="button"
+                        className={styles.msgActionItem}
+                        onClick={() => {
+                            toast.info('Pin feature is coming soon!');
+                            onToggle();
+                        }}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="17" x2="12" y2="22" />
+                            <path d="M5 17h14v-1.76a2 2 0 0 0-.44-1.24l-2.78-3.5A2 2 0 0 1 15 9.26V5a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4.26a2 2 0 0 1-.78 1.24l-2.78 3.5a2 2 0 0 0-.44 1.24Z" />
+                        </svg>
+                        Pin
+                    </button>
+                    <button
+                        type="button"
+                        className={styles.msgActionItem}
+                        onClick={() => {
+                            toast.info('Ask Meta AI is coming soon!');
+                            onToggle();
+                        }}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="9" strokeDasharray="4 3" />
+                            <path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5z" strokeDasharray="2 2" />
+                        </svg>
+                        Ask Meta AI
+                    </button>
+                    <button
+                        type="button"
+                        className={styles.msgActionItem}
+                        onClick={() => {
+                            toast.info('Star feature is coming soon!');
+                            onToggle();
+                        }}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
+                        Star
+                    </button>
+                    <div className={styles.msgActionDivider} />
+                    <button
+                        type="button"
+                        className={styles.msgActionItem}
+                        onClick={() => {
+                            toast.info('Message selection is coming soon!');
+                            onToggle();
+                        }}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="3" />
+                            <path d="m9 12 2 2 4-4" />
+                        </svg>
+                        Select
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function EnquiryBlock({
     enq,
+    contactId,
     newMessageIds,
     activeChannel,
     onImageClick,
@@ -392,12 +525,29 @@ function EnquiryBlock({
     activeSearchQuery,
 }: {
     enq: EnquiryThread;
+    contactId: string;
     newMessageIds: Set<string>;
     activeChannel: 'WHATSAPP' | 'EMAIL';
     onImageClick?: (src: string, fileName: string) => void;
     currentHighlightId?: string | null;
     activeSearchQuery: string;
 }) {
+    // Which message's action menu is open, and which message is being forwarded
+    const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+    const [forwardSourceId, setForwardSourceId] = useState<string | null>(null);
+
+    // Close the open menu on any outside click
+    useEffect(() => {
+        if (!openMenuId) return;
+        const onDown = (e: MouseEvent) => {
+            const el = e.target as HTMLElement;
+            if (!el.closest('[data-msg-menu]') && !el.closest('[data-msg-menu-btn]')) {
+                setOpenMenuId(null);
+            }
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [openMenuId]);
     const statusColor = STATUS_COLORS[enq.status] || '#6b7280';
     const filteredMessages = enq.messages.filter(msg => msg.channel === activeChannel);
 
@@ -453,7 +603,15 @@ function EnquiryBlock({
                                                 <div className={styles.emailTo}>to {isInbound ? (msg.to || 'us') : msg.to}</div>
                                             </div>
                                         </div>
-                                        <div className={styles.emailTime}>{formatMsgTime(msg.createdAt)}</div>
+                                        <div className={styles.emailTime}>
+                                            {formatMsgTime(msg.createdAt)}
+                                            <MessageActions
+                                                msg={msg}
+                                                isOpen={openMenuId === msg.id}
+                                                onToggle={() => setOpenMenuId((cur) => (cur === msg.id ? null : msg.id))}
+                                                onForward={() => { setForwardSourceId(msg.id); setOpenMenuId(null); }}
+                                            />
+                                        </div>
                                     </div>
                                     {msg.subject && (
                                         <div className={styles.emailSubject}>
@@ -511,6 +669,12 @@ function EnquiryBlock({
                             return (
                                 <div key={msg.id} id={`msg-${msg.id}`} className={rowClass}>
                                     <div className={bubbleClass}>
+                                        <MessageActions
+                                            msg={msg}
+                                            isOpen={openMenuId === msg.id}
+                                            onToggle={() => setOpenMenuId((cur) => (cur === msg.id ? null : msg.id))}
+                                            onForward={() => { setForwardSourceId(msg.id); setOpenMenuId(null); }}
+                                        />
                                         {/* Staff sender name — only on first bubble of outbound group */}
                                         {!isInbound && isFirst && msg.sentByUser && (
                                             <div className={styles.msgSenderName}>
@@ -562,6 +726,14 @@ function EnquiryBlock({
                     </div>
                 );
             })}
+
+            {forwardSourceId && (
+                <ForwardPicker
+                    sourceMessageId={forwardSourceId}
+                    excludeContactId={contactId}
+                    onClose={() => setForwardSourceId(null)}
+                />
+            )}
         </div>
     );
 }
@@ -1330,6 +1502,7 @@ export default function ChatView({
                                         ...enq,
                                         messages: enqStates[enq.enquiryId]?.messages || []
                                     }}
+                                    contactId={contactId}
                                     newMessageIds={newMessageIds}
                                     activeChannel={activeChannel}
                                     onImageClick={(src, name) => setLightbox({ src, fileName: name })}

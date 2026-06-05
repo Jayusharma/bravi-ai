@@ -63,6 +63,7 @@ export const API = {
         SEND_DRAFT: (draftId: string) => `/outbound/drafts/${draftId}/send`,
         MESSAGES: (enquiryId: string) => `/outbound/enquiries/${enquiryId}/messages`,
         RETRY: (messageId: string) => `/outbound/messages/${messageId}/retry`,
+        FORWARD: (messageId: string) => `/outbound/messages/${messageId}/forward`,
         UPLOAD_ATTACHMENT: (draftId: string) => `/outbound/drafts/${draftId}/attachments`,
         DELETE_ATTACHMENT: (draftId: string, attachmentId: string) => `/outbound/drafts/${draftId}/attachments/${attachmentId}`,
     },
