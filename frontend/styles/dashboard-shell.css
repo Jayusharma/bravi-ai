@@ -408,3 +408,44 @@
   bottom: 0;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   GLOBAL COLLAPSIBLE TOPBAR LOCK SYSTEM
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Smooth content pull transition */
+.dashboard-content {
+  transition: margin-top 320ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Slide collapsed topbar up and show visual peek strip */
+.topbar-collapsed .dashboard-topbar {
+  z-index: 990;
+  transform: translateY(calc(-100% + 16px));
+  opacity: 0.95;
+  pointer-events: none;
+  transition: transform 320ms cubic-bezier(0.4, 0, 0.2, 1), opacity 280ms ease;
+}
+
+/* Make sure the toggle arrow button stays active when topbar is collapsed */
+.topbar-collapsed .dashboard-topbar .topbar-arrow-btn {
+  pointer-events: auto;
+}
+
+/* Pull content up by 64px (since topbar collapses from 80px to 16px, leaving a 16px peek bar) */
+.topbar-collapsed .dashboard-content {
+  margin-top: -64px;
+}
+
+/* Hover reveal on collapsed topbar for easy quick access */
+.topbar-collapsed .dashboard-topbar:hover {
+  transform: translateY(0) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Full height pages (like messaging) need height adjustment when topbar collapses */
+.topbar-collapsed [class*="messagingPage"] {
+  height: calc(100vh - 16px) !important;
+}
+

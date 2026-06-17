@@ -56,6 +56,19 @@ export const NAV_ITEMS: NavItem[] = [
         permission: { action: 'read', subject: 'enquiry' },
     },
     {
+        href: '/templates',
+        label: 'Templates',
+        section: 'platform',
+        icon: icon(
+            <>
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <path d="M3 9h18" />
+                <path d="M9 21V9" />
+            </>,
+        ),
+        permission: { action: 'read', subject: 'messagetemplate' },
+    },
+    {
         href: '/permissions',
         label: 'Access Control',
         section: 'settings',

@@ -92,42 +92,6 @@
   padding-right: 0.5rem !important;
 }
 
-/* ── Collapsible Topbar Lock System ── */
-:global(.topbar-collapsed) [class*="messagingPage"] {
-  height: 100vh !important;
-  padding-top: 16px !important; /* Perfect visual breathing room matching the 16px peek bar! */
-  box-sizing: border-box !important;
-}
-
-:global(:has([class*="messagingPage"])) :global(.dashboard-content) {
-  transition: margin-top 320ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-:global(.topbar-collapsed):has([class*="messagingPage"]) :global(.dashboard-content) {
-  margin-top: -80px; /* Pull content up to fill the header space seamlessly! */
-}
-
-:global(.topbar-collapsed) :global(.dashboard-topbar) {
-  position: fixed;
-  left: 0;
-  right: 0;
-  z-index: 990;
-  transform: translateY(calc(-100% + 16px)); /* 16px visual peek bar so it is nicely visible! */
-  opacity: 0.95;
-  pointer-events: none;
-  transition: transform 320ms cubic-bezier(0.4, 0, 0.2, 1), opacity 280ms ease;
-}
-
-:global(.topbar-collapsed) :global(.dashboard-topbar) :global(.topbar-arrow-btn) {
-  pointer-events: auto; /* Arrow button remains clickable even when topbar is collapsed! */
-}
-
-:global(.topbar-collapsed.topbar-open) :global(.dashboard-topbar) {
-  transform: translateY(0);
-  opacity: 1;
-  pointer-events: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-}
 
 /* ════════════════════════════════ PAGE WRAPPER ══════════════════ */
 

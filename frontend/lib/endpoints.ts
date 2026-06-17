@@ -67,4 +67,17 @@ export const API = {
         UPLOAD_ATTACHMENT: (draftId: string) => `/outbound/drafts/${draftId}/attachments`,
         DELETE_ATTACHMENT: (draftId: string, attachmentId: string) => `/outbound/drafts/${draftId}/attachments/${attachmentId}`,
     },
+
+    // ── Templates ──
+    TEMPLATE: {
+        LIST: '/templates',
+        DETAIL: (id: string) => `/templates/${id}`,
+        CREATE: '/templates',
+        UPDATE: (id: string) => `/templates/${id}`,
+        DELETE: (id: string) => `/templates/${id}`,
+        DUPLICATE: (id: string) => `/templates/${id}/duplicate`,
+        VARIABLES_SUGGEST: '/templates/variables/suggest',
+        USABLE: '/templates/usable', // templates usable in a conversation, variables pre-resolved
+        SUBMIT: (id: string) => `/templates/${id}/submit`, // Step 5 — WhatsApp approval
+    },
 } as const;

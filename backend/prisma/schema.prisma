@@ -712,3 +712,94 @@ model OutboundDeadLetter {
   @@index([createdAt])
   @@index([resolvedAt])
 }
+
+// ============================================================================
+// MESSAGE TEMPLATES — Reusable message bodies with variable substitution.
+// WHY: ONE table for two types. `type` differentiates:
+//      INTERNAL = quick-reply snippets, variables resolved to text before send.
+//      WHATSAPP = Meta-approved templates sent via Twilio Content API (ContentSid).
+//      `body` holds the human-editable form with [Label] markers; `bodyCompiled`
+//      with {{1}} positional form is generated ONLY at submission time (Meta needs
+//      sequential numbering, no gaps). After submission a WHATSAPP template is FROZEN —
+//      "edit" = duplicate as a new DRAFT.
+// ============================================================================
+
+enum TemplateType {
+  INTERNAL
+  WHATSAPP
+}
+
+enum VariableType {
+  SYSTEM // resolved from the system variable registry (contact/enquiry/user/config)
+  CUSTOM // agent fills manually at send time
+}
+
+enum WaContentType {
+  TEXT
+  MEDIA
+  CALL_TO_ACTION
+  QUICK_REPLY
+}
+
+enum WaTemplateCategory {
+  UTILITY
+  MARKETING
+  AUTHENTICATION
+}
+
+enum WaApprovalStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PAUSED
+  DISABLED
+}
+
+model MessageTemplate {
+  id           String         @id @default(uuid())
+  type         TemplateType
+  name         String         @unique // slug: "follow_up_quotation" (lowercase+underscores — Meta requirement for WHATSAPP)
+  friendlyName String // "Follow-up after quotation"
+  channel      MessageChannel // WHATSAPP | EMAIL
+  language     String         @default("en")
+
+  // Content
+  body           String // raw: "Hi [Customer Name], about [Product]..."
+  bodyCompiled   String? // WHATSAPP only: "Hi {{1}}, about {{2}}..." — generated at submit
+  subject        String? // EMAIL internal templates only
+  contentType    WaContentType @default(TEXT)
+  buttons        Json? // CTA/QUICK_REPLY: [{ type, text, url?, phone? }]
+  headerMediaUrl String? // MEDIA type
+
+  // WhatsApp approval lifecycle (all null for INTERNAL)
+  contentSid      String?             @unique // Twilio HXxxxx — set after Twilio create
+  category        WaTemplateCategory?
+  approvalStatus  WaApprovalStatus?
+  rejectionReason String?
+  sampleValues    Json? // { "1": "Rahul", "2": "2BHK Sector 74" } — Meta requires
+
+  isActive  Boolean  @default(true)
+  createdBy String // userId who created it
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variables TemplateVariable[]
+
+  @@index([type, channel, isActive])
+  @@index([approvalStatus])
+}
+
+model TemplateVariable {
+  id         String          @id @default(uuid())
+  templateId String
+  template   MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  position Int // 1, 2, 3 — sequential, NO GAPS (Meta rejects gaps)
+  label    String // "Customer Name"
+  source   String // "contact.displayName" | "enquiry.intent" | "config.business_phone" | "user.displayName" | "manual"
+  type     VariableType // SYSTEM | CUSTOM
+
+  @@unique([templateId, position])
+  @@index([label]) // powers the cross-template autocomplete suggestion query
+}

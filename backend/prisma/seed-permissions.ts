@@ -35,6 +35,7 @@ const SUBJECTS = [
   'dashboard',
   'outbounddraft',
   'conversationmessage',
+  'messagetemplate',
   'deadletter',
   'all',
 ];
@@ -75,6 +76,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'read', subject: 'conversationmessage' },
         { action: 'create', subject: 'conversationmessage' },
         { action: 'update', subject: 'conversationmessage' },
+        // Message templates — managers manage the full lifecycle
+        { action: 'read', subject: 'messagetemplate' },
+        { action: 'create', subject: 'messagetemplate' },
+        { action: 'update', subject: 'messagetemplate' },
+        { action: 'delete', subject: 'messagetemplate' },
         // Dead letter queue — managers can read and retry
         { action: 'read', subject: 'deadletter' },
         { action: 'manage', subject: 'deadletter' },
@@ -98,6 +104,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'read', subject: 'conversationmessage' },
         { action: 'create', subject: 'conversationmessage' },
         { action: 'update', subject: 'conversationmessage' },
+        // Message templates — sales can read + use them (no edit/delete)
+        { action: 'read', subject: 'messagetemplate' },
     ],
 
     OPS: [
@@ -108,6 +116,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         // Outbound — read-only
         { action: 'read', subject: 'outbounddraft' },
         { action: 'read', subject: 'conversationmessage' },
+        // Message templates — read-only
+        { action: 'read', subject: 'messagetemplate' },
     ],
 };
 

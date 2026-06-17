@@ -22,6 +22,7 @@ import { MessagingModule } from './modules/messaging/messaging.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { EventsModule } from './events/events.module';
 import { SearchModule } from './modules/search/search.module';
+import { TemplateModule } from './modules/template/template.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { SearchModule } from './modules/search/search.module';
     WebsocketModule,
     EventsModule,
     SearchModule,
+    TemplateModule,
   ],
   controllers: [AppController],
   providers: [

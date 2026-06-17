@@ -11,6 +11,7 @@ import { useDraft } from '@/hooks/messaging/useDraft';
 import { useOutboundSend } from '@/hooks/messaging/useOutboundSend';
 import { AttachmentPreview } from '@/components/messaging/chat/AttachmentPreview';
 import { DraftStatusIndicator } from '@/components/messaging/chat/DraftStatusIndicator';
+import { TemplatePicker } from '@/components/templates/TemplatePicker';
 import styles from '@/styles/ContactList.module.css';
 
 interface ComposerProps {
@@ -38,6 +39,7 @@ export function Composer({
   const [isDragOver, setIsDragOver] = useState(false);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [showContactSelector, setShowContactSelector] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [contactSearch, setContactSearch] = useState('');
   const [contactOptions, setContactOptions] = useState<ConversationPreview[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
@@ -365,7 +367,29 @@ export function Composer({
             </div>
             <span>Contact</span>
           </button>
+          <button type="button" className={styles.attachmentMenuItem}
+            onClick={() => { setShowTemplatePicker(true); setShowAttachmentMenu(false); }}>
+            <div className={`${styles.attachmentIconCircle} ${styles.iconDocument}`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 9h18M9 21V9" />
+              </svg>
+            </div>
+            <span>Template</span>
+          </button>
         </div>
+      )}
+
+      {/* Template picker modal */}
+      {showTemplatePicker && enquiryId && (
+        <TemplatePicker
+          enquiryId={enquiryId}
+          channel={channel}
+          onInsert={(text) =>
+            updateDraft({ body: draft.body ? `${draft.body}\n${text}` : text })
+          }
+          onClose={() => setShowTemplatePicker(false)}
+        />
       )}
 
       {/* Contact selector modal */}

@@ -1,25 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiClient } from '@/lib/api-client';
-import { API } from '@/lib/endpoints';
-
-interface DlqEntry {
-  id: string;
-  conversationMessageId: string;
-  jobName: string;
-  lastError: string;
-  attemptCount: number;
-  createdAt: string;
-  resolvedAt: string | null;
-}
-
-interface DlqResponse {
-  items: DlqEntry[];
-  total: number;
-  page: number;
-  limit: number;
-}
+import { fetchDlqAction, retryDlqAction, discardDlqAction, type DlqEntry } from './actions';
 
 export default function DlqAdminPage() {
   const [entries, setEntries] = useState<DlqEntry[]>([]);
@@ -32,7 +14,7 @@ export default function DlqAdminPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient<DlqResponse>('/outbound/dlq');
+      const res = await fetchDlqAction();
       setEntries(res.items);
       setTotal(res.total);
     } catch (err: any) {
@@ -47,7 +29,7 @@ export default function DlqAdminPage() {
   const retry = async (id: string) => {
     setActionLoading(id);
     try {
-      await apiClient(`/outbound/dlq/${id}/retry`, { method: 'POST' });
+      await retryDlqAction(id);
       await fetchDlq();
     } catch (err: any) {
       setError(err.message ?? 'Retry failed');
@@ -60,7 +42,7 @@ export default function DlqAdminPage() {
     if (!confirm('Permanently discard this failed message?')) return;
     setActionLoading(id);
     try {
-      await apiClient(`/outbound/dlq/${id}`, { method: 'DELETE' });
+      await discardDlqAction(id);
       await fetchDlq();
     } catch (err: any) {
       setError(err.message ?? 'Discard failed');

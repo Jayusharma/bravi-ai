@@ -24,6 +24,7 @@ export type AppSubjects =
   | 'rolepermission'
   | 'outbounddraft'
   | 'conversationmessage'
+  | 'messagetemplate'
   | 'all';
 
 export type AppAbility = PureAbility<[Actions, AppSubjects], PrismaQuery>;
