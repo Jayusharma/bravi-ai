@@ -56,6 +56,18 @@ export const NAV_ITEMS: NavItem[] = [
         permission: { action: 'read', subject: 'enquiry' },
     },
     {
+        href: '/chat',
+        label: 'Team Chat',
+        section: 'platform',
+        icon: icon(
+            <>
+                <path d="M17 8h2a2 2 0 0 1 2 2v11l-4-3H9a2 2 0 0 1-2-2v-1" />
+                <path d="M3 6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H8l-5 4V6z" />
+            </>,
+        ),
+        permission: { action: 'read', subject: 'chat' },
+    },
+    {
         href: '/templates',
         label: 'Templates',
         section: 'platform',

@@ -38,6 +38,7 @@ export type AppSubjects =
     | 'internalnote'
     | 'qualificationresult'
     | 'rolepermission'
+    | 'chat'
     | 'all';
 
 export type PermissionRule = {

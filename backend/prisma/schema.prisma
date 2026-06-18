@@ -50,6 +50,10 @@ model User {
 
   assignedEnquiries Enquiry[]             @relation("EnquiryAssignment")
   sentMessages      ConversationMessage[] @relation("MessageSender")
+
+  // Internal chat
+  chatParticipations ChatParticipant[] @relation("ChatParticipant")
+  chatMessages       ChatMessage[]     @relation("ChatSender")
 }
 
 enum UserRole {
@@ -153,8 +157,8 @@ model InboundMessage {
   receivedAt         DateTime @default(now())
 
   // Qualification state
-  status QualificationStatus @default(PENDING)
-  isRevoked Boolean @default(false)
+  status    QualificationStatus @default(PENDING)
+  isRevoked Boolean             @default(false)
 
   // ── NEW: Link to Contact (resolved during ingestion) ──
   contactId String?
@@ -375,6 +379,7 @@ model Enquiry {
   messages       ConversationMessage[]
   notes          InternalNote[]
   outboundDrafts OutboundDraft[]
+  sharedInChats  ChatMessage[]         @relation("ChatSharedEnquiry")
 
   @@index([contactId, status]) // Core query: "open enquiry for this contact?"
   @@index([type, status])
@@ -446,8 +451,8 @@ model ConversationMessage {
   draftId String?
 
   // Outbound queue correlation
-  queueJobId  String?   // BullMQ job ID for correlation
-  failReason  String?   // Provider error message / bounce reason
+  queueJobId  String? // BullMQ job ID for correlation
+  failReason  String? // Provider error message / bounce reason
   retryCount  Int       @default(0)
   lastRetryAt DateTime?
 
@@ -701,13 +706,13 @@ model ConversationRead {
 model OutboundDeadLetter {
   id                    String    @id @default(uuid())
   conversationMessageId String    @unique
-  jobName               String    // outbound.email | outbound.whatsapp
-  payload               Json      // full BullMQ job data for replay
-  lastError             String    // final error message from provider
+  jobName               String // outbound.email | outbound.whatsapp
+  payload               Json // full BullMQ job data for replay
+  lastError             String // final error message from provider
   attemptCount          Int
   createdAt             DateTime  @default(now())
   resolvedAt            DateTime?
-  resolvedBy            String?   // userId of admin who resolved
+  resolvedBy            String? // userId of admin who resolved
 
   @@index([createdAt])
   @@index([resolvedAt])
@@ -802,4 +807,108 @@ model TemplateVariable {
 
   @@unique([templateId, position])
   @@index([label]) // powers the cross-template autocomplete suggestion query
+}
+
+// ============================================================================
+// INTERNAL CHAT — Staff-to-staff messaging (separate from customer conversations)
+// WHY: Generic conversation model. Phase 1 ships ONE org-wide common room
+//      (type GROUP, key 'COMMON_ROOM'). The SAME model supports 1:1 DMs
+//      (type DIRECT) and named groups later with NO schema change — just
+//      create another ChatConversation row + participants.
+// ============================================================================
+
+enum ChatConversationType {
+  DIRECT // 1:1 between two users (future)
+  GROUP // named group OR the org-wide common room
+}
+
+enum ChatParticipantRole {
+  MEMBER
+  ADMIN // future: can rename group / add-remove members
+}
+
+enum ChatMessageType {
+  TEXT
+  IMAGE
+  DOCUMENT
+  ENQUIRY_CARD // clickable card linking to a shared Enquiry
+}
+
+model ChatConversation {
+  id   String               @id @default(uuid())
+  type ChatConversationType @default(GROUP)
+  name String? // "Team Chat" for the common room; group name later
+
+  // Deterministic find-or-create for singleton rooms: 'COMMON_ROOM' for the
+  // org-wide room, null for everything else. Unique so the room can't dupe.
+  key String? @unique
+
+  createdBy     String?
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  participants ChatParticipant[]
+  messages     ChatMessage[]
+}
+
+model ChatParticipant {
+  id             String              @id @default(uuid())
+  conversationId String
+  conversation   ChatConversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation("ChatParticipant", fields: [userId], references: [id])
+  role           ChatParticipantRole @default(MEMBER)
+
+  lastReadAt DateTime? // unread count = messages newer than this not sent by self
+  isActive   Boolean   @default(true) // future: removed members go inactive
+  joinedAt   DateTime  @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model ChatMessage {
+  id             String           @id @default(uuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User             @relation("ChatSender", fields: [senderId], references: [id])
+
+  type    ChatMessageType @default(TEXT)
+  content String? // text body / media caption / optional note on an enquiry card
+
+  // Set only when type = ENQUIRY_CARD. SetNull so deleting an enquiry leaves the card.
+  enquiryId String?
+  enquiry   Enquiry? @relation("ChatSharedEnquiry", fields: [enquiryId], references: [id], onDelete: SetNull)
+
+  isPinned  Boolean   @default(false)
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  editedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  attachments ChatAttachment[]
+
+  @@index([conversationId, createdAt])
+  @@index([conversationId, isPinned])
+}
+
+model ChatAttachment {
+  id            String         @id @default(uuid())
+  chatMessageId String
+  message       ChatMessage    @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
+  kind          AttachmentKind // reuse existing enum
+  fileName      String
+  mimeType      String
+  fileSize      Int
+  storageKey    String
+  cdnUrl        String?
+  width         Int?
+  height        Int?
+  durationMs    Int?
+  createdAt     DateTime       @default(now())
+
+  @@index([chatMessageId])
 }

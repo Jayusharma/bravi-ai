@@ -49,6 +49,12 @@ export const API = {
         THREAD: (enquiryId: string) => `/conversations/${enquiryId}/thread`,
     },
 
+    // ── Internal Team Chat ──
+    CHAT: {
+        ROOM: '/chat/room',
+        MESSAGES: (roomId: string) => `/chat/room/${roomId}/messages`,
+    },
+
     // ── Search ──
     SEARCH: {
         QUERY: '/search',

@@ -1,0 +1,531 @@
+/* ════════════════════════════════════════════════════════════════════
+   TEAM CHAT — internal staff chat (single common room)
+   Visual shell only. Mirrors the messaging module's WhatsApp-style theme.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Page wrapper ── */
+.page {
+    height: calc(100vh - 80px); /* 80px = topbar height */
+    display: flex;
+    flex-direction: column;
+    background: #efeae2; /* WhatsApp cream */
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow: hidden;
+    transition: background-color 0.3s ease, height 0.3s ease;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+:global(.dark) .page {
+    background: #0b141a;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}
+
+/* ── Override parent container width for full-bleed chat view ── */
+:global(.max-w-7xl:has(.teamChatPage)) {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    transition: max-width 0.3s ease;
+}
+
+:global(.dashboard-content:has(.teamChatPage) > div) {
+    padding: 0 !important;
+}
+
+/* ── Collapsed topbar height adjustments ── */
+:global(.topbar-collapsed .teamChatPage) {
+    height: calc(100vh - 16px) !important; /* 16px collapsed topbar height */
+}
+
+/* ── Room column ── */
+.room {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* ════════════════════════════════ HEADER ════════════════════════════ */
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+    background: #ffffff;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    flex-shrink: 0;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+:global(.dark) .header {
+    background: #202c33;
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.headerAvatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.headerInfo {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.headerTitle {
+    font-size: 0.98rem;
+    font-weight: 600;
+    color: #111b21;
+    margin: 0;
+    line-height: 1.2;
+}
+
+:global(.dark) .headerTitle {
+    color: #e9edef;
+}
+
+.headerSubtitle {
+    font-size: 0.76rem;
+    color: #667781;
+    margin: 0;
+}
+
+:global(.dark) .headerSubtitle {
+    color: #8696a0;
+}
+
+.presenceDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    display: inline-block;
+    margin-right: 5px;
+    vertical-align: middle;
+}
+
+.headerActions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.headerIconBtn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #54656f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.headerIconBtn:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+:global(.dark) .headerIconBtn {
+    color: #aebac1;
+}
+
+:global(.dark) .headerIconBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* ════════════════════════════════ MESSAGE LIST ═════════════════════ */
+
+.messageList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 8%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    /* Subtle WhatsApp doodle background */
+    background-color: #efeae2;
+    background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0z' fill='none'/%3E%3Ccircle cx='20' cy='20' r='1' fill='%23000' fill-opacity='0.015'/%3E%3C/svg%3E");
+}
+
+:global(.dark) .messageList {
+    background-color: #0b141a;
+}
+
+/* Date separator */
+.dateSeparator {
+    align-self: center;
+    background: rgba(255, 255, 255, 0.85);
+    color: #54656f;
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 5px 12px;
+    border-radius: 8px;
+    margin: 10px 0;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
+:global(.dark) .dateSeparator {
+    background: #182229;
+    color: #8696a0;
+}
+
+/* Loading / empty / error note */
+.stateNote {
+    margin: auto;
+    color: #667781;
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 24px;
+}
+
+:global(.dark) .stateNote {
+    color: #8696a0;
+}
+
+/* ── Message row ── */
+.row {
+    display: flex;
+    width: 100%;
+    margin-top: 2px;
+}
+
+.rowMine {
+    justify-content: flex-end;
+}
+
+.rowTheirs {
+    justify-content: flex-start;
+}
+
+.bubble {
+    max-width: 65%;
+    padding: 6px 9px 8px 9px;
+    border-radius: 8px;
+    position: relative;
+    box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.08);
+    font-size: 0.9rem;
+    line-height: 1.35;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.bubbleMine {
+    background: #d9fdd3;
+    color: #111b21;
+    border-top-right-radius: 2px;
+}
+
+:global(.dark) .bubbleMine {
+    background: #005c4b;
+    color: #e9edef;
+}
+
+.bubbleTheirs {
+    background: #ffffff;
+    color: #111b21;
+    border-top-left-radius: 2px;
+}
+
+:global(.dark) .bubbleTheirs {
+    background: #202c33;
+    color: #e9edef;
+}
+
+.senderName {
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-bottom: 2px;
+    color: #6366f1;
+}
+
+:global(.dark) .senderName {
+    color: #53bdeb;
+}
+
+.bubbleTime {
+    font-size: 0.66rem;
+    color: #667781;
+    float: right;
+    margin: 6px 0 -2px 8px;
+    user-select: none;
+}
+
+:global(.dark) .bubbleTime {
+    color: rgba(233, 237, 239, 0.5);
+}
+
+/* ════════════════════════════════ COMPOSER ═════════════════════════ */
+
+.composerWrapper {
+    position: relative;
+    background: #f0f2f5;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    flex-shrink: 0;
+    transition: background-color 0.3s ease;
+}
+
+:global(.dark) .composerWrapper {
+    background: #202c33;
+    border-top-color: rgba(255, 255, 255, 0.04);
+}
+
+.composer {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 14px;
+}
+
+.iconBtn {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #54656f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s;
+}
+
+.iconBtn:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+:global(.dark) .iconBtn {
+    color: #8696a0;
+}
+
+:global(.dark) .iconBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.textarea {
+    flex: 1;
+    resize: none;
+    border: none;
+    outline: none;
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 11px 14px;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    color: #111b21;
+    max-height: 120px;
+    min-height: 20px;
+    font-family: inherit;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.textarea::placeholder {
+    color: #8696a0;
+}
+
+:global(.dark) .textarea {
+    background: #2a3942;
+    color: #e9edef;
+}
+
+:global(.dark) .textarea::placeholder {
+    color: #8696a0;
+}
+
+.sendBtn {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: #00a884;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, opacity 0.15s;
+}
+
+.sendBtn:hover:not(:disabled) {
+    background: #06cf9c;
+}
+
+.sendBtn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* ── Attachment popover menu ── */
+.attachmentMenu {
+    position: absolute;
+    bottom: 64px;
+    left: 14px;
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 8px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 20;
+    min-width: 200px;
+}
+
+:global(.dark) .attachmentMenu {
+    background: #233138;
+}
+
+.attachmentMenuItem {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    color: #3b4a54;
+    text-align: left;
+    width: 100%;
+    transition: background 0.12s;
+}
+
+.attachmentMenuItem:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+:global(.dark) .attachmentMenuItem {
+    color: #d1d7db;
+}
+
+:global(.dark) .attachmentMenuItem:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.iconCircle {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.iconPhotos {
+    background: linear-gradient(135deg, #0288d1, #26c6da);
+}
+
+.iconDocument {
+    background: linear-gradient(135deg, #7c4dff, #b388ff);
+}
+
+/* ── Attachment preview row ── */
+.previewRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+:global(.dark) .previewRow {
+    border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+.previewCard {
+    position: relative;
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+:global(.dark) .previewCard {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.previewImage {
+    width: 110px;
+    height: 84px;
+    object-fit: cover;
+    display: block;
+}
+
+.previewFile {
+    width: 170px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.previewFileIcon {
+    font-size: 1.4rem;
+}
+
+.previewFileName {
+    font-size: 0.74rem;
+    color: #3b4a54;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 148px;
+}
+
+:global(.dark) .previewFileName {
+    color: #d1d7db;
+}
+
+.previewFileSize {
+    font-size: 0.66rem;
+    color: #8696a0;
+}
+
+.previewRemove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    border: none;
+    color: #fff;
+    font-size: 0.7rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: background 0.15s;
+}
+
+.previewRemove:hover {
+    background: rgba(239, 68, 68, 0.85);
+}

@@ -37,6 +37,7 @@ const SUBJECTS = [
   'conversationmessage',
   'messagetemplate',
   'deadletter',
+  'chat',
   'all',
 ];
 const ACTIONS = ['create', 'read', 'update', 'delete', 'assign', 'manage'];
@@ -84,6 +85,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         // Dead letter queue — managers can read and retry
         { action: 'read', subject: 'deadletter' },
         { action: 'manage', subject: 'deadletter' },
+        // Internal chat — full participation (send, pin, delete own)
+        { action: 'read', subject: 'chat' },
+        { action: 'create', subject: 'chat' },
+        { action: 'update', subject: 'chat' },
+        { action: 'delete', subject: 'chat' },
     ],
 
     SALES: [
@@ -106,6 +112,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'update', subject: 'conversationmessage' },
         // Message templates — sales can read + use them (no edit/delete)
         { action: 'read', subject: 'messagetemplate' },
+        // Internal chat — full participation (send, pin, delete own)
+        { action: 'read', subject: 'chat' },
+        { action: 'create', subject: 'chat' },
+        { action: 'update', subject: 'chat' },
+        { action: 'delete', subject: 'chat' },
     ],
 
     OPS: [
@@ -118,6 +129,9 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'read', subject: 'conversationmessage' },
         // Message templates — read-only
         { action: 'read', subject: 'messagetemplate' },
+        // Internal chat — can read and send (no pin/delete)
+        { action: 'read', subject: 'chat' },
+        { action: 'create', subject: 'chat' },
     ],
 };
 

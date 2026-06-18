@@ -38,8 +38,6 @@ interface SocketContextValue {
   setActiveContactId: (id: string | null) => void;
   // Called by ContactList after load — feeds the name-lookup map used in notification toasts
   setConversations: (convs: ConversationPreview[]) => void;
-  soundEnabled: boolean;
-  toggleSound: () => void;
 }
 
 const SocketContext = createContext<SocketContextValue | null>(null);
@@ -54,39 +52,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const [lastEventAt, setLastEventAt] = useState<Date | null>(null);
   const [unreadContacts, setUnreadContacts] = useState<Record<string, number>>({});
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [soundEnabled, setSoundEnabled] = useState(false);
 
   // Refs avoid stale closures inside socket event callbacks without triggering re-renders
   const socketRef = useRef<Socket | null>(null);
   const activeContactIdRef = useRef<string | null>(null);
   const conversationsRef = useRef<ConversationPreview[]>([]);
-  const soundEnabledRef = useRef(false);
   // Only show "Reconnecting" banner after the first successful connect — never on initial page load
   const hasConnectedOnce = useRef(false);
 
   const router = useRouter();
-
-  // Hydrate sound preference after mount so SSR and client match
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('notification-sound') === 'true';
-      setSoundEnabled(stored);
-      soundEnabledRef.current = stored;
-    } catch { /* localStorage unavailable */ }
-  }, []);
-
-  // Keep ref in sync with state so socket callbacks always read the latest value
-  useEffect(() => {
-    soundEnabledRef.current = soundEnabled;
-  }, [soundEnabled]);
-
-  const toggleSound = useCallback(() => {
-    setSoundEnabled(prev => {
-      const next = !prev;
-      try { localStorage.setItem('notification-sound', String(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
 
   const clearUnread = useCallback((contactId: string) => {
     setUnreadContacts(prev => {
@@ -170,11 +144,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
               timestamp: new Date(),
             },
           ]);
-
-          // Notification sound — browser may block autoplay; we swallow the rejection silently
-          if (soundEnabledRef.current) {
-            try { new Audio('/notification.mp3').play().catch(() => {}); } catch { /* ignore */ }
-          }
         });
 
         // Keep conversationsRef current for toast name-lookup — patch single cards, never full replace
@@ -229,7 +198,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       socket, connectionStatus, lastEventAt,
       unreadContacts, totalUnread,
       clearUnread, setActiveContactId, setConversations,
-      soundEnabled, toggleSound,
     }}>
       {showReconnectBanner && (
         <div className="socket-reconnecting-banner" role="status" aria-live="polite">
@@ -243,26 +211,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         onDismiss={handleDismissToast}
         onClickToast={handleToastClick}
       />
-      {/* Persistent sound toggle — visible bottom-right, always accessible regardless of active page */}
-      <button
-        onClick={toggleSound}
-        className="socket-sound-toggle"
-        title={soundEnabled ? 'Mute notifications' : 'Enable notification sound'}
-        aria-label={soundEnabled ? 'Mute notifications' : 'Enable notification sound'}
-      >
-        {soundEnabled ? (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
-          </svg>
-        ) : (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-            <line x1="23" y1="9" x2="17" y2="15" />
-            <line x1="17" y1="9" x2="23" y2="15" />
-          </svg>
-        )}
-      </button>
     </SocketContext.Provider>
   );
 }

@@ -23,6 +23,7 @@ import { WebsocketModule } from './websocket/websocket.module';
 import { EventsModule } from './events/events.module';
 import { SearchModule } from './modules/search/search.module';
 import { TemplateModule } from './modules/template/template.module';
+import { ChatModule } from './modules/chat/chat.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { TemplateModule } from './modules/template/template.module';
     EventsModule,
     SearchModule,
     TemplateModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [
