@@ -39,10 +39,11 @@ async function createConnection(): Promise<Socket> {
 
   sock.on('connect', () => {
     console.log('🔌 WebSocket connected:', sock.id);
-    // Re-join all contact rooms after reconnect
+    // Re-join all registered rooms after reconnect
     for (const room of joinedRooms) {
       const [ns, id] = room.split(':');
       if (ns === 'contact') sock.emit(SOCKET_EVENTS.CONTACT_JOIN, { contactId: id });
+      else if (ns === 'chat') sock.emit(SOCKET_EVENTS.CHAT_JOIN, { conversationId: id });
     }
   });
 
@@ -99,6 +100,26 @@ export async function leaveContactRoom(contactId: string): Promise<void> {
   joinedRooms.delete(key);
   if (socket?.connected) {
     socket.emit(SOCKET_EVENTS.CONTACT_LEAVE, { contactId });
+  }
+}
+
+/**
+ * Joins an internal team-chat conversation room and registers it for
+ * auto-rejoin on reconnect. New messages for this conversation are scoped here.
+ */
+export async function joinChatRoom(conversationId: string): Promise<void> {
+  const sock = await getSocket();
+  const key = `chat:${conversationId}`;
+  joinedRooms.add(key);
+  sock.emit(SOCKET_EVENTS.CHAT_JOIN, { conversationId });
+}
+
+/** Leaves an internal team-chat conversation room. */
+export async function leaveChatRoom(conversationId: string): Promise<void> {
+  const key = `chat:${conversationId}`;
+  joinedRooms.delete(key);
+  if (socket?.connected) {
+    socket.emit(SOCKET_EVENTS.CHAT_LEAVE, { conversationId });
   }
 }
 

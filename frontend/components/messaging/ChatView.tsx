@@ -16,6 +16,7 @@ import { useSocket } from '@/contexts/SocketContext';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
 import { ImageLightbox } from '@/components/messaging/chat/ImageLightbox';
 import { Composer } from '@/components/messaging/chat/Composer';
+import { DeliveryTicks } from '@/components/messaging/chat/DeliveryTicks';
 import { ForwardPicker } from '@/components/messaging/chat/ForwardPicker';
 import { useToast } from '@/components/ui/Toast';
 import styles from '@/styles/ContactList.module.css';
@@ -700,12 +701,10 @@ function EnquiryBlock({
                                             <span className={styles.msgTime}>{formatMsgTime(msg.createdAt)}</span>
                                             {msg.editedAt && <span className={styles.editedLabel}>edited</span>}
                                             {!isInbound && (
-                                                <span className={`${styles.deliveryStatus} ${msg.deliveryStatus === 'READ' ? styles.statusRead : ''}`}>
-                                                    {msg.deliveryStatus === 'READ'      ? '✓✓' :
-                                                     msg.deliveryStatus === 'DELIVERED' ? '✓✓' :
-                                                     msg.deliveryStatus === 'SENT'      ? '✓'  :
-                                                     msg.deliveryStatus === 'FAILED'    ? '❌' : '🕐'}
-                                                </span>
+                                                <DeliveryTicks
+                                                    status={msg.deliveryStatus}
+                                                    className={`${styles.deliveryStatus} ${msg.deliveryStatus === 'READ' ? styles.statusRead : ''}`}
+                                                />
                                             )}
                                         </div>
 

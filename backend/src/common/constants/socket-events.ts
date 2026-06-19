@@ -36,6 +36,21 @@ export const SOCKET_EVENTS = {
   // Server → Client: presence
   PRESENCE_ONLINE:  'presence:online',
   PRESENCE_OFFLINE: 'presence:offline',
+
+  // ── Internal team chat (staff-to-staff) ──
+  // Client → Server
+  CHAT_JOIN:      'chat:join',
+  CHAT_LEAVE:     'chat:leave',
+  CHAT_DELIVERED: 'chat:delivered', // recipient's device received messages
+  CHAT_READ:      'chat:read',      // recipient is viewing the room
+  // Server → Client
+  CHAT_MESSAGE_NEW:     'chat:message:new',
+  CHAT_RECEIPTS:        'chat:receipts',     // { deliveredUpTo, readUpTo } for the room
+  CHAT_NOTIFICATION:    'chat:notification', // global — drives the sidebar unread badge
+  CHAT_MESSAGE_PINNED:  'chat:message:pinned',
+  CHAT_MESSAGE_STARRED: 'chat:message:starred',
+  CHAT_MESSAGE_EDITED:  'chat:message:edited',
+  CHAT_MESSAGE_DELETED: 'chat:message:deleted',
 } as const;
 
 export type SocketEvent = (typeof SOCKET_EVENTS)[keyof typeof SOCKET_EVENTS];
@@ -43,4 +58,6 @@ export type SocketEvent = (typeof SOCKET_EVENTS)[keyof typeof SOCKET_EVENTS];
 /** Builds the room name for a contact — all real-time events scope to this room. */
 export const ROOMS = {
   contact: (contactId: string) => `contact:${contactId}`,
+  /** Internal chat conversation room (the common room, and DMs/groups later). */
+  chat: (conversationId: string) => `chat:${conversationId}`,
 } as const;

@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styles from '@/styles/TeamChat.module.css';
 
+import { type ChatMessage } from '@/services/chat/chat.service';
+
 interface PendingAttachment {
   id: string;
   file: File;
@@ -14,6 +16,15 @@ interface PendingAttachment {
 }
 
 const MAX_ATTACHMENTS = 20;
+
+interface ChatComposerProps {
+  /** Called with the trimmed text when the user sends. Attachments are not wired yet. */
+  onSend?: (content: string) => void;
+  replyingTo?: ChatMessage | null;
+  onCancelReply?: () => void;
+  editingMessage?: ChatMessage | null;
+  onCancelEdit?: () => void;
+}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -29,7 +40,13 @@ function fileIcon(mime: string): string {
   return '📎';
 }
 
-export function ChatComposer() {
+export function ChatComposer({
+  onSend,
+  replyingTo,
+  onCancelReply,
+  editingMessage,
+  onCancelEdit,
+}: ChatComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [showMenu, setShowMenu] = useState(false);
@@ -52,6 +69,24 @@ export function ChatComposer() {
   useEffect(() => {
     adjustHeight();
   }, [text, adjustHeight]);
+
+  useEffect(() => {
+    if (editingMessage) {
+      setText(editingMessage.content ?? '');
+      // Focus textarea and move cursor to end
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(
+            textareaRef.current.value.length,
+            textareaRef.current.value.length
+          );
+        }
+      }, 50);
+    } else {
+      setText('');
+    }
+  }, [editingMessage]);
 
   // Revoke object URLs on unmount to avoid memory leaks
   useEffect(() => {
@@ -101,13 +136,15 @@ export function ChatComposer() {
 
   const canSend = text.trim().length > 0 || attachments.length > 0;
 
-  // Visual-only: clears local state. No network call yet.
   const handleSend = useCallback(() => {
     if (!canSend) return;
+    const body = text.trim();
+    // Text path is wired; attachment upload is a later step.
+    if (body && onSend) onSend(body);
     attachments.forEach((a) => a.previewUrl && URL.revokeObjectURL(a.previewUrl));
     setText('');
     setAttachments([]);
-  }, [canSend, attachments]);
+  }, [canSend, text, onSend, attachments]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -126,6 +163,50 @@ export function ChatComposer() {
 
   return (
     <div className={styles.composerWrapper}>
+      {/* Reply Banner */}
+      {replyingTo && (
+        <div className={styles.composerBanner}>
+          <div className={styles.composerBannerIndicator} />
+          <div className={styles.composerBannerContent}>
+            <p className={styles.composerBannerTitle}>
+              Replying to {replyingTo.sender.displayName || replyingTo.sender.userName}
+            </p>
+            <p className={styles.composerBannerText}>
+              {replyingTo.isDeleted ? 'This message was deleted' : replyingTo.content}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={styles.composerBannerClose}
+            onClick={onCancelReply}
+            aria-label="Cancel reply"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Edit Banner */}
+      {editingMessage && (
+        <div className={styles.composerBanner}>
+          <div className={styles.composerBannerIndicator} style={{ backgroundColor: '#22c55e' }} />
+          <div className={styles.composerBannerContent}>
+            <p className={styles.composerBannerTitle}>Edit Message</p>
+            <p className={styles.composerBannerText}>
+              {editingMessage.content}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={styles.composerBannerClose}
+            onClick={onCancelEdit}
+            aria-label="Cancel edit"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Attachment previews */}
       {attachments.length > 0 && (
         <div className={styles.previewRow}>

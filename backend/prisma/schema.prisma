@@ -860,9 +860,10 @@ model ChatParticipant {
   user           User                @relation("ChatParticipant", fields: [userId], references: [id])
   role           ChatParticipantRole @default(MEMBER)
 
-  lastReadAt DateTime? // unread count = messages newer than this not sent by self
-  isActive   Boolean   @default(true) // future: removed members go inactive
-  joinedAt   DateTime  @default(now())
+  lastReadAt      DateTime? // unread count = messages newer than this not sent by self; drives READ (blue ✓✓)
+  lastDeliveredAt DateTime? // latest message reached this member's device; drives DELIVERED (✓✓)
+  isActive        Boolean   @default(true) // future: removed members go inactive
+  joinedAt        DateTime  @default(now())
 
   @@unique([conversationId, userId])
   @@index([userId])
@@ -886,6 +887,13 @@ model ChatMessage {
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
   editedAt  DateTime?
+
+  parentMessageId String?
+  parentMessage   ChatMessage?  @relation("ChatReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
+  replies         ChatMessage[] @relation("ChatReplies")
+
+  isStarred       Boolean       @default(false)
+  deletedFor      String[]      @default([])
 
   createdAt DateTime @default(now())
 

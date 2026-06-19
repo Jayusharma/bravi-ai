@@ -52,7 +52,16 @@ export const API = {
     // ── Internal Team Chat ──
     CHAT: {
         ROOM: '/chat/room',
+        UNREAD: '/chat/unread',
         MESSAGES: (roomId: string) => `/chat/room/${roomId}/messages`,
+        SEARCH: (roomId: string) => `/chat/room/${roomId}/messages/search`,
+        AROUND: (roomId: string) => `/chat/room/${roomId}/messages/around`,
+        MEMBERS: (roomId: string) => `/chat/room/${roomId}/members`,
+        PINNED: (roomId: string) => `/chat/room/${roomId}/pinned`,
+        PIN: (roomId: string, messageId: string) => `/chat/room/${roomId}/messages/${messageId}/pin`,
+        STAR: (roomId: string, messageId: string) => `/chat/room/${roomId}/messages/${messageId}/star`,
+        EDIT: (roomId: string, messageId: string) => `/chat/room/${roomId}/messages/${messageId}`,
+        DELETE: (roomId: string, messageId: string) => `/chat/room/${roomId}/messages/${messageId}`,
     },
 
     // ── Search ──

@@ -34,6 +34,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { AppGateway } from '../websocket/app.gateway';
 import { ConversationService } from '../modules/messaging/messaging.service';
+import { ChatService } from '../modules/chat/chat.service';
 import { PrismaService } from '../database/prisma.service';
 import { ROOMS, SOCKET_EVENTS } from '../common/constants/socket-events';
 
@@ -44,8 +45,49 @@ export class AppEventHandler {
   constructor(
     private readonly gateway: AppGateway,
     private readonly conversationService: ConversationService,
+    private readonly chatService: ChatService,
     private readonly prisma: PrismaService,
   ) {}
+
+  // ─── INTERNAL TEAM CHAT ──────────────────────────────────────────────────
+
+  /** New internal chat message — push the hydrated message to everyone in the room. */
+  @OnEvent('chat.message.created')
+  async onChatMessageCreated(payload: { conversationId: string; messageId: string }) {
+    const message = await this.chatService.getMessageById(payload.messageId);
+    if (!message) return;
+
+    this.gateway.server
+      .to(ROOMS.chat(payload.conversationId))
+      .emit(SOCKET_EVENTS.CHAT_MESSAGE_NEW, {
+        conversationId: payload.conversationId,
+        message,
+      });
+
+    // Global notification so users NOT currently in the room can bump their
+    // sidebar unread badge.
+    this.gateway.server.emit(SOCKET_EVENTS.CHAT_NOTIFICATION, {
+      conversationId: payload.conversationId,
+      messageId: message.id,
+      senderId: message.senderId,
+    });
+  }
+
+  /** Room read/delivery watermarks changed — push them so senders update their ticks. */
+  @OnEvent('chat.receipts.updated')
+  onChatReceiptsUpdated(payload: {
+    conversationId: string;
+    deliveredUpTo: Date | null;
+    readUpTo: Date | null;
+  }) {
+    this.gateway.server
+      .to(ROOMS.chat(payload.conversationId))
+      .emit(SOCKET_EVENTS.CHAT_RECEIPTS, {
+        conversationId: payload.conversationId,
+        deliveredUpTo: payload.deliveredUpTo,
+        readUpTo: payload.readUpTo,
+      });
+  }
 
   // ─── INBOUND MESSAGES ────────────────────────────────────────────────────
 
@@ -328,5 +370,35 @@ export class AppEventHandler {
     } catch (err: any) {
       this.logger.error(`Failed to broadcast new conversation for ${enquiryId}: ${err.message}`);
     }
+  }
+
+  // ─── INTERNAL TEAM CHAT ACTIONS ──────────────────────────────────────────
+
+  @OnEvent('chat.message.pinned')
+  onChatMessagePinned(payload: { conversationId: string; messageId: string; isPinned: boolean }) {
+    this.gateway.server
+      .to(ROOMS.chat(payload.conversationId))
+      .emit(SOCKET_EVENTS.CHAT_MESSAGE_PINNED, payload);
+  }
+
+  @OnEvent('chat.message.starred')
+  onChatMessageStarred(payload: { conversationId: string; messageId: string; isStarred: boolean }) {
+    this.gateway.server
+      .to(ROOMS.chat(payload.conversationId))
+      .emit(SOCKET_EVENTS.CHAT_MESSAGE_STARRED, payload);
+  }
+
+  @OnEvent('chat.message.edited')
+  onChatMessageEdited(payload: { conversationId: string; messageId: string; content: string; editedAt: string }) {
+    this.gateway.server
+      .to(ROOMS.chat(payload.conversationId))
+      .emit(SOCKET_EVENTS.CHAT_MESSAGE_EDITED, payload);
+  }
+
+  @OnEvent('chat.message.deleted')
+  onChatMessageDeleted(payload: { conversationId: string; messageId: string; isDeleted: boolean }) {
+    this.gateway.server
+      .to(ROOMS.chat(payload.conversationId))
+      .emit(SOCKET_EVENTS.CHAT_MESSAGE_DELETED, payload);
   }
 }

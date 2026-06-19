@@ -48,6 +48,7 @@ import { Server, Socket } from 'socket.io';
 import { PrismaService } from 'src/database/prisma.service';
 import { ROOMS, SOCKET_EVENTS } from 'src/common/constants/socket-events';
 import { OutboundSendService } from '../modules/outbound/outbound-send.service';
+import { ChatService } from '../modules/chat/chat.service';
 import { MessageChannel } from '@prisma/client';
 import * as jwt from 'jsonwebtoken';
 
@@ -75,6 +76,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly outboundSendService?: OutboundSendService,
+    @Optional() private readonly chatService?: ChatService,
   ) {}
 
   // ─── CONNECTION LIFECYCLE ─────────────────────────────────────────────────
@@ -208,6 +210,55 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
       userId: client.data.userId,
       isTyping: false,
     });
+  }
+
+  // ─── INTERNAL TEAM CHAT ──────────────────────────────────────────────────
+
+  /** Joins an internal chat conversation room (the common room for now). */
+  @SubscribeMessage(SOCKET_EVENTS.CHAT_JOIN)
+  handleChatJoin(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    if (!client.data?.userId) return { status: 'error', message: 'Not authenticated' };
+    if (!data?.conversationId) return { status: 'error', message: 'No conversationId' };
+    const room = ROOMS.chat(data.conversationId);
+    client.join(room);
+    this.logger.log(`💬 User ${client.data.userId} joined chat room ${room}`);
+    return { status: 'joined', room };
+  }
+
+  /** Leaves an internal chat conversation room. */
+  @SubscribeMessage(SOCKET_EVENTS.CHAT_LEAVE)
+  handleChatLeave(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    if (!data?.conversationId) return { status: 'error', message: 'No conversationId' };
+    const room = ROOMS.chat(data.conversationId);
+    client.leave(room);
+    this.logger.log(`💬 User ${client.data?.userId} left chat room ${room}`);
+    return { status: 'left', room };
+  }
+
+  /** Recipient's device received messages → advance their delivered watermark. */
+  @SubscribeMessage(SOCKET_EVENTS.CHAT_DELIVERED)
+  async handleChatDelivered(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    if (!client.data?.userId || !data?.conversationId || !this.chatService) return;
+    await this.chatService.markDelivered(data.conversationId, client.data.userId);
+  }
+
+  /** Recipient is viewing the room → advance their read (and delivered) watermark. */
+  @SubscribeMessage(SOCKET_EVENTS.CHAT_READ)
+  async handleChatRead(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    if (!client.data?.userId || !data?.conversationId || !this.chatService) return;
+    await this.chatService.markRead(data.conversationId, client.data.userId);
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────

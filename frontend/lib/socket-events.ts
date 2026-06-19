@@ -36,6 +36,19 @@ export const SOCKET_EVENTS = {
   // Server → Client: presence
   PRESENCE_ONLINE:  'presence:online',
   PRESENCE_OFFLINE: 'presence:offline',
+
+  // ── Internal team chat (staff-to-staff) ──
+  CHAT_JOIN:        'chat:join',
+  CHAT_LEAVE:       'chat:leave',
+  CHAT_DELIVERED:   'chat:delivered',
+  CHAT_READ:        'chat:read',
+  CHAT_MESSAGE_NEW:  'chat:message:new',
+  CHAT_RECEIPTS:     'chat:receipts',
+  CHAT_NOTIFICATION: 'chat:notification',
+  CHAT_MESSAGE_PINNED:  'chat:message:pinned',
+  CHAT_MESSAGE_STARRED: 'chat:message:starred',
+  CHAT_MESSAGE_EDITED:  'chat:message:edited',
+  CHAT_MESSAGE_DELETED: 'chat:message:deleted',
 } as const;
 
 export type SocketEvent = (typeof SOCKET_EVENTS)[keyof typeof SOCKET_EVENTS];
@@ -43,4 +56,5 @@ export type SocketEvent = (typeof SOCKET_EVENTS)[keyof typeof SOCKET_EVENTS];
 /** Builds the room name for a contact — all real-time events scope to this room. */
 export const ROOMS = {
   contact: (contactId: string) => `contact:${contactId}`,
+  chat: (conversationId: string) => `chat:${conversationId}`,
 } as const;
