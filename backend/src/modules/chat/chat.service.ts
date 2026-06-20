@@ -131,6 +131,23 @@ export class ChatService {
       this.getUnreadCount(room.id, userId),
     ]);
 
+    // The oldest unread message — the page opens positioned here so the user
+    // reads from where they left off (works regardless of how many are unread).
+    let firstUnreadMessageId: string | null = null;
+    if (unreadCount > 0) {
+      const firstUnread = await this.prisma.chatMessage.findFirst({
+        where: {
+          conversationId: room.id,
+          isDeleted: false,
+          senderId: { not: userId },
+          ...(participant?.lastReadAt ? { createdAt: { gt: participant.lastReadAt } } : {}),
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      firstUnreadMessageId = firstUnread?.id ?? null;
+    }
+
     return {
       id: room.id,
       type: room.type,
@@ -139,6 +156,7 @@ export class ChatService {
       memberCount,
       lastReadAt: participant?.lastReadAt ?? null, // read boundary for the unread divider
       unreadCount,
+      firstUnreadMessageId,
       receipts, // { deliveredUpTo, readUpTo } — drives WhatsApp-style ticks
     };
   }
@@ -340,6 +358,35 @@ export class ChatService {
     });
 
     return message;
+  }
+
+  /**
+   * Load the NEWER page after a cursor (oldest→newest). Used to scroll down
+   * through a large unread backlog / an anchored window toward the live tail.
+   * `hasMore = false` means this page reaches the newest message.
+   */
+  async getNewerMessages(
+    conversationId: string,
+    cursor: string,
+    limit = 30,
+  ) {
+    const rows = await this.prisma.chatMessage.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      cursor: { id: cursor },
+      skip: 1,
+      take: limit + 1,
+      include: MESSAGE_INCLUDE,
+    });
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+
+    return {
+      messages: page, // oldest → newest
+      nextCursor: page.length > 0 ? page[page.length - 1].id : cursor,
+      hasMore,
+    };
   }
 
   /**

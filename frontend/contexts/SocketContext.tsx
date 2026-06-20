@@ -19,6 +19,8 @@ import { getSocket, disconnectSocket } from '@/lib/socket';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
 import MessageToast, { type ToastMessage } from '@/components/messaging/MessageToast';
 import type { ConversationPreview } from '@/services/messaging/chat.service';
+import { getChatUnread } from '@/services/chat/chat.service';
+import { useAuthStore } from '@/stores/auth-store';
 
 // ─────────────────────────────────────────────
 // Types
@@ -38,6 +40,11 @@ interface SocketContextValue {
   setActiveContactId: (id: string | null) => void;
   // Called by ContactList after load — feeds the name-lookup map used in notification toasts
   setConversations: (convs: ConversationPreview[]) => void;
+  // Internal team-chat unread badge
+  chatUnread: number;
+  clearChatUnread: () => void;
+  // Called by the chat page on mount/unmount — suppresses badge increments while viewing
+  setChatActive: (active: boolean) => void;
 }
 
 const SocketContext = createContext<SocketContextValue | null>(null);
@@ -52,11 +59,13 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const [lastEventAt, setLastEventAt] = useState<Date | null>(null);
   const [unreadContacts, setUnreadContacts] = useState<Record<string, number>>({});
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [chatUnread, setChatUnread] = useState(0);
 
   // Refs avoid stale closures inside socket event callbacks without triggering re-renders
   const socketRef = useRef<Socket | null>(null);
   const activeContactIdRef = useRef<string | null>(null);
   const conversationsRef = useRef<ConversationPreview[]>([]);
+  const chatActiveRef = useRef(false); // true while the user is on /chat
   // Only show "Reconnecting" banner after the first successful connect — never on initial page load
   const hasConnectedOnce = useRef(false);
 
@@ -78,6 +87,20 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   // Stores conversation list so toasts can resolve contact names without an extra fetch
   const setConversations = useCallback((convs: ConversationPreview[]) => {
     conversationsRef.current = convs;
+  }, []);
+
+  const clearChatUnread = useCallback(() => setChatUnread(0), []);
+
+  const setChatActive = useCallback((active: boolean) => {
+    chatActiveRef.current = active;
+    if (active) setChatUnread(0); // opening the chat clears the badge
+  }, []);
+
+  // Seed the chat badge from the server once on mount (read-only — no auto-join)
+  useEffect(() => {
+    getChatUnread()
+      .then((res) => setChatUnread(res.count))
+      .catch(() => { /* not authenticated yet / no room — leave at 0 */ });
   }, []);
 
   // ── Single socket lifecycle for the entire dashboard session ──
@@ -160,6 +183,19 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           }
         });
 
+        // Internal team-chat: bump the sidebar badge unless it's our own message
+        // or we're already viewing the chat.
+        sock.on(SOCKET_EVENTS.CHAT_NOTIFICATION, (data: {
+          conversationId: string;
+          messageId: string;
+          senderId: string;
+        }) => {
+          if (!mounted) return;
+          if (chatActiveRef.current) return;
+          if (data.senderId === useAuthStore.getState().user?.id) return;
+          setChatUnread(prev => prev + 1);
+        });
+
       } catch {
         if (mounted) setConnectionStatus('disconnected');
       }
@@ -175,6 +211,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       socketRef.current?.off(SOCKET_EVENTS.NOTIFICATION_NEW_MESSAGE);
       socketRef.current?.off(SOCKET_EVENTS.CONVERSATION_UPDATED);
       socketRef.current?.off(SOCKET_EVENTS.CONVERSATION_NEW);
+      socketRef.current?.off(SOCKET_EVENTS.CHAT_NOTIFICATION);
       disconnectSocket(); // called only here — no other component should ever call this
     };
   }, []); // socket lifecycle runs once per dashboard mount
@@ -198,6 +235,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       socket, connectionStatus, lastEventAt,
       unreadContacts, totalUnread,
       clearUnread, setActiveContactId, setConversations,
+      chatUnread, clearChatUnread, setChatActive,
     }}>
       {showReconnectBanner && (
         <div className="socket-reconnecting-banner" role="status" aria-live="polite">

@@ -4,12 +4,14 @@
 // Now loads the real room + message history from the backend.
 // Sending / real-time delivery still land in later steps (composer stays local).
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChatComposer } from './ChatComposer';
+import { useSocket } from '@/contexts/SocketContext';
 import {
   getChatRoom,
   getChatMessages,
   getChatMessagesAround,
+  getChatMessagesNewer,
   sendChatMessage,
   pinChatMessage,
   starChatMessage,
@@ -48,6 +50,7 @@ function formatTime(iso: string): string {
 export function TeamChatRoom() {
   const currentUser = useAuthStore((s) => s.user);
   const currentUserId = currentUser?.id ?? null;
+  const { setChatActive, clearChatUnread } = useSocket();
 
   const [room, setRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -66,15 +69,22 @@ export function TeamChatRoom() {
   const [activePinnedIndex, setActivePinnedIndex] = useState<number>(0);
   const [deleteTargetMessage, setDeleteTargetMessage] = useState<ChatMessage | null>(null);
 
+  // Unread divider (captured once at load — the read boundary BEFORE this open).
+  const [readBoundary, setReadBoundary] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+
   // Pagination / anchored-window state for jumping to old messages.
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [newerCursor, setNewerCursor] = useState<string | null>(null);
+  const [hasMoreNewer, setHasMoreNewer] = useState(false);
   const [isAnchored, setIsAnchored] = useState(false); // viewing a historical window, not the live tail
 
   const listRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const isAnchoredRef = useRef(false);
   const loadingOlderRef = useRef(false);
+  const loadingNewerRef = useRef(false);
   const pendingPrependHeightRef = useRef<number | null>(null);
 
   // Mirror isAnchored into a ref so the socket callback reads the latest value.
@@ -124,12 +134,43 @@ export function TeamChatRoom() {
         if (!active) return;
         setRoom(r);
         setReceipts(r.receipts ?? EMPTY_RECEIPTS);
-        const history = await getChatMessages(r.id);
-        if (!active) return;
-        setMessages(history.messages);
-        setOlderCursor(history.nextCursor);
-        setHasMoreOlder(history.hasMore);
-        setIsAnchored(false);
+        // Capture the read boundary + count BEFORE the room is marked read on join,
+        // so the "unread" divider knows where the unread messages begin.
+        setReadBoundary(r.lastReadAt);
+        setUnreadCount(r.unreadCount);
+
+        if (r.unreadCount > 0 && r.firstUnreadMessageId) {
+          // Open positioned AT the first unread message (works for any backlog
+          // size — the first unread may be far older than the newest page).
+          const win = await getChatMessagesAround(r.id, r.firstUnreadMessageId, 10, 30);
+          if (!active) return;
+          setMessages(win.messages);
+          setOlderCursor(win.messages[0]?.id ?? null);
+          setHasMoreOlder(win.hasMoreOlder);
+          setNewerCursor(win.messages[win.messages.length - 1]?.id ?? null);
+          setHasMoreNewer(win.hasMoreNewer);
+          setIsAnchored(win.hasMoreNewer);
+          isAtBottomRef.current = false; // don't snap to bottom
+          // Scroll the unread divider to the top once it has rendered.
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const el =
+                document.getElementById('teamchat-unread-divider') ??
+                document.getElementById(`teamchat-msg-${r.firstUnreadMessageId}`);
+              el?.scrollIntoView({ block: 'start', behavior: 'auto' });
+            }),
+          );
+        } else {
+          // Caught up → newest page, land at the bottom (default behavior).
+          const history = await getChatMessages(r.id);
+          if (!active) return;
+          setMessages(history.messages);
+          setOlderCursor(history.nextCursor);
+          setHasMoreOlder(history.hasMore);
+          setNewerCursor(null);
+          setHasMoreNewer(false);
+          setIsAnchored(false);
+        }
       } catch {
         if (active) setError('Could not load the chat. Please try again.');
       } finally {
@@ -138,6 +179,24 @@ export function TeamChatRoom() {
     })();
     return () => { active = false; };
   }, []);
+
+  // Viewing the chat clears the sidebar badge and suppresses further increments.
+  useEffect(() => {
+    setChatActive(true);
+    clearChatUnread();
+    return () => setChatActive(false);
+  }, [setChatActive, clearChatUnread]);
+
+  // First unread message (from the boundary captured at load) → where the divider goes.
+  const firstUnreadId = useMemo(() => {
+    if (unreadCount <= 0) return null;
+    const boundary = readBoundary ? new Date(readBoundary).getTime() : null;
+    for (const m of messages) {
+      if (m.senderId === currentUserId || m.isDeleted) continue;
+      if (boundary === null || new Date(m.createdAt).getTime() > boundary) return m.id;
+    }
+    return null;
+  }, [messages, readBoundary, unreadCount, currentUserId]);
 
   // ── Real-time: join the room, stream messages, and exchange read/delivery receipts ──
   useEffect(() => {
@@ -247,7 +306,8 @@ export function TeamChatRoom() {
   }, []);
 
   useEffect(() => {
-    if (isAtBottomRef.current) scrollToBottom();
+    // Don't snap to the bottom while anchored (reading an unread/historical window).
+    if (isAtBottomRef.current && !isAnchoredRef.current) scrollToBottom();
   }, [messages, scrollToBottom]);
 
   // After prepending older messages, keep the viewport anchored on the same
@@ -282,8 +342,30 @@ export function TeamChatRoom() {
     }
   }, [room, hasMoreOlder, olderCursor]);
 
+  // Load the NEXT (newer) page and append it — bridges an anchored window
+  // toward the live tail as the user scrolls down through unread messages.
+  const loadNewer = useCallback(async () => {
+    if (!room || loadingNewerRef.current || !hasMoreNewer || !newerCursor) return;
+    loadingNewerRef.current = true;
+    try {
+      const res = await getChatMessagesNewer(room.id, newerCursor);
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id));
+        const fresh = res.messages.filter((m) => !seen.has(m.id));
+        return [...prev, ...fresh];
+      });
+      setNewerCursor(res.nextCursor);
+      setHasMoreNewer(res.hasMore);
+      if (!res.hasMore) setIsAnchored(false); // reached the live tail
+    } catch {
+      /* ignore */
+    } finally {
+      loadingNewerRef.current = false;
+    }
+  }, [room, hasMoreNewer, newerCursor]);
+
   // Track scroll position → drives the "scroll to newest" button, auto-scroll,
-  // and lazy-loading of older history near the top.
+  // and lazy-loading of older history (top) and newer history (bottom).
   const handleListScroll = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
@@ -292,7 +374,8 @@ export function TeamChatRoom() {
     isAtBottomRef.current = atBottom;
     setShowScrollDown(!atBottom);
     if (el.scrollTop < 80) loadOlder();
-  }, [loadOlder]);
+    if (isAnchoredRef.current && distanceFromBottom < 200) loadNewer();
+  }, [loadOlder, loadNewer]);
 
   // Down-arrow: when viewing a historical window, reload the live tail; otherwise
   // just scroll to the bottom.
@@ -303,6 +386,8 @@ export function TeamChatRoom() {
         setMessages(history.messages);
         setOlderCursor(history.nextCursor);
         setHasMoreOlder(history.hasMore);
+        setNewerCursor(null);
+        setHasMoreNewer(false);
         setIsAnchored(false);
       } catch {
         return;
@@ -332,6 +417,8 @@ export function TeamChatRoom() {
         setMessages(res.messages);
         setOlderCursor(res.messages[0]?.id ?? null);
         setHasMoreOlder(res.hasMoreOlder);
+        setNewerCursor(res.messages[res.messages.length - 1]?.id ?? null);
+        setHasMoreNewer(res.hasMoreNewer);
         setIsAnchored(res.hasMoreNewer);
         isAtBottomRef.current = false;
         // Wait for the window to render, then center the target message.
@@ -543,8 +630,13 @@ export function TeamChatRoom() {
                 : 'This message was deleted';
 
             return (
+              <Fragment key={msg.id}>
+                {msg.id === firstUnreadId && (
+                  <div id="teamchat-unread-divider" className={styles.unreadDivider}>
+                    {unreadCount} unread message{unreadCount === 1 ? '' : 's'}
+                  </div>
+                )}
               <div
-                key={msg.id}
                 id={`teamchat-msg-${msg.id}`}
                 className={`${styles.row} ${mine ? styles.rowMine : styles.rowTheirs}`}
                 onDoubleClick={() => {
@@ -757,6 +849,7 @@ export function TeamChatRoom() {
                   </span>
                 </div>
               </div>
+              </Fragment>
             );
           })
         )}

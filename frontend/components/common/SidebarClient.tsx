@@ -18,8 +18,8 @@ export function SidebarClient({ children }: SidebarClientProps) {
     const pathname = usePathname();
     const [mobileOpen, setMobileOpen] = useState(false);
     const { can, user, isLoaded } = useAuthStore();
-    // totalUnread from SocketProvider — drives the red badge on the Messages nav item
-    const { totalUnread } = useSocket();
+    // totalUnread / chatUnread from SocketProvider — drive the red badges on the nav items
+    const { totalUnread, chatUnread } = useSocket();
 
     // ── Sidebar lock/unlock ──
     const [sidebarLocked, setSidebarLocked] = useState<boolean>(true);
@@ -218,6 +218,10 @@ export function SidebarClient({ children }: SidebarClientProps) {
                         {/* Unread badge — shown for the Messages nav item when there are unread conversations */}
                         {item.href === '/messaging' && totalUnread > 0 ? (
                             <span className="nav-unread-badge">{totalUnread > 99 ? '99+' : totalUnread}</span>
+                        ) : null}
+                        {/* Unread badge — Team Chat */}
+                        {item.href === '/chat' && chatUnread > 0 ? (
+                            <span className="nav-unread-badge">{chatUnread > 99 ? '99+' : chatUnread}</span>
                         ) : null}
                         {!isChild ? (
                             <button

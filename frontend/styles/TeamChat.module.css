@@ -194,6 +194,26 @@
     opacity: 0.65;
 }
 
+/* "N unread messages" divider — marks where unread begins (WhatsApp-style) */
+.unreadDivider {
+    align-self: stretch;
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #1d9bf0;
+    background: rgba(29, 155, 240, 0.08);
+    padding: 5px 0;
+    margin: 8px 0;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+:global(.dark) .unreadDivider {
+    color: #53bdeb;
+    background: rgba(83, 189, 235, 0.1);
+}
+
 /* Loading / empty / error note */
 .stateNote {
     margin: auto;

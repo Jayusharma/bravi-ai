@@ -53,6 +53,15 @@ export class ChatController {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // GET /chat/room/:id/messages/newer — page of messages after a cursor
+  // ═══════════════════════════════════════════════════════════════════
+  @Get('room/:id/messages/newer')
+  @CheckAbility({ action: 'read', subject: 'chat' })
+  getNewerMessages(@Param('id') id: string, @Query() query: GetMessagesDto) {
+    return this.chatService.getNewerMessages(id, query.cursor!, query.limit);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // GET /chat/room/:id/messages/around — window of messages around one message
   // ═══════════════════════════════════════════════════════════════════
   @Get('room/:id/messages/around')

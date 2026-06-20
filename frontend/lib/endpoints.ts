@@ -54,6 +54,7 @@ export const API = {
         ROOM: '/chat/room',
         UNREAD: '/chat/unread',
         MESSAGES: (roomId: string) => `/chat/room/${roomId}/messages`,
+        NEWER: (roomId: string) => `/chat/room/${roomId}/messages/newer`,
         SEARCH: (roomId: string) => `/chat/room/${roomId}/messages/search`,
         AROUND: (roomId: string) => `/chat/room/${roomId}/messages/around`,
         MEMBERS: (roomId: string) => `/chat/room/${roomId}/members`,

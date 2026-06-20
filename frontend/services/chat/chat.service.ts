@@ -19,6 +19,7 @@ export type ChatRoom = {
   memberCount: number;
   lastReadAt: string | null; // read boundary for the unread divider
   unreadCount: number;
+  firstUnreadMessageId: string | null; // page opens positioned here
   receipts: ChatReceipts;
 };
 
@@ -99,6 +100,17 @@ export async function getChatMessages(
   params?: { limit?: number; cursor?: string },
 ): Promise<ChatMessagesResponse> {
   return apiClient<ChatMessagesResponse>(API.CHAT.MESSAGES(roomId), { params });
+}
+
+/** Load the next NEWER page after a cursor (oldest → newest). */
+export async function getChatMessagesNewer(
+  roomId: string,
+  cursor: string,
+  limit?: number,
+): Promise<ChatMessagesResponse> {
+  return apiClient<ChatMessagesResponse>(API.CHAT.NEWER(roomId), {
+    params: { cursor, limit },
+  });
 }
 
 /**
