@@ -24,6 +24,7 @@ import { EventsModule } from './events/events.module';
 import { SearchModule } from './modules/search/search.module';
 import { TemplateModule } from './modules/template/template.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { AIModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { ChatModule } from './modules/chat/chat.module';
     SearchModule,
     TemplateModule,
     ChatModule,
+    AIModule
   ],
   controllers: [AppController],
   providers: [
