@@ -45,19 +45,3 @@ async def call_gemini(prompt:str) -> dict:
             "reasoning": f"AI call failed: {str(e)}",
             "confidence": 0.0
         }
-
-
-async def qualify_message(message: str) -> dict:
-    prompt = f"""
-    Analyze the following incoming customer message and qualify if it is a real sales/business lead.
-    
-    Customer Message: "{message}"
-    
-    Respond with a JSON object containing:
-    - "is_lead": boolean (true if it represents a real business inquiry or lead, false if it is spam, greetings, chit-chat, or unrelated)
-    - "category": string (e.g., "pricing", "booking", "general_info", "spam", "other")
-    - "reasoning": string (explanation of why it is or isn't a lead)
-    - "confidence": float (0.0 to 1.0)
-    - "suggested_reply": string or null (a short suggested draft response if it's a real lead, otherwise null)
-    """
-    return await call_gemini(prompt)

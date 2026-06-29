@@ -6,7 +6,7 @@ import {
 import { PrismaService } from 'src/database/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
-import { AIClassifierStrategy } from './strategies/ai.strategy';
+import { QualificationAIClient } from 'src/ai/qualification.client';
 import {
   EnquiryIntent,
   QualificationLayer,
@@ -20,7 +20,7 @@ export class QualificationService {
 
   constructor(
     private prisma: PrismaService,
-    private aiClassifier: AIClassifierStrategy,
+    private aiClassifier: QualificationAIClient,
     private eventEmitter: EventEmitter2,
     private config: ConfigService,
   ) {

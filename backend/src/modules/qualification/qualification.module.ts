@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QualificationService } from './qualification.service';
 import { QualificationProcessor } from './processors/qualification.processor';
-import { AIClassifierStrategy } from './strategies/ai.strategy';
+import { AIModule } from 'src/ai/ai.module';
 
 @Module({
     imports: [
+        // The AI gateway — provides QualificationAIClient (HTTP → Python brain)
+        AIModule,
         // Register the qualification queue (jobs added by IngestionService)
         BullModule.registerQueue({
             name: 'qualification',
@@ -14,7 +16,6 @@ import { AIClassifierStrategy } from './strategies/ai.strategy';
     providers: [
         QualificationService,
         QualificationProcessor,
-        AIClassifierStrategy,
     ],
     exports: [QualificationService],
 })
