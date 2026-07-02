@@ -25,6 +25,7 @@ import { SearchModule } from './modules/search/search.module';
 import { TemplateModule } from './modules/template/template.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { AIModule } from './ai/ai.module';
+import { AutomationModule } from './modules/automation/automation.module';
 
 @Module({
   imports: [
@@ -70,7 +71,8 @@ import { AIModule } from './ai/ai.module';
     SearchModule,
     TemplateModule,
     ChatModule,
-    AIModule
+    AIModule,
+    AutomationModule
   ],
   controllers: [AppController],
   providers: [

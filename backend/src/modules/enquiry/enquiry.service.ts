@@ -612,6 +612,65 @@ export class EnquiryService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // AI AUTO-REPLY — system-generated outbound message (no human sender).
+  // Reuses the standard outbound pipeline by emitting 'message.outbound'.
+  // ═══════════════════════════════════════════════════════════════════
+  async addAiReply(
+    enquiryId: string,
+    dto: {
+      channel: MessageChannel;
+      to: string;
+      body: string;
+      subject?: string;
+    },
+  ) {
+    const enquiry = await this.prisma.enquiry.findUnique({ where: { id: enquiryId } });
+    if (!enquiry) throw new NotFoundException(`Enquiry ${enquiryId} not found`);
+
+    const message = await this.prisma.conversationMessage.create({
+      data: {
+        enquiryId,
+        channel: dto.channel,
+        direction: 'OUTBOUND',
+        source: 'AUTOMATION',
+        from: 'AI',
+        to: dto.to,
+        subject: dto.subject,
+        content: dto.body,
+        sentByUserId: null,
+        deliveryStatus: 'PENDING',
+      },
+    });
+
+    await this.prisma.enquiry.update({
+      where: { id: enquiryId },
+      data: {
+        lastActivityAt: new Date(),
+        ...(enquiry.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+        timeline: {
+          create: {
+            type: 'MESSAGE_SENT',
+            createdBy: 'SYSTEM',
+            metadata: { channel: dto.channel, messageId: message.id, aiGenerated: true },
+          },
+        },
+      },
+    });
+
+    this.eventEmitter.emit('message.outbound', {
+      messageId: message.id,
+      enquiryId,
+      channel: dto.channel,
+      to: dto.to,
+      content: dto.body,
+      subject: dto.subject,
+    });
+
+    this.logger.log(`🤖 AI reply ${message.id} created for enquiry ${enquiryId}`);
+    return message;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // MAYBE TRANSITION ON OUTBOUND — Called by OutboundProcessor on success
   // Transitions IN_PROGRESS / FOLLOW_UP → AWAITING_CUSTOMER
   // ═══════════════════════════════════════════════════════════════════

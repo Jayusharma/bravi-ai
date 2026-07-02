@@ -3,10 +3,18 @@ import { HttpService } from "@nestjs/axios";
 import { firstValueFrom } from "rxjs";
 
 export interface AIDecision {
-    action : string 
+    action : string
     draft : string | null
-    reasoning : string 
+    reasoning : string
     confidence : number
+}
+
+export interface AIReply {
+    action : 'send' | 'escalate'
+    reply : string | null
+    subject : string | null
+    confidence : number   // 0.0 - 1.0
+    reasoning : string
 }
 
 @Injectable()
@@ -43,6 +51,34 @@ export class AIService{
             
         } catch (error) {
             this.logger.error('Failed to get AI decision:', error);
+            return null;
+        }
+    }
+
+    async getReply(
+        enquiryID: string,
+        channel: string,
+    ): Promise<AIReply | null> {
+        try {
+            const payload = {
+                enquiry_id: enquiryID,
+                channel: channel,
+            }
+
+            const response = await firstValueFrom(
+                this.http.post<AIReply>(
+                    `${this.AI_URL}/reply`,
+                    payload,
+                    {
+                        timeout: 15000,
+                        headers: { 'Content-Type': 'application/json' },
+                    }
+                )
+            )
+            return response.data;
+
+        } catch (error) {
+            this.logger.error('Failed to get AI reply:', error);
             return null;
         }
     }

@@ -5,6 +5,7 @@ from services.ai import call_gemini
 from services.context import build_prompt
 from models import DecisionRequest, DecisionResponse
 from qualification import qualify as qualify_message, QualifyRequest, QualifyResponse
+from reply import reply as generate_reply, ReplyRequest, ReplyResponse
 
 app = FastAPI()
 
@@ -29,6 +30,11 @@ async def health():
 @app.post("/qualify", response_model=QualifyResponse)
 async def qualify_route(req: QualifyRequest):
     return await qualify_message(req)
+
+
+@app.post("/reply", response_model=ReplyResponse)
+async def reply_route(req: ReplyRequest):
+    return await generate_reply(req)
 
 
 @app.post("/decide", response_model=DecisionResponse)
