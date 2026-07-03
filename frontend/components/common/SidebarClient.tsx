@@ -327,7 +327,7 @@ export function SidebarClient({ children }: SidebarClientProps) {
     );
 
     return (
-        <div className="dashboard-shell flex min-h-screen overflow-hidden text-foreground">
+        <div className="dashboard-shell flex h-screen overflow-hidden text-foreground">
 
             {/* ═════════ LOCKED SIDEBAR (static, in document flow) ═════════ */}
             {sidebarLocked ? (

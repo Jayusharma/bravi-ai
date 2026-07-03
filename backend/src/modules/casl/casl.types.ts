@@ -26,6 +26,7 @@ export type AppSubjects =
   | 'conversationmessage'
   | 'messagetemplate'
   | 'chat'
+  | 'channelconnection'
   | 'all';
 
 export type AppAbility = PureAbility<[Actions, AppSubjects], PrismaQuery>;

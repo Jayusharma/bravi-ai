@@ -30,17 +30,26 @@ export interface SendResult {
   failReason?: string;  // Human-readable failure reason (shown to agents in UI tooltip)
 }
 
+/** Credentials resolved from a ChannelConnection row — passed in when one exists for this channel. */
+export interface ResolvedCredentials {
+  apiKey: string;
+  fromEmail: string;
+}
+
 export interface ChannelAdapter {
   readonly channel: MessageChannel;
 
   /**
    * Send a message via this channel.
+   * `creds`, when present, comes from a connected ChannelConnection row and overrides
+   * whatever the adapter set up in its own constructor — this is what makes the
+   * Administration → Channels connect flow actually take effect.
    * Returns the provider's message ID on success.
    */
-  send(params: SendParams): Promise<SendResult>;
+  send(params: SendParams, creds?: ResolvedCredentials): Promise<SendResult>;
 
   /**
-   * Check if this adapter is properly configured and ready to send.
+   * Check if this adapter is ready to send, either with the given creds or its own defaults.
    */
-  isConfigured(): boolean;
+  isConfigured(creds?: ResolvedCredentials): boolean;
 }

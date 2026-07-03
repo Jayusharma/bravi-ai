@@ -20,12 +20,14 @@ import { DlqService } from './dlq/dlq.service';
 import { DlqController } from './dlq/dlq.controller';
 import { EnquiryModule } from '../enquiry/enquiry.module';
 import { StorageModule } from '../storage/storage.module';
+import { ChannelsModule } from '../channels/channels.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: OUTBOUND_QUEUE }),
     EnquiryModule,
     StorageModule,
+    ChannelsModule, // Provides ChannelsService — ChannelRouterService checks the on/off toggle before every send
   ],
   providers: [
     DraftService,

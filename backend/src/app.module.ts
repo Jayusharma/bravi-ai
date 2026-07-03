@@ -26,6 +26,7 @@ import { TemplateModule } from './modules/template/template.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { AIModule } from './ai/ai.module';
 import { AutomationModule } from './modules/automation/automation.module';
+import { ChannelsModule } from './modules/channels/channels.module';
 
 @Module({
   imports: [
@@ -72,7 +73,8 @@ import { AutomationModule } from './modules/automation/automation.module';
     TemplateModule,
     ChatModule,
     AIModule,
-    AutomationModule
+    AutomationModule,
+    ChannelsModule,
   ],
   controllers: [AppController],
   providers: [

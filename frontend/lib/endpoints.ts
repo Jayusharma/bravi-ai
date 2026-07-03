@@ -25,6 +25,20 @@ export const API = {
         NOTES: (id: string) => `/enquiry/${id}/notes`,
     },
 
+    // ── Contact ──
+    CONTACT: {
+        LIST: '/contact',
+        CREATE: '/contact',
+        DETAIL: (id: string) => `/contact/${id}`,
+        UPDATE: (id: string) => `/contact/${id}`,
+        DELETE: (id: string) => `/contact/${id}`,
+        DELETE_BULK: '/contact',
+        ADD_CHANNEL: (id: string) => `/contact/${id}/channels`,
+        REMOVE_CHANNEL: (id: string, channelId: string) => `/contact/${id}/channels/${channelId}`,
+        SET_PRIMARY: (id: string, channelId: string) => `/contact/${id}/channels/${channelId}/primary`,
+        ENQUIRIES: (id: string) => `/contact/${id}/enquiries`,
+    },
+
     // ── Users ──
     USER: {
         LIST: '/users',
@@ -95,5 +109,14 @@ export const API = {
         VARIABLES_SUGGEST: '/templates/variables/suggest',
         USABLE: '/templates/usable', // templates usable in a conversation, variables pre-resolved
         SUBMIT: (id: string) => `/templates/${id}/submit`, // Step 5 — WhatsApp approval
+    },
+
+    // ── Channels (Administration → Channels) ──
+    CHANNEL: {
+        LIST: '/channels',
+        CREATE: '/channels',
+        UPDATE: (id: string) => `/channels/${id}`,
+        STATUS: (id: string) => `/channels/${id}/status`, // the on/off toggle
+        DELETE: (id: string) => `/channels/${id}`,
     },
 } as const;

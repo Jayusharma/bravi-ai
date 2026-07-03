@@ -2,9 +2,10 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MessageChannel } from '@prisma/client';
+import { ConnectionStatus, MessageChannel } from '@prisma/client';
 import { SendParams, SendResult } from './adapters/channel-adapter.interface';
 import { AdapterFactory } from './adapter.factory';
+import { ChannelsService } from '../channels/channels.service';
 
 @Injectable()
 export class ChannelRouterService {
@@ -14,6 +15,7 @@ export class ChannelRouterService {
   constructor(
     private readonly config: ConfigService,
     private readonly adapterFactory: AdapterFactory,
+    private readonly channelsService: ChannelsService,
   ) {
     this.isDev = this.config.get<string>('NODE_ENV', 'production') !== 'production';
   }
@@ -28,7 +30,22 @@ export class ChannelRouterService {
       return { success: false, error: `No adapter for ${channel}`, failReason: `No adapter registered for ${channel}.` };
     }
 
-    if (!adapter.isConfigured()) {
+    // The on/off toggle: a connected-but-disabled channel is a hard block, no dev mock either
+    // — the user explicitly turned it off and expects nothing to send.
+    // No connection at all just means this channel hasn't been migrated to Administration →
+    // Channels yet — the adapter falls through to its own default config below.
+    const connection = await this.channelsService.findConnectionForChannel(channel);
+    if (connection && connection.status !== ConnectionStatus.ACTIVE) {
+      this.logger.warn(`${channel} channel is disabled — blocking send`);
+      return {
+        success: false,
+        error: `${channel} channel is disabled`,
+        failReason: `${channel} is turned off. Turn it on in Administration → Channels.`,
+      };
+    }
+    const creds = connection ? this.channelsService.resolveCredentials(connection) : undefined;
+
+    if (!adapter.isConfigured(creds)) {
       if (this.isDev) return this.mockSend(channel, params, 'adapter not configured');
       this.logger.warn(`${channel} adapter not configured`);
       return { success: false, error: `${channel} adapter not configured`, failReason: `${channel} is not configured. Contact an admin.` };
@@ -37,7 +54,7 @@ export class ChannelRouterService {
     this.logger.log(`📤 Routing ${channel} message to ${params.to}`);
 
     try {
-      const result = await adapter.send(params);
+      const result = await adapter.send(params, creds);
       if (!result.success && this.isDev) {
         return this.mockSend(channel, params, result.error ?? 'adapter returned failure');
       }

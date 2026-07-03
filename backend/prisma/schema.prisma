@@ -128,6 +128,44 @@ enum MessageChannel {
   SMS
 }
 
+// ============================================================================
+// CHANNEL CONNECTIONS — user-connected channel apps (Administration → Channels)
+// WHY: Provider credentials (SendGrid key, etc) used to live only in .env, read once
+//      at server boot. This table lets a user connect/disconnect a channel from the
+//      frontend, with no restart, and toggle it on/off at any time.
+// ============================================================================
+
+enum ChannelProvider {
+  SENDGRID_EMAIL // add TWILIO_WHATSAPP / META_INSTAGRAM when those adapters are built
+}
+
+enum ConnectionStatus {
+  ACTIVE // channel is live — outbound sends through it, inbound is accepted
+  DISABLED // the toggle is off — outbound is blocked, inbound is dropped at the webhook
+}
+
+model ChannelConnection {
+  id       String          @id @default(uuid())
+  provider ChannelProvider
+  channel  MessageChannel // EMAIL for SendGrid — outbound/inbound resolve the connection by this
+
+  displayName String // shown in the UI list, e.g. "Sales Inbox"
+  status      ConnectionStatus @default(ACTIVE) // flipped by the on/off toggle
+
+  externalAccountId String // the from-email (also doubles as the sender identity)
+  credentials       String // AES-256-GCM blob "iv:tag:ciphertext" (base64) — never sent to the client
+
+  lastInboundAt DateTime? // stamped every time an inbound email is accepted through this connection
+  lastError     String? // last connect/validation error, shown in the UI health column
+
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, externalAccountId]) // one connection per sender address
+  @@index([channel, status]) // fast "is there an ACTIVE EMAIL connection?" lookup
+}
+
 enum QualificationStatus {
   PENDING // Just arrived, not qualified yet
   PROCESSING // Currently being qualified
@@ -892,8 +930,8 @@ model ChatMessage {
   parentMessage   ChatMessage?  @relation("ChatReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
   replies         ChatMessage[] @relation("ChatReplies")
 
-  isStarred       Boolean       @default(false)
-  deletedFor      String[]      @default([])
+  isStarred  Boolean  @default(false)
+  deletedFor String[] @default([])
 
   createdAt DateTime @default(now())
 

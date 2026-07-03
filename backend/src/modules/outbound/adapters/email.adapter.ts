@@ -2,12 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessageChannel } from '@prisma/client';
 import * as sgMail from '@sendgrid/mail';
-import { ChannelAdapter, SendParams, SendResult } from './channel-adapter.interface';
+import { ChannelAdapter, ResolvedCredentials, SendParams, SendResult } from './channel-adapter.interface';
 
 /**
  * Sends outbound email via SendGrid.
  *
- * Required env vars:
+ * Credentials come from ChannelRouterService (a connected ChannelConnection row) when one
+ * exists. Falls back to these env vars only for a channel that was never connected via
+ * Administration → Channels:
  *   SENDGRID_API_KEY  - SendGrid API key (starts with SG.)
  *   SENDGRID_FROM     - Verified sender email e.g. noreply@yourdomain.com
  */
@@ -16,36 +18,36 @@ export class EmailAdapter implements ChannelAdapter {
   readonly channel = MessageChannel.EMAIL;
   private readonly logger = new Logger(EmailAdapter.name);
 
-  private readonly fromEmail: string;
-  private readonly configured: boolean;
+  private readonly envApiKey: string;
+  private readonly envFromEmail: string;
 
   constructor(private readonly config: ConfigService) {
-    const apiKey = this.config.get<string>('SENDGRID_API_KEY', '');
-    this.fromEmail = this.config.get<string>('SENDGRID_FROM', '');
-
-    if (apiKey && this.fromEmail) {
-      sgMail.setApiKey(apiKey);
-      this.configured = true;
-      this.logger.log('✅ SendGrid email adapter initialized');
-    } else {
-      this.configured = false;
-      this.logger.warn('⚠️ SendGrid credentials missing — Email adapter disabled');
-    }
+    this.envApiKey = this.config.get<string>('SENDGRID_API_KEY', '');
+    this.envFromEmail = this.config.get<string>('SENDGRID_FROM', '');
   }
 
-  isConfigured(): boolean {
-    return this.configured;
+  /** True once we know an API key + from-address, whether from `creds` or env fallback. */
+  isConfigured(creds?: ResolvedCredentials): boolean {
+    const apiKey = creds?.apiKey ?? this.envApiKey;
+    const fromEmail = creds?.fromEmail ?? this.envFromEmail;
+    return !!(apiKey && fromEmail);
   }
 
-  async send(params: SendParams): Promise<SendResult> {
-    if (!this.isConfigured()) {
+  async send(params: SendParams, creds?: ResolvedCredentials): Promise<SendResult> {
+    const apiKey = creds?.apiKey ?? this.envApiKey;
+    const fromEmail = creds?.fromEmail ?? this.envFromEmail;
+
+    if (!apiKey || !fromEmail) {
       return { success: false, error: 'Email (SendGrid) not configured' };
     }
 
     try {
+      // Set right before send — a connected channel's key can change between sends.
+      sgMail.setApiKey(apiKey);
+
       const msg: sgMail.MailDataRequired = {
         to: params.to,
-        from: this.fromEmail,
+        from: fromEmail,
         subject: params.subject ?? '(no subject)',
         text: params.content,
         html: params.content,

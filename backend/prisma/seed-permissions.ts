@@ -38,6 +38,8 @@ const SUBJECTS = [
   'messagetemplate',
   'deadletter',
   'chat',
+  'contact',
+  'channelconnection',
   'all',
 ];
 const ACTIONS = ['create', 'read', 'update', 'delete', 'assign', 'manage'];
@@ -90,6 +92,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'create', subject: 'chat' },
         { action: 'update', subject: 'chat' },
         { action: 'delete', subject: 'chat' },
+        // Contact permissions
+        { action: 'read', subject: 'contact' },
+        { action: 'create', subject: 'contact' },
+        { action: 'update', subject: 'contact' },
+        { action: 'delete', subject: 'contact' },
     ],
 
     SALES: [
@@ -117,6 +124,9 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'create', subject: 'chat' },
         { action: 'update', subject: 'chat' },
         { action: 'delete', subject: 'chat' },
+        // Contact permissions
+        { action: 'read', subject: 'contact' },
+        { action: 'update', subject: 'contact' },
     ],
 
     OPS: [
@@ -132,6 +142,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         // Internal chat — can read and send (no pin/delete)
         { action: 'read', subject: 'chat' },
         { action: 'create', subject: 'chat' },
+        // Contact permissions
+        { action: 'read', subject: 'contact' },
     ],
 };
 
