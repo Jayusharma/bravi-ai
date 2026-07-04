@@ -7,6 +7,7 @@ import { Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import ContactList from '@/components/messaging/ContactList';
 import ChatView from '@/components/messaging/ChatView';
+import { ContactDetailPanel } from '@/components/messaging/ContactDetailPanel';
 import type { ConversationPreview } from '@/services/messaging/chat.service';
 import { useSocket } from '@/contexts/SocketContext';
 import { joinContactRoom, leaveContactRoom } from '@/lib/socket';
@@ -27,6 +28,15 @@ function MessagingPageInner() {
     const [highlightEnquiryId, setHighlightEnquiryId] = useState<string | null>(null);
     const [highlightMessageChannel, setHighlightMessageChannel] = useState<'WHATSAPP' | 'EMAIL' | null>(null);
     const [highlightQuery, setHighlightQuery] = useState<string | null>(null);
+    const [showDetailPanel, setShowDetailPanel] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     const activeContactIdRef = useRef<string | null>(null);
     const conversationsRef = useRef<ConversationPreview[]>([]);
@@ -131,10 +141,13 @@ function MessagingPageInner() {
     }, []);
 
     return (
-        <div className={styles.messagingPage}>
+        <div className={styles.messagingPage} style={{ zoom: 0.9, height: 'calc((100vh - 80px) / 0.9)' }}>
             <div className={styles.messagingLayout} ref={layoutRef}>
                 {/* Left panel: Resizable contact list */}
-                <div className={styles.contactPanel} style={{ width: contactWidth }}>
+                <div 
+                    className={`${styles.contactPanel} ${activeConversation ? 'hidden md:flex' : 'flex w-full md:w-auto'}`} 
+                    style={{ width: activeConversation ? contactWidth : (isMobile ? '100%' : contactWidth) }}
+                >
                     <ContactList
                         activeContactId={activeConversation?.contactId || null}
                         onSelectContact={handleSelectContact}
@@ -144,26 +157,42 @@ function MessagingPageInner() {
                 </div>
 
                 {/* Drag handle */}
-                <div className={styles.resizeHandle} onMouseDown={handleMouseDown} />
+                <div 
+                    className={`${styles.resizeHandle} ${activeConversation ? 'hidden md:block' : 'hidden'}`} 
+                    onMouseDown={handleMouseDown} 
+                />
 
                 {/* Right panel: Chat view or empty state */}
-                <div className={styles.chatPanel}>
+                <div className={`${styles.chatPanel} ${activeConversation ? 'flex' : 'hidden md:flex'}`}>
                     {activeConversation ? (
-                        <ChatView
-                            key={activeConversation.contactId}
-                            contactId={activeConversation.contactId}
-                            contactName={activeConversation.contactName}
-                            highlightMessageId={highlightMessageId}
-                            highlightEnquiryId={highlightEnquiryId}
-                            highlightMessageChannel={highlightMessageChannel}
-                            highlightQuery={highlightQuery}
-                            onClearHighlight={() => {
-                                setHighlightMessageId(null);
-                                setHighlightEnquiryId(null);
-                                setHighlightMessageChannel(null);
-                                setHighlightQuery(null);
-                            }}
-                        />
+                        <div className="flex h-full w-full overflow-hidden">
+                            <div className="flex-1 h-full min-w-0">
+                                <ChatView
+                                    key={activeConversation.contactId}
+                                    contactId={activeConversation.contactId}
+                                    contactName={activeConversation.contactName}
+                                    highlightMessageId={highlightMessageId}
+                                    highlightEnquiryId={highlightEnquiryId}
+                                    highlightMessageChannel={highlightMessageChannel}
+                                    highlightQuery={highlightQuery}
+                                    onClearHighlight={() => {
+                                        setHighlightMessageId(null);
+                                        setHighlightEnquiryId(null);
+                                        setHighlightMessageChannel(null);
+                                        setHighlightQuery(null);
+                                    }}
+                                    onBack={() => setActiveConversation(null)}
+                                    onToggleDetail={() => setShowDetailPanel(prev => !prev)}
+                                />
+                            </div>
+                            {showDetailPanel && (
+                                <div className="hidden xl:block w-[360px] border-l border-slate-100 dark:border-zinc-800 shrink-0">
+                                    <ContactDetailPanel
+                                        contactId={activeConversation.contactId}
+                                    />
+                                </div>
+                            )}
+                        </div>
                     ) : (
                         <div className={styles.emptyView}>
                             <span className={styles.emptyIcon}>💬</span>

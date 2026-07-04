@@ -12,6 +12,7 @@ import { OutboundProcessor, OUTBOUND_QUEUE } from './outbound.processor';
 import { ChannelRouterService } from './channel-router.service';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { EmailAdapter } from './adapters/email.adapter';
+import { MetaWhatsAppAdapter } from './adapters/meta-whatsapp.adapter';
 import { DeliveryTrackingService } from './delivery/delivery-tracking.service';
 import { TemplateStubService, TEMPLATE_SERVICE } from './templates/template.stub';
 import { AdapterFactory } from './adapter.factory';
@@ -40,6 +41,7 @@ import { ChannelsModule } from '../channels/channels.module';
     ChannelRouterService,
     WhatsAppAdapter,
     EmailAdapter,
+    MetaWhatsAppAdapter,
     DeliveryTrackingService,
     { provide: TEMPLATE_SERVICE, useClass: TemplateStubService },
   ],

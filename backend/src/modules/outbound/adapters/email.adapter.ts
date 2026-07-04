@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessageChannel } from '@prisma/client';
-import * as sgMail from '@sendgrid/mail';
+import sgMail, { MailDataRequired } from '@sendgrid/mail';
 import { ChannelAdapter, ResolvedCredentials, SendParams, SendResult } from './channel-adapter.interface';
 
 /**
@@ -45,7 +45,7 @@ export class EmailAdapter implements ChannelAdapter {
       // Set right before send — a connected channel's key can change between sends.
       sgMail.setApiKey(apiKey);
 
-      const msg: sgMail.MailDataRequired = {
+      const msg: MailDataRequired = {
         to: params.to,
         from: fromEmail,
         subject: params.subject ?? '(no subject)',

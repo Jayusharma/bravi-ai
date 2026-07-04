@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Logger,
   Post,
+  Query,
   Res,
   UseGuards,
   UseInterceptors,
@@ -20,7 +22,9 @@ import { SendGridInboundPayload } from './dto/email-sendgrid.dto';
 import { IdempotencyGuard } from 'src/common/Idempotency/idempotency.guard';
 import { IdempotencyInterceptor } from 'src/common/interceptors/idempotency.interceptor';
 import { ChannelsService } from '@/modules/channels/channels.service';
-import { MessageChannel, ConnectionStatus } from '@prisma/client';
+import { MessageChannel, ConnectionStatus, ChannelProvider } from '@prisma/client';
+import { MetaWhatsAppNormalizer } from './normalizer/meta-whatsapp.normalizer';
+import { MetaWhatsAppPayload } from './dto/whatsapp-webhook.dto';
 
 @Public()
 @Controller('webhook')
@@ -31,6 +35,7 @@ export class WebhookController {
     private readonly ingestionService: IngestionService,
     private readonly whatsappNormalizer: TwilioWhatsAppNormalizer,
     private readonly sendGridEmailNormalizer: SendGridEmailNormalizer,
+    private readonly metaWhatsAppNormalizer: MetaWhatsAppNormalizer,
     private readonly channelsService: ChannelsService,
   ) { }
 
@@ -76,6 +81,58 @@ export class WebhookController {
 
     const dto = this.sendGridEmailNormalizer.normalize(body);
     if (!dto) {
+      return { status: 'skipped' };
+    }
+
+    await this.ingestionService.ingest(dto);
+    await this.channelsService.markInboundReceived(connection.id);
+    return { status: 'accepted' };
+  }
+
+  // Hit by Meta ONCE, when you paste the callback URL into the App dashboard.
+  // Meta sends hub.mode/hub.verify_token/hub.challenge — we echo the challenge back
+  // only if the verify token matches the one saved on the Meta channel connection.
+  @Get('whatsapp/meta')
+  async verifyMetaWebhook(
+    @Query('hub.mode') mode: string,
+    @Query('hub.verify_token') token: string,
+    @Query('hub.challenge') challenge: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const connection = await this.channelsService.findConnectionForProvider(ChannelProvider.META_WHATSAPP);
+    const expected = connection ? this.channelsService.resolveMetaCredentials(connection).verifyToken : null;
+
+    if (mode === 'subscribe' && expected && token === expected) {
+      this.logger.log('✅ Meta webhook verified — challenge echoed');
+      res.status(200).send(challenge); // must be the raw challenge string, nothing else
+      return;
+    }
+
+    this.logger.warn('Meta webhook verification failed — verify token mismatch or no Meta connection');
+    res.status(403).send('Forbidden');
+  }
+
+  // Hit by Meta on EVERY inbound WhatsApp message (and delivery receipts) for the connected number.
+  @Post('whatsapp/meta')
+  @UseGuards(IdempotencyGuard)
+  @UseInterceptors(IdempotencyInterceptor)
+  @HttpCode(HttpStatus.OK)
+  async handleMetaWhatsApp(@Body() body: any) {
+    const payload = body as MetaWhatsAppPayload;
+    const preview = payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    this.logger.log(`Meta webhook received: From=${preview?.from}, Body="${preview?.text?.body?.substring(0, 80)}"`);
+
+    // The on/off toggle: only accept while the Meta WhatsApp channel is connected AND turned on.
+    // Looked up by PROVIDER (not channel) — a Twilio WhatsApp connection must not open this gate.
+    const connection = await this.channelsService.findConnectionForProvider(ChannelProvider.META_WHATSAPP);
+    if (!connection || connection.status !== ConnectionStatus.ACTIVE) {
+      this.logger.debug('Meta WhatsApp channel is disabled — dropping inbound message');
+      return { status: 'skipped', reason: 'channel_disabled' };
+    }
+
+    const dto = this.metaWhatsAppNormalizer.normalize(payload);
+    if (!dto) {
+      // Delivery receipt / media / reaction — ACK with 200 so Meta doesn't retry or disable us.
       return { status: 'skipped' };
     }
 

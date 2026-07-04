@@ -136,7 +136,9 @@ enum MessageChannel {
 // ============================================================================
 
 enum ChannelProvider {
-  SENDGRID_EMAIL // add TWILIO_WHATSAPP / META_INSTAGRAM when those adapters are built
+  SENDGRID_EMAIL
+  META_WHATSAPP // official Meta Cloud API (graph.facebook.com)
+  TWILIO_WHATSAPP // Twilio-hosted WhatsApp — enum seat reserved, not wired yet
 }
 
 enum ConnectionStatus {

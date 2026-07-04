@@ -12,6 +12,13 @@ export class IdempotencyMiddleware implements NestMiddleware {
       return next();
     }
 
+    // Meta Cloud API webhook — the unique wamid lives deep in the envelope
+    const metaMessageId = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id;
+    if (metaMessageId) {
+      req.headers['x-idempotency-key'] = `WHATSAPP:${metaMessageId}`;
+      return next();
+    }
+
     const messageId = this.extractEmailMessageId(body?.headers);
     if (messageId) {
       req.headers['x-idempotency-key'] = `EMAIL:${messageId}`;

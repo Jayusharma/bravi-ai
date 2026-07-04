@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, useReducer } from 'react';
+import Link from 'next/link';
 import {
     getConversationThread,
     getConversations,
@@ -20,6 +21,7 @@ import { DeliveryTicks } from '@/components/messaging/chat/DeliveryTicks';
 import { ForwardPicker } from '@/components/messaging/chat/ForwardPicker';
 import { useToast } from '@/components/ui/Toast';
 import styles from '@/styles/ContactList.module.css';
+import { WhatsAppIcon, EmailIcon, InstagramIcon, AllConversationsIcon } from './ContactList';
 
 type ChatAction =
   | { type: 'SET_THREAD'; payload: ConversationThread | null }
@@ -158,6 +160,8 @@ interface ChatViewProps {
     highlightMessageChannel?: 'WHATSAPP' | 'EMAIL' | null;
     highlightQuery?: string | null;
     onClearHighlight?: () => void;
+    onBack?: () => void;
+    onToggleDetail?: () => void;
 }
 
 const CHANNEL_LABELS: Record<string, { icon: string; label: string }> = {
@@ -557,54 +561,57 @@ function EnquiryBlock({
     const groups = buildMessageGroups(filteredMessages);
 
     return (
-        <div className={styles.enquiryBlock}>
+        <div className="flex flex-col gap-1.5">
             {/* Enquiry header */}
-            <div className={styles.enquiryDivider}>
-                <span className={styles.enquiryDividerLine} />
+            <div className="flex items-center gap-4 my-5 select-none px-6">
+                <div className="h-[1px] flex-1 bg-slate-100 dark:bg-zinc-800/85" />
                 <span
-                    className={styles.enquiryDividerBadge}
-                    style={{ color: statusColor, borderColor: statusColor, background: `${statusColor}18` }}
+                    className="px-3.5 py-1 rounded-full text-[10px] font-extrabold border shadow-sm uppercase tracking-wider flex items-center gap-1.5"
+                    style={{ color: statusColor, borderColor: `${statusColor}30`, background: `${statusColor}12` }}
                 >
                     {enq.status.replace(/_/g, ' ')}
                     {enq.assignedTo && (
-                        <span className={styles.enquiryDividerAssigned}>
+                        <span className="opacity-60 font-medium">
                             · {enq.assignedTo.displayName || enq.assignedTo.userName}
                         </span>
                     )}
-                    <span className={styles.enquiryDividerDate}>
-                        {new Date(enq.createdAt).toLocaleDateString('en-IN', {
+                    <span className="opacity-50 font-medium text-[9px]">
+                        · {new Date(enq.createdAt).toLocaleDateString('en-IN', {
                             day: '2-digit', month: 'short', year: 'numeric',
                         })}
                     </span>
                 </span>
-                <span className={styles.enquiryDividerLine} />
+                <div className="h-[1px] flex-1 bg-slate-100 dark:bg-zinc-800/85" />
             </div>
 
             {groups.map((group, gi) => {
-                if (activeChannel === 'EMAIL') {
+                const groupChannel = group.msgs[0]?.channel;
+                if (groupChannel === 'EMAIL') {
                     return group.msgs.map((msg) => {
                         const isInbound = msg.direction === 'INBOUND';
                         return (
                             <div key={msg.id}>
                                 {group.dateLabel && gi === 0 && (
-                                    <div className={styles.dateSeparatorSticky}>
-                                        <span>{group.dateLabel}</span>
+                                    <div className="flex justify-center my-4 select-none">
+                                        <span className="bg-slate-100/90 dark:bg-zinc-800/90 text-slate-500 dark:text-slate-400 text-[10px] font-extrabold px-3 py-1 rounded-full shadow-sm uppercase tracking-wider">
+                                            {group.dateLabel}
+                                        </span>
                                     </div>
                                 )}
-                                <div className={`${styles.emailCard} ${newMessageIds.has(msg.id) ? styles.msgNew : ''}`}>
-                                    <div className={styles.emailCardHeader}>
-                                        <div className={styles.emailCardHeaderLeft}>
-                                            <div className={styles.emailAvatar}>
+                                <div className={`mx-6 my-2 bg-white dark:bg-[#162026] border border-slate-100 dark:border-zinc-800/60 rounded-2xl p-4.5 shadow-sm transition-all ${newMessageIds.has(msg.id) ? 'ring-2 ring-blue-500/20' : ''}`}>
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 text-xs font-bold text-slate-600 dark:text-slate-400">
                                                 {isInbound ? (msg.from?.charAt(0)?.toUpperCase() ?? 'C') : (msg.sentByUser?.displayName?.charAt(0)?.toUpperCase() ?? msg.sentByUser?.userName?.charAt(0)?.toUpperCase() ?? 'S')}
                                             </div>
-                                            <div className={styles.emailMeta}>
-                                                <div className={styles.emailSender}>
+                                            <div className="min-w-0">
+                                                <div className="text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate">
                                                     {isInbound ? msg.from : (msg.sentByUser?.displayName || msg.sentByUser?.userName || 'Staff')}
                                                 </div>
-                                                <div className={styles.emailTo}>to {isInbound ? (msg.to || 'us') : msg.to}</div>
+                                                <div className="text-[11px] text-slate-400 mt-0.5 truncate">to {isInbound ? (msg.to || 'us') : msg.to}</div>
                                             </div>
                                         </div>
-                                        <div className={styles.emailTime}>
+                                        <div className="flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
                                             {formatMsgTime(msg.createdAt)}
                                             <MessageActions
                                                 msg={msg}
@@ -615,17 +622,19 @@ function EnquiryBlock({
                                         </div>
                                     </div>
                                     {msg.subject && (
-                                        <div className={styles.emailSubject}>
-                                            <svg className="w-4 h-4 text-indigo-500 inline-block mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '6px' }}>
+                                        <div className="text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-zinc-900/60 border border-slate-100/50 dark:border-zinc-800/40 rounded-xl px-3.5 py-2 mt-3 flex items-center gap-2">
+                                            <svg className="w-4 h-4 text-indigo-500 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
                                             </svg>
-                                            {msg.subject}
+                                            <span className="truncate">{msg.subject}</span>
                                         </div>
                                     )}
                                     {msg.attachments && msg.attachments.length > 0 && (
-                                        <MessageAttachments attachments={msg.attachments} onImageClick={onImageClick} />
+                                        <div className="mt-3.5">
+                                            <MessageAttachments attachments={msg.attachments} onImageClick={onImageClick} />
+                                        </div>
                                     )}
-                                    <div className={styles.emailBody}>
+                                    <div className="text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 mt-3.5 whitespace-pre-wrap select-text">
                                         {highlightText(msg.content, activeSearchQuery)}
                                     </div>
                                 </div>
@@ -636,10 +645,12 @@ function EnquiryBlock({
 
                 // WhatsApp-style grouped bubbles
                 return (
-                    <div key={`group-${gi}`}>
+                    <div key={`group-${gi}`} className="flex flex-col gap-1 select-none">
                         {group.dateLabel && (
-                            <div className={styles.dateSeparatorSticky}>
-                                <span>{group.dateLabel}</span>
+                            <div className="flex justify-center my-4 select-none">
+                                <span className="bg-slate-100/90 dark:bg-zinc-800/90 text-slate-500 dark:text-slate-400 text-[10px] font-extrabold px-3 py-1 rounded-full shadow-sm uppercase tracking-wider">
+                                    {group.dateLabel}
+                                </span>
                             </div>
                         )}
                         {group.msgs.map((msg, mi) => {
@@ -648,27 +659,26 @@ function EnquiryBlock({
                             const isLast = pos === 'last' || pos === 'single';
                             const isFirst = pos === 'first' || pos === 'single';
 
-                            const rowClass = [
-                                styles.msgRow,
-                                isInbound ? styles.msgInbound : styles.msgOutbound,
-                                pos === 'single' ? styles.msgGroupSingle :
-                                pos === 'first'  ? styles.msgGroupFirst :
-                                pos === 'last'   ? styles.msgGroupLast :
-                                                   styles.msgGroupMiddle,
-                                newMessageIds.has(msg.id) ? styles.msgNew : '',
-                                msg.id === currentHighlightId ? styles.messageHighlight : '',
-                            ].filter(Boolean).join(' ');
+                            const rowClass = `flex w-full transition-all ${
+                                isInbound ? 'justify-start items-start' : 'justify-end items-start gap-2.5'
+                            } ${msg.id === currentHighlightId ? 'bg-yellow-500/10 dark:bg-yellow-500/5' : ''}`;
 
-                            const bubbleClass = [
-                                styles.msgBubble,
-                                isInbound ? styles.bubbleInbound : styles.bubbleOutbound,
-                                pos === 'middle' ? styles.bubbleGroupMiddle :
-                                isFirst ? (isInbound ? styles.bubbleGroupFirst : styles.bubbleGroupFirst) :
-                                isLast  ? (isInbound ? styles.bubbleGroupLast  : styles.bubbleGroupLast)  : '',
-                            ].filter(Boolean).join(' ');
+                            const bubbleClass = `${styles.msgBubble} ${
+                                isInbound ? styles.bubbleInbound : styles.bubbleOutbound
+                            }`;
 
                             return (
                                 <div key={msg.id} id={`msg-${msg.id}`} className={rowClass}>
+                                    {/* Staff avatar on the top-left of outbound messages */}
+                                    {!isInbound && msg.sentByUser && (
+                                        <div 
+                                            className="h-7 w-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0 shadow-sm select-none mt-0.5" 
+                                            title={msg.sentByUser.displayName || "Staff"}
+                                        >
+                                            {(msg.sentByUser.displayName || msg.sentByUser.userName).split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                        </div>
+                                    )}
+
                                     <div className={bubbleClass}>
                                         <MessageActions
                                             msg={msg}
@@ -676,30 +686,28 @@ function EnquiryBlock({
                                             onToggle={() => setOpenMenuId((cur) => (cur === msg.id ? null : msg.id))}
                                             onForward={() => { setForwardSourceId(msg.id); setOpenMenuId(null); }}
                                         />
-                                        {/* Staff sender name — only on first bubble of outbound group */}
-                                        {!isInbound && isFirst && msg.sentByUser && (
-                                            <div className={styles.msgSenderName}>
-                                                {msg.sentByUser.displayName || msg.sentByUser.userName}
+
+                                        {msg.isDeleted ? (
+                                            <div className="text-xs text-slate-400 dark:text-slate-500 italic flex items-center gap-1.5 select-none">
+                                                🚫 This message was deleted
+                                            </div>
+                                        ) : (
+                                            <div className={`${styles.msgContent} select-text`}>
+                                                {msg.content && (
+                                                    <div>{highlightText(msg.content, activeSearchQuery)}</div>
+                                                )}
+                                                {msg.attachments && msg.attachments.length > 0 && (
+                                                    <div className="mt-2 select-none">
+                                                        <MessageAttachments attachments={msg.attachments} onImageClick={onImageClick} />
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
 
-                                        {msg.isDeleted ? (
-                                            <div className={styles.msgDeleted}>🚫 This message was deleted</div>
-                                        ) : (
-                                            <>
-                                                {msg.content && (
-                                                    <div className={styles.msgContent}>{highlightText(msg.content, activeSearchQuery)}</div>
-                                                )}
-                                                {msg.attachments && msg.attachments.length > 0 && (
-                                                    <MessageAttachments attachments={msg.attachments} onImageClick={onImageClick} />
-                                                )}
-                                            </>
-                                        )}
-
-                                        {/* Timestamp: always visible, right-aligned via msgFooterHover layout + msgFooterVisible opacity override */}
+                                        {/* Timestamp & Ticks (floats absolutely) */}
                                         <div className={`${styles.msgFooterHover} ${styles.msgFooterVisible}`}>
                                             <span className={styles.msgTime}>{formatMsgTime(msg.createdAt)}</span>
-                                            {msg.editedAt && <span className={styles.editedLabel}>edited</span>}
+                                            {msg.editedAt && <span className="opacity-75 font-normal text-[8px]">edited</span>}
                                             {!isInbound && (
                                                 <DeliveryTicks
                                                     status={msg.deliveryStatus}
@@ -710,10 +718,10 @@ function EnquiryBlock({
 
                                         {/* Reactions */}
                                         {msg.reactions && msg.reactions.length > 0 && (
-                                            <div className={styles.reactionsBar}>
+                                            <div className="absolute -bottom-2.5 right-3.5 flex gap-0.5 select-none z-10">
                                                 {msg.reactions.map(r => (
-                                                    <span key={r.emoji} className={styles.reactionPill}>
-                                                        {r.emoji} {r.count > 1 && r.count}
+                                                    <span key={r.emoji} className="flex items-center justify-center bg-white dark:bg-zinc-800 border border-slate-100 dark:border-zinc-700 px-1.5 py-0.5 rounded-full text-[10px] shadow-sm leading-none font-bold">
+                                                        {r.emoji} {r.count > 1 && <span className="ml-0.5 text-[9px] opacity-70">{r.count}</span>}
                                                     </span>
                                                 ))}
                                             </div>
@@ -745,6 +753,8 @@ export default function ChatView({
     highlightMessageChannel,
     highlightQuery,
     onClearHighlight,
+    onBack,
+    onToggleDetail,
 }: ChatViewProps) {
     const [thread, dispatch] = useReducer(threadReducer, null);
     const [loading, setLoading] = useState(true);
@@ -760,6 +770,7 @@ export default function ChatView({
     const [newMessageIds, setNewMessageIds] = useState<Set<string>>(new Set());
     const [activeChannel, setActiveChannel] = useState<'WHATSAPP' | 'EMAIL'>('WHATSAPP');
     const [unseenChannels, setUnseenChannels] = useState<Set<string>>(new Set());
+    const [unseenCounts, setUnseenCounts] = useState<Record<'WHATSAPP' | 'EMAIL', number>>({ WHATSAPP: 0, EMAIL: 0 });
     const [showScrollBtn, setShowScrollBtn] = useState(false);
     const [latestMsgPreview, setLatestMsgPreview] = useState<string | null>(null);
     const [typingUsers, setTypingUsers] = useState<Map<string, string>>(new Map());
@@ -942,6 +953,7 @@ export default function ChatView({
         prevMsgCountRef.current = 0;
         setEnqStates({});
         setLatestMsgPreview(null);
+        setUnseenCounts({ WHATSAPP: 0, EMAIL: 0 });
     }, [contactId]);
 
     // ── Load older/paginated messages ──
@@ -1012,10 +1024,10 @@ export default function ChatView({
                 if (!cancelled) {
                     dispatch({ type: 'SET_THREAD', payload: data });
                     
-                    // Determine the default channel based on contact primary preference
-                    const primaryChannel = data.contact.channels?.[0]?.channel || 'WHATSAPP';
-                    if (primaryChannel === 'EMAIL' || primaryChannel === 'WHATSAPP') {
-                        setActiveChannel(primaryChannel as 'WHATSAPP' | 'EMAIL');
+                    // Determine the default channel based on new messages or contact preference
+                    const defaultChannel = highlightMessageChannel || data.contact.channels?.[0]?.channel || 'WHATSAPP';
+                    if (defaultChannel === 'EMAIL' || defaultChannel === 'WHATSAPP') {
+                        setActiveChannel(defaultChannel as 'WHATSAPP' | 'EMAIL');
                     }
                 }
             } catch (err) {
@@ -1139,6 +1151,12 @@ export default function ChatView({
             setActiveChannel(currentActive => {
                 if (data.message.channel !== currentActive) {
                     setUnseenChannels(prev => new Set(prev).add(data.message.channel));
+                    if (data.message.direction === 'INBOUND') {
+                        setUnseenCounts(prev => ({
+                            ...prev,
+                            [data.message.channel]: (prev[data.message.channel as 'WHATSAPP' | 'EMAIL'] || 0) + 1
+                        }));
+                    }
                 }
                 return currentActive;
             });
@@ -1361,6 +1379,7 @@ export default function ChatView({
 
     const handleChannelSwitch = (channel: 'WHATSAPP' | 'EMAIL') => {
         setActiveChannel(channel);
+        setUnseenCounts(prev => ({ ...prev, [channel]: 0 }));
         setUnseenChannels(prev => {
             const next = new Set(prev);
             next.delete(channel);
@@ -1368,105 +1387,141 @@ export default function ChatView({
         });
     };
 
+    const whatsapp = thread.contact.channels.find(c => c.channel === 'WHATSAPP')?.identifier || 'No phone';
+    const email = thread.contact.channels.find(c => c.channel === 'EMAIL')?.identifier || 'No email';
+    const allTags = Array.from(new Set(thread.enquiries.flatMap(e => e.tags)));
+
+    const whatsappCount = thread.enquiries.reduce((sum, enq) => sum + (enqStates[enq.enquiryId]?.messages || []).filter(m => m.channel === 'WHATSAPP').length, 0);
+    const emailCount = thread.enquiries.reduce((sum, enq) => sum + (enqStates[enq.enquiryId]?.messages || []).filter(m => m.channel === 'EMAIL').length, 0);
+
     return (
         <div className={`${styles.chatView} ${activeChannel === 'WHATSAPP' ? styles.channelWhatsapp : styles.channelEmail}`}>
 
             <div className={styles.chatMainArea}>
                 {/* ── Chat Header ──────────────────────────────────── */}
-                <div className={styles.chatHeader}>
-                    <div className={styles.chatHeaderAvatar}>
-                        {thread.contact.displayName.charAt(0).toUpperCase()}
-                    </div>
+                <div className="flex items-center justify-between bg-white dark:bg-[#111b21] px-6 py-4 select-none shrink-0">
+                    <div className="flex items-center gap-3.5 min-w-0">
+                        {/* Back Button for mobile view */}
+                        {onBack && (
+                            <button
+                                onClick={onBack}
+                                className="md:hidden p-1 mr-1 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer transition-colors"
+                                title="Back to inbox"
+                            >
+                                <svg className="h-5.5 w-5.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                        )}
 
-                    <div className={styles.chatHeaderInfo}>
-                        <div className={styles.chatHeaderName}>
-                            {thread.contact.displayName || primaryChannel?.identifier || 'Contact'}
+                        {/* Avatar */}
+                        <div className="relative shrink-0">
+                            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-primary/80 to-primary/40 text-sm font-bold text-primary-foreground shadow-sm">
+                                {thread.contact.displayName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#111b21] bg-emerald-500" />
                         </div>
-                        <div className={styles.chatHeaderStatus}>
-                            {typingUsers.size > 0 ? (
-                                <span className={styles.statusTyping}>typing...</span>
-                            ) : (
-                                <span className={styles.statusOnline}>
-                                    <span className={styles.statusDot} /> online
-                                </span>
-                            )}
-                        </div>
-                    </div>
 
-                    <div className={styles.chatHeaderRight}>
-                        {/* Compact metadata tags */}
-                        {activeEnquiry && (
-                            <div className={styles.headerMetaTags}>
-                                <span
-                                    className={styles.chatStatusBadge}
-                                    style={{
-                                        background: `${statusColor}15`,
-                                        color: statusColor,
-                                        borderColor: `${statusColor}30`,
-                                    }}
-                                >
-                                    {activeEnquiry.status.replace(/_/g, ' ')}
-                                </span>
-                                {activeEnquiry.assignedTo && (
-                                    <span className={styles.chatAssigned}>
-                                        {activeEnquiry.assignedTo.displayName || activeEnquiry.assignedTo.userName}
+                        {/* Name & Contact Metadata */}
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-[15px] font-extrabold text-slate-900 dark:text-white truncate leading-tight">
+                                    {thread.contact.displayName}
+                                </h3>
+                                {allTags.includes('High Potential') && (
+                                    <span className="inline-flex rounded-lg bg-[#f3e8ff] text-[#7c3aed] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+                                        VIP
                                     </span>
                                 )}
                             </div>
-                        )}
 
-                        {/* Compact Direct Button Switcher */}
-                        <div className={styles.headerToggleContainer}>
-                            <button
-                                className={`${styles.channelBtn} ${activeChannel === 'WHATSAPP' ? styles.channelBtnActiveWhatsapp : ''}`}
-                                onClick={() => handleChannelSwitch('WHATSAPP')}
-                            >
-                                <svg className="w-3.5 h-3.5 shrink-0 fill-current" viewBox="0 0 24 24" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
-                                    <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.003 5.233 5.233.001 11.666.001c3.117.001 6.047 1.214 8.249 3.418 2.201 2.203 3.41 5.137 3.408 8.256-.005 6.433-5.236 11.664-11.67 11.664-1.995-.001-3.957-.509-5.7-1.474L0 24zm6.59-4.846c1.6.95 3.197 1.45 4.981 1.451 5.253 0 9.527-4.27 9.531-9.524.002-2.546-.99-4.94-2.793-6.744-1.802-1.804-4.2-2.796-6.749-2.797-5.253 0-9.53 4.272-9.534 9.527-.002 1.884.49 3.723 1.424 5.34l-.946 3.454 3.53-.926z" />
-                                </svg>
-                                WhatsApp
-                                {unseenChannels.has('WHATSAPP') && <span className={styles.channelUnseenDot} />}
-                            </button>
-                            <button
-                                className={`${styles.channelBtn} ${activeChannel === 'EMAIL' ? styles.channelBtnActiveEmail : ''}`}
-                                onClick={() => handleChannelSwitch('EMAIL')}
-                            >
-                                <svg className="w-3.5 h-3.5 shrink-0 fill-none stroke-current" strokeWidth="2.5" viewBox="0 0 24 24" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
-                                </svg>
-                                Email
-                                {unseenChannels.has('EMAIL') && <span className={styles.channelUnseenDot} />}
-                            </button>
+                            {/* Contact Info below name */}
+                            <div className="flex flex-wrap items-center gap-3.5 text-xs text-slate-400 dark:text-slate-500 mt-1.5 leading-none font-medium">
+                                {whatsapp && whatsapp !== 'No phone' && (
+                                    <span className="flex items-center gap-1">
+                                        <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                                        </svg>
+                                        <span className="font-mono">{whatsapp}</span>
+                                    </span>
+                                )}
+                                {email && email !== 'No email' && (
+                                    <span className="flex items-center gap-1 max-w-[140px] md:max-w-none truncate">
+                                        <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                            <rect width="20" height="16" x="2" y="4" rx="2" />
+                                            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                                        </svg>
+                                        <span className="truncate">{email}</span>
+                                    </span>
+                                )}
+                            </div>
                         </div>
+                    </div>
 
-                        {/* Search Chat Button */}
-                        <button
-                            className={`${styles.headerSearchBtn} ${showSearchPanel ? styles.headerSearchBtnActive : ''}`}
-                            onClick={() => {
-                                if (showSearchPanel) {
-                                    setShowSearchPanel(false);
-                                    setLocalSearchQuery('');
-                                    setLocalSearchResults([]);
-                                    setCurrentHighlightId(null);
-                                    onClearHighlight?.();
-                                } else {
-                                    setShowSearchPanel(true);
-                                }
-                            }}
-                            title="Search messages"
-                        >
-                            <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                                <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+                    {/* Right Side actions */}
+                    <div className="flex items-center gap-2">
+                        {/* Star Button */}
+                        <button className="rounded-xl border border-slate-100 dark:border-zinc-800 p-2 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-all cursor-pointer shadow-sm">
+                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                            </svg>
+                        </button>
+                        
+                        {/* More Button */}
+                        <button className="rounded-xl border border-slate-100 dark:border-zinc-800 p-2 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-all cursor-pointer shadow-sm">
+                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <circle cx="12" cy="12" r="1" />
+                                <circle cx="12" cy="5" r="1" />
+                                <circle cx="12" cy="19" r="1" />
                             </svg>
                         </button>
 
-                        {/* 3-dots action button */}
-                        <button className={styles.headerMoreBtn} title="More features">
-                            <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-                            </svg>
+                        {/* View Contact Button */}
+                        <button 
+                            onClick={onToggleDetail}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2.5 px-4.5 rounded-xl transition-all shadow-sm shrink-0 cursor-pointer"
+                        >
+                            View Contact
                         </button>
                     </div>
+                </div>
+
+                {/* ── Sub-Tabs Under Header ──────────────────────────── */}
+                <div className="flex gap-6 border-b border-slate-100 dark:border-zinc-800/80 px-6 bg-white dark:bg-[#111b21] shrink-0 overflow-x-auto scrollbar-none">
+                    {(['WHATSAPP', 'EMAIL', 'INSTAGRAM'] as const).map((tab) => {
+                        const isTabActive = activeChannel === tab;
+                        const label = tab === 'WHATSAPP' ? 'WhatsApp' : tab === 'EMAIL' ? 'Email' : 'Instagram';
+                        const unseenVal = tab !== 'INSTAGRAM' ? unseenCounts[tab as 'WHATSAPP' | 'EMAIL'] : 0;
+                        
+                        return (
+                            <button
+                                key={tab}
+                                onClick={() => {
+                                    if (tab !== 'INSTAGRAM') {
+                                        handleChannelSwitch(tab as any);
+                                    }
+                                }}
+                                className={`pb-3 text-xs font-semibold relative cursor-pointer transition-colors ${
+                                    isTabActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
+                                } ${tab === 'INSTAGRAM' ? 'opacity-40 cursor-not-allowed' : ''}`}
+                            >
+                                <span className="flex items-center gap-1.5 pt-3">
+                                    {tab === 'WHATSAPP' && <WhatsAppIcon className="h-4 w-4 text-emerald-500" />}
+                                    {tab === 'EMAIL' && <EmailIcon className="h-4 w-4 text-red-500" />}
+                                    {tab === 'INSTAGRAM' && <InstagramIcon className="h-4 w-4 text-pink-500" />}
+                                    {label}
+                                    {unseenVal > 0 && (
+                                        <span className="bg-blue-600 dark:bg-blue-500 text-[10px] text-white font-bold px-1.5 py-0.5 rounded-full shrink-0 leading-none">
+                                            {unseenVal}
+                                        </span>
+                                    )}
+                                </span>
+                                {isTabActive && (
+                                    <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-blue-600 dark:bg-blue-400 rounded-full" />
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* ── Messages Area — all enquiry blocks ───────────── */}
@@ -1492,7 +1547,7 @@ export default function ChatView({
                         {thread.enquiries.length === 0 ? (
                             <div className={styles.chatEmpty}>No conversations yet</div>
                         ) : !thread.enquiries.some(enq => (enqStates[enq.enquiryId]?.messages || []).some(m => m.channel === activeChannel)) ? (
-                            <div className={styles.chatEmpty}>No {activeChannel === 'WHATSAPP' ? 'WhatsApp' : 'Email'} messages in this conversation</div>
+                            <div className={styles.chatEmpty}>No {activeChannel === 'WHATSAPP' ? 'WhatsApp' : 'Email'} history</div>
                         ) : (
                             [...thread.enquiries].reverse().map((enq) => (
                                 <EnquiryBlock

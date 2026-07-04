@@ -2,8 +2,8 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ConnectionStatus, MessageChannel } from '@prisma/client';
-import { SendParams, SendResult } from './adapters/channel-adapter.interface';
+import { ChannelProvider, ConnectionStatus, MessageChannel } from '@prisma/client';
+import { ResolvedCredentials, SendParams, SendResult } from './adapters/channel-adapter.interface';
 import { AdapterFactory } from './adapter.factory';
 import { ChannelsService } from '../channels/channels.service';
 
@@ -22,19 +22,12 @@ export class ChannelRouterService {
 
   /** Routes a message to the correct adapter; falls back to mock in development when unconfigured */
   async send(channel: MessageChannel, params: SendParams): Promise<SendResult> {
-    const adapter = this.adapterFactory.getAdapter(channel);
-
-    if (!adapter) {
-      if (this.isDev) return this.mockSend(channel, params, 'no adapter registered');
-      this.logger.warn(`No adapter for channel: ${channel}`);
-      return { success: false, error: `No adapter for ${channel}`, failReason: `No adapter registered for ${channel}.` };
-    }
+    // Connection first — its provider decides WHICH adapter handles this send
+    // (Meta connection → Meta adapter; none → channel default, e.g. Twilio via env).
+    const connection = await this.channelsService.findConnectionForChannel(channel);
 
     // The on/off toggle: a connected-but-disabled channel is a hard block, no dev mock either
     // — the user explicitly turned it off and expects nothing to send.
-    // No connection at all just means this channel hasn't been migrated to Administration →
-    // Channels yet — the adapter falls through to its own default config below.
-    const connection = await this.channelsService.findConnectionForChannel(channel);
     if (connection && connection.status !== ConnectionStatus.ACTIVE) {
       this.logger.warn(`${channel} channel is disabled — blocking send`);
       return {
@@ -43,7 +36,23 @@ export class ChannelRouterService {
         failReason: `${channel} is turned off. Turn it on in Administration → Channels.`,
       };
     }
-    const creds = connection ? this.channelsService.resolveCredentials(connection) : undefined;
+
+    const adapter = this.adapterFactory.getAdapter(channel, connection?.provider);
+
+    if (!adapter) {
+      if (this.isDev) return this.mockSend(channel, params, 'no adapter registered');
+      this.logger.warn(`No adapter for channel: ${channel}`);
+      return { success: false, error: `No adapter for ${channel}`, failReason: `No adapter registered for ${channel}.` };
+    }
+
+    // Decrypt the connection's credentials in the shape its provider's adapter expects.
+    let creds: ResolvedCredentials | undefined;
+    if (connection?.provider === ChannelProvider.SENDGRID_EMAIL) {
+      creds = this.channelsService.resolveCredentials(connection);
+    } else if (connection?.provider === ChannelProvider.META_WHATSAPP) {
+      const meta = this.channelsService.resolveMetaCredentials(connection);
+      creds = { accessToken: meta.accessToken, phoneNumberId: meta.phoneNumberId };
+    }
 
     if (!adapter.isConfigured(creds)) {
       if (this.isDev) return this.mockSend(channel, params, 'adapter not configured');

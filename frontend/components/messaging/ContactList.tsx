@@ -3,28 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getConversations, type ConversationPreview } from '@/services/messaging/chat.service';
 import { searchUnified } from '@/services/messaging/contact.service';
-import styles from '@/styles/ContactList.module.css';
 import { useSocket } from '@/contexts/SocketContext';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
 
 const CLOSED_STATUSES = ['CONVERTED', 'CLOSED_LOST'];
-
-// Payload from server's conversation:updated event — single-card patch, not full list replacement
-interface ConversationDelta {
-  enquiryId: string;
-  contactId: string;
-  lastMessagePreview: string;
-  lastActivityAt: string;
-  status: string;
-  unreadDelta: number;
-  updatedField: 'NEW_INBOUND' | 'OUTBOUND_SENT' | 'MESSAGE_DELETED';
-}
-
-const CHANNEL_ICONS: Record<string, string> = {
-  WHATSAPP: '💬',
-  EMAIL: '📧',
-  SMS: '📱',
-};
 
 type ChannelTab = 'ALL' | 'WHATSAPP' | 'EMAIL';
 
@@ -58,6 +40,42 @@ interface UnifiedSearchResult {
   messageDirection?: string;
 }
 
+// Vector SVG Icons for maximum clarity and pixel-perfection
+export function WhatsAppIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12.031 2c-5.516 0-9.997 4.477-9.997 9.978 0 1.942.548 3.754 1.498 5.305L2 22l4.898-1.278c1.479.805 3.167 1.258 4.963 1.258 5.516 0 9.997-4.477 9.997-9.979S17.547 2 12.031 2zm0 18.25c-1.636 0-3.17-.456-4.484-1.246l-.322-.192-2.928.764.78-2.846-.215-.34a8.217 8.217 0 0 1-1.261-4.394c0-4.542 3.702-8.239 8.23-8.239 4.529 0 8.23 3.697 8.23 8.239 0 4.541-3.701 8.239-8.23 8.239zM16.14 13.9c-.227-.113-1.341-.662-1.547-.738-.207-.076-.358-.113-.509.113-.15.227-.584.738-.716.89-.132.15-.264.17-.49.057-.227-.113-.956-.352-1.823-1.127-.674-.6-1.13-1.342-1.262-1.568-.132-.227-.014-.35.099-.462.102-.102.227-.264.34-.396.113-.132.15-.227.227-.378.076-.15.038-.283-.019-.396-.057-.113-.509-1.226-.697-1.679-.183-.446-.37-.384-.509-.391-.132-.007-.283-.007-.434-.007-.15 0-.396.057-.604.283-.207.227-.791.774-.791 1.887s.81 2.189.923 2.34c.113.15 1.594 2.434 3.862 3.415.54.234.96.374 1.288.479.542.172 1.036.148 1.426.09.434-.065 1.341-.548 1.53-.1.188-.445.188-.826.132-.902-.057-.076-.208-.113-.434-.227z"/>
+    </svg>
+  );
+}
+
+export function EmailIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 4H18V12L12 7.5L6 12V4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H6V10L12 14.5L18 10V20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4Z" fill="#EA4335"/>
+      <path d="M12 14.5L2 7.5V6L12 13L22 6V7.5L12 14.5Z" fill="#C5221F"/>
+    </svg>
+  );
+}
+
+export function InstagramIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+    </svg>
+  );
+}
+
+export function AllConversationsIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
 export default function ContactList({
   activeContactId,
   onSelectContact,
@@ -72,13 +90,10 @@ export default function ContactList({
   const typingTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [searchResults, setSearchResults] = useState<UnifiedSearchResult[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  // Track which channel tabs have unseen messages
   const [unseenChannels, setUnseenChannels] = useState<Set<string>>(new Set());
-  // Socket + connectionStatus come from SocketProvider — no lifecycle management needed here
+  
   const { socket, connectionStatus } = useSocket();
-  // Tracks previous connectionStatus to detect reconnects and trigger a full list refetch
   const prevStatusRef = useRef<string>('connecting');
-  // Debounce timer for visual re-sort — patch data instantly, re-sort once after burst settles
   const reorderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch conversations from API (with channel filter)
@@ -101,7 +116,7 @@ export default function ContactList({
     fetchConversations(undefined, channelTab);
   }, [channelTab]);
 
-  // Full refetch after reconnect — ensures we catch anything that arrived while disconnected
+  // Full refetch after reconnect
   useEffect(() => {
     if (connectionStatus === 'connected' && prevStatusRef.current === 'disconnected') {
       fetchConversations(undefined, channelTab);
@@ -109,10 +124,10 @@ export default function ContactList({
     prevStatusRef.current = connectionStatus;
   }, [connectionStatus, channelTab]);
 
-  // Debounced search — uses /search endpoint when query is non-empty
   const searchRef = useRef(search);
   useEffect(() => { searchRef.current = search; }, [search]);
 
+  // Debounced search
   useEffect(() => {
     if (!search.trim()) {
       setSearchResults(null);
@@ -185,15 +200,14 @@ export default function ContactList({
     if (item.type === 'message') {
       onSelectContact(conv, item.messageId, item.enquiryId, item.channel as 'WHATSAPP' | 'EMAIL', search.trim());
     } else {
-      onSelectContact(conv);
+      onSelectContact(conv, undefined, undefined, conv.lastMessage?.channel as 'WHATSAPP' | 'EMAIL' | undefined);
     }
   };
 
-  // Real-time contact list updates — socket is guaranteed connected by SocketProvider
+  // Real-time contact updates
   useEffect(() => {
     if (!socket) return;
 
-    // Debounced re-sort: patch data immediately, delay the visual reorder to prevent burst flicker
     function scheduleReorder() {
       if (reorderTimerRef.current) clearTimeout(reorderTimerRef.current);
       reorderTimerRef.current = setTimeout(() => {
@@ -205,30 +219,27 @@ export default function ContactList({
       }, 200);
     }
 
-    // Patch a single card in-place; schedule re-sort once; never replace the full list
-    function onConversationUpdated(data: ConversationDelta) {
-      if (searchRef.current.trim()) return; // don't disrupt active search results
+    function onConversationUpdated(data: any) {
+      if (searchRef.current.trim()) return;
       setConversations(prev => {
         const idx = prev.findIndex(c => c.enquiryId === data.enquiryId);
-        if (idx === -1) return prev; // enquiry filtered out of current view — ignore
+        if (idx === -1) return prev;
         return prev.map((c, i) => i !== idx ? c : {
           ...c,
-          lastMessage: data.lastMessagePreview ? {
-            content:   data.lastMessagePreview,
+          lastMessage: (data.lastMessagePreview || data.updatedField === 'NEW_INBOUND' || data.updatedField === 'OUTBOUND_SENT') ? {
+            content:   data.lastMessagePreview || 'Sent a message',
             direction: data.updatedField === 'NEW_INBOUND' ? 'INBOUND' : 'OUTBOUND',
             channel:   c.channel ?? 'WHATSAPP',
             createdAt: data.lastActivityAt,
           } : c.lastMessage,
           lastActivityAt: data.lastActivityAt,
           enquiryStatus:  data.status,
-          // Clear draft preview once the message is confirmed sent by the provider
           draft: data.updatedField === 'OUTBOUND_SENT' ? null : c.draft,
         });
       });
       scheduleReorder();
     }
 
-    // Insert a brand-new card at the top — fires only on first-ever message from a new contact
     function onConversationNew(data: ConversationPreview) {
       if (searchRef.current.trim()) return;
       setConversations(prev =>
@@ -237,7 +248,6 @@ export default function ContactList({
     }
 
     function onContactUpdated(data: { contactId: string; channel?: string }) {
-      // Mark the other channel tab as having unseen activity
       if (data.channel && data.channel !== channelTab && channelTab !== 'ALL') {
         setUnseenChannels(prev => new Set(prev).add(data.channel!));
       }
@@ -268,22 +278,46 @@ export default function ContactList({
       }
     }
 
+    function onNotificationNewMessage(data: {
+      contactId: string;
+      enquiryId: string;
+      messagePreview: string;
+      messageId: string;
+    }) {
+      setConversations(prev => {
+        const idx = prev.findIndex(c => c.contactId === data.contactId);
+        if (idx === -1) return prev;
+        return prev.map((c, i) => i !== idx ? c : {
+          ...c,
+          lastMessage: {
+            content: data.messagePreview || 'New message',
+            direction: 'INBOUND',
+            channel: c.channel ?? 'WHATSAPP',
+            createdAt: new Date().toISOString(),
+          },
+          lastActivityAt: new Date().toISOString(),
+        });
+      });
+      scheduleReorder();
+    }
+
     socket.on(SOCKET_EVENTS.CONVERSATION_UPDATED, onConversationUpdated);
     socket.on(SOCKET_EVENTS.CONVERSATION_NEW, onConversationNew);
     socket.on(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
     socket.on(SOCKET_EVENTS.CONVERSATION_TYPING, onConversationTyping);
+    socket.on(SOCKET_EVENTS.NOTIFICATION_NEW_MESSAGE, onNotificationNewMessage);
 
     return () => {
       socket.off(SOCKET_EVENTS.CONVERSATION_UPDATED, onConversationUpdated);
       socket.off(SOCKET_EVENTS.CONVERSATION_NEW, onConversationNew);
       socket.off(SOCKET_EVENTS.CONTACT_UPDATED, onContactUpdated);
       socket.off(SOCKET_EVENTS.CONVERSATION_TYPING, onConversationTyping);
+      socket.off(SOCKET_EVENTS.NOTIFICATION_NEW_MESSAGE, onNotificationNewMessage);
       if (reorderTimerRef.current) clearTimeout(reorderTimerRef.current);
       Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
     };
   }, [socket, channelTab]);
 
-  // ── Real-time local draft and message synchronization ──
   useEffect(() => {
     const handleDraftUpdate = (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -319,12 +353,11 @@ export default function ContactList({
                 channel,
                 createdAt,
               },
-              draft: null, // Clear draft preview since message was sent
+              draft: null,
             };
           }
           return c;
         });
-        // Pull active contact with latest message to the top
         return [...updated].sort((a, b) => {
           const timeA = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
           const timeB = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
@@ -342,7 +375,6 @@ export default function ContactList({
     };
   }, []);
 
-  // Clear unseen dot when switching to that channel
   const handleChannelTab = (tab: ChannelTab) => {
     setChannelTab(tab);
     if (tab !== 'ALL') {
@@ -358,52 +390,102 @@ export default function ContactList({
       const mins = Math.floor(diffHrs * 60);
       return mins <= 1 ? 'just now' : `${mins}m ago`;
     }
-    if (diffHrs < 24) return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-    if (diffHrs < 168) return date.toLocaleDateString('en-IN', { weekday: 'short' });
-    return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    if (diffHrs < 24) return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    
+    // Check if yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    }
+    
+    return date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
   };
 
+  // Sourced counts for navigation tabs
+  const totalCount = conversations.length;
+  const whatsappCount = conversations.filter(c => c.channel === 'WHATSAPP').length;
+  const emailCount = conversations.filter(c => c.channel === 'EMAIL').length;
+
   return (
-    <div className={styles.contactList}>
-      {/* Header */}
-      <div className={styles.listHeader}>
-        <h2 className={styles.listTitle}>Messages</h2>
-        <input
-          type="text"
-          className={styles.searchInput}
-          placeholder="Search contacts or messages…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+    <div className="flex flex-col h-full bg-white dark:bg-[#111b21] overflow-hidden select-none font-sans">
+      {/* Header Dropdown & Filter */}
+      <div className="px-5 pt-5 pb-3 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-1.5 cursor-pointer group">
+          <h2 className="text-[17px] font-extrabold text-slate-900 dark:text-white">All Channels</h2>
+          <svg className="h-4.5 w-4.5 text-slate-500 transition-transform group-hover:translate-y-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </div>
+        <button className="rounded-xl p-2 border border-slate-100 dark:border-zinc-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:text-slate-800 dark:hover:text-white transition-all cursor-pointer shadow-sm">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="21" x2="14" y1="4" y2="4" />
+            <line x1="10" x2="3" y1="4" y2="4" />
+            <line x1="21" x2="12" y1="12" y2="12" />
+            <line x1="8" x2="3" y1="12" y2="12" />
+            <line x1="21" x2="16" y1="20" y2="20" />
+            <line x1="12" x2="3" y1="20" y2="20" />
+            <line x1="14" x2="14" y1="2" y2="6" />
+            <line x1="8" x2="8" y1="10" y2="14" />
+            <line x1="12" x2="12" y1="18" y2="22" />
+          </svg>
+        </button>
       </div>
 
-      {/* Channel tabs */}
-      <div className={styles.channelTabs}>
-        {(['ALL', 'WHATSAPP', 'EMAIL'] as ChannelTab[]).map((tab) => (
-          <button
-            key={tab}
-            className={`${styles.channelTab} ${channelTab === tab ? styles.channelTabActive : ''} ${
-              tab === 'WHATSAPP' ? styles.tabWhatsapp : tab === 'EMAIL' ? styles.tabEmail : styles.tabAll
-            }`}
-            onClick={() => handleChannelTab(tab)}
-          >
-            {tab === 'ALL' ? 'All' : tab === 'WHATSAPP' ? '💬 WhatsApp' : '📧 Email'}
-            {tab !== 'ALL' && unseenChannels.has(tab) && (
-              <span className={styles.channelTabDot} />
-            )}
-          </button>
-        ))}
+      {/* Filter Tabs */}
+      <div className="px-5 border-b border-slate-100 dark:border-zinc-800 flex gap-4 text-xs font-semibold select-none shrink-0 overflow-x-auto scrollbar-none">
+        {(['ALL', 'WHATSAPP', 'EMAIL'] as ChannelTab[]).map((tab) => {
+          const isActive = channelTab === tab;
+          const label = tab === 'ALL' ? 'All' : tab === 'WHATSAPP' ? 'WhatsApp' : 'Email';
+          const count = tab === 'ALL' ? totalCount : tab === 'WHATSAPP' ? whatsappCount : emailCount;
+          return (
+            <button
+              key={tab}
+              onClick={() => handleChannelTab(tab)}
+              className={`pb-3 relative cursor-pointer transition-colors ${
+                isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
+              }`}
+            >
+              <span className="flex items-center gap-1">
+                {label} <span className="opacity-60 font-medium text-[11px]">{count}</span>
+              </span>
+              {isActive && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-blue-600 dark:bg-blue-400 rounded-full" />
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Contact items */}
-      <div className={styles.listBody}>
+      {/* Search Bar */}
+      <div className="px-4 py-3 shrink-0">
+        <div className="relative">
+          <svg className="absolute left-3 top-3 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            className="w-full h-10 pl-9 pr-4 rounded-xl border border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 text-xs font-medium text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-all shadow-inner"
+            placeholder="Search conversations..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Conversations List Body */}
+      <div className="flex-1 overflow-y-auto divide-y divide-slate-100/70 dark:divide-zinc-800/40 scrollbar-thin">
         {(loading && conversations.length === 0) || isSearching ? (
-          <div className={styles.emptyState}>
-            {isSearching ? 'Searching…' : 'Loading conversations…'}
+          <div className="flex items-center justify-center py-16 text-xs text-slate-400">
+            <div className="flex flex-col items-center gap-2">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+              <span>{isSearching ? 'Searching...' : 'Loading conversations...'}</span>
+            </div>
           </div>
         ) : search.trim() ? (
           !searchResults || searchResults.length === 0 ? (
-            <div className={styles.emptyState}>No results found</div>
+            <div className="text-center py-16 text-xs text-slate-400">No results found</div>
           ) : (
             searchResults.map((item) => {
               const isClosed = CLOSED_STATUSES.includes(item.enquiryStatus);
@@ -411,52 +493,62 @@ export default function ContactList({
               const isActive = activeContactId === item.contactId;
               const hasUnread = unreadCount > 0 && !isActive;
               const key = item.type === 'message' ? `${item.contactId}-${item.messageId}` : item.contactId;
+              const initials = item.contactName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
               return (
                 <div
                   key={key}
-                  className={[
-                    styles.contactItem,
-                    isActive ? styles.contactActive : '',
-                    isClosed ? styles.contactClosed : '',
-                  ].filter(Boolean).join(' ')}
                   onClick={() => handleSelectResult(item)}
+                  className={`flex items-center gap-3.5 px-5 py-4 cursor-pointer transition-all select-none ${
+                    isActive ? 'bg-[#f0f4ff]/80 dark:bg-indigo-950/20' : 
+                    isClosed ? 'opacity-55 hover:bg-slate-50/50 dark:hover:bg-zinc-800/30' : 
+                    'hover:bg-slate-50/50 dark:hover:bg-zinc-800/30'
+                  }`}
                 >
-                  <div className={styles.avatar}>
-                    {item.contactName.charAt(0).toUpperCase()}
+                  {/* Avatar */}
+                  <div className="relative shrink-0">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 dark:bg-zinc-850 text-xs font-bold text-slate-700 dark:text-slate-300 border border-slate-200/40">
+                      {initials}
+                    </div>
+                    {/* Active Status Dot */}
+                    <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-[#111b21] bg-emerald-500" />
                   </div>
 
-                  <div className={styles.contactContent}>
-                    <div className={styles.contactRow}>
-                      <span className={`${styles.contactName} ${hasUnread ? styles.contactNameUnread : ''}`}>
-                        {item.contactName}
-                      </span>
-                      <span className={`${styles.contactTime} ${hasUnread ? styles.contactTimeUnread : ''}`}>
-                        {formatTime(item.type === 'message' ? item.messageTime! : item.lastActivityAt)}
-                      </span>
-                    </div>
-
-                    <div className={styles.contactRow}>
-                      {item.type === 'message' ? (
-                        <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
-                          <span className={styles.channelIcon}>
-                            {CHANNEL_ICONS[item.channel || ''] || '💭'}
-                          </span>
-                          {item.messageDirection === 'OUTBOUND' && (
-                            <span className={styles.outboundArrow}>↩ </span>
+                  {/* Main Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between w-full gap-2">
+                      <div className="min-w-0 flex-1">
+                        <span className={`text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate block ${hasUnread ? 'text-slate-950 font-extrabold' : ''}`}>
+                          {item.contactName}
+                        </span>
+                      </div>
+                      
+                      {/* Right block with fixed sizes to keep icons in a straight line */}
+                      <div className="flex items-center gap-3 shrink-0">
+                        {/* Channel Icon Container (Fixed width, centered, slightly bigger) */}
+                        <div className="w-8 flex justify-center shrink-0">
+                          {item.channel === 'EMAIL' ? (
+                            <EmailIcon className="h-5.5 w-5.5" />
+                          ) : item.channel === 'WHATSAPP' ? (
+                            <WhatsAppIcon className="h-5.5 w-5.5 text-emerald-500" />
+                          ) : (
+                            <InstagramIcon className="h-5.5 w-5.5 text-pink-500" />
                           )}
-                          {item.messageContent}
+                        </div>
+                        {/* Time Container (Fixed width, right-aligned) */}
+                        <span className="text-[11.5px] text-slate-500 font-semibold w-[60px] text-right shrink-0">
+                          {formatTime(item.type === 'message' ? item.messageTime! : item.lastActivityAt)}
                         </span>
-                      ) : (
-                        <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
-                          <span className={styles.channelIcon}>
-                            {CHANNEL_ICONS[item.channel || ''] || '💭'}
-                          </span>
-                          {item.identifier || item.organization || 'No messages'}
-                        </span>
-                      )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[170px]">
+                        {item.type === 'message' ? item.messageContent : (item.identifier || item.organization || 'No messages')}
+                      </p>
                       {hasUnread && (
-                        <span className={styles.unreadBadge}>{unreadCount}</span>
+                        <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white leading-none">
+                          {unreadCount}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -465,70 +557,77 @@ export default function ContactList({
             })
           )
         ) : conversations.length === 0 ? (
-          <div className={styles.emptyState}>No conversations yet</div>
+          <div className="text-center py-16 text-xs text-slate-400">No conversations yet</div>
         ) : (
           conversations.map((conv) => {
             const isClosed = CLOSED_STATUSES.includes(conv.enquiryStatus);
             const unreadCount = unreadContacts[conv.contactId] || 0;
             const isActive = activeContactId === conv.contactId;
             const hasUnread = unreadCount > 0 && !isActive;
+            const initials = conv.contactName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+            const timeVal = conv.lastMessage ? formatTime(conv.lastMessage.createdAt) : formatTime(conv.lastActivityAt);
+            const previewText = typingContacts[conv.contactId] ? 'typing...' :
+                                conv.draft && !isActive ? `Draft: ${conv.draft.body?.trim() || 'attachments'}` :
+                                conv.lastMessage ? (conv.lastMessage.content || 'Sent a message') : 'No messages';
 
             return (
               <div
                 key={conv.contactId}
-                className={[
-                  styles.contactItem,
-                  isActive ? styles.contactActive : '',
-                  isClosed ? styles.contactClosed : '',
-                ].filter(Boolean).join(' ')}
-                onClick={() => onSelectContact(conv)}
+                onClick={() => onSelectContact(conv, undefined, undefined, conv.lastMessage?.channel as 'WHATSAPP' | 'EMAIL' | undefined)}
+                className={`flex items-center gap-3.5 px-5 py-4 cursor-pointer transition-all select-none ${
+                  isActive ? 'bg-[#f0f4ff]/80 dark:bg-indigo-950/20' : 
+                  isClosed ? 'opacity-55 hover:bg-slate-50/50 dark:hover:bg-zinc-800/30' : 
+                  'hover:bg-slate-50/50 dark:hover:bg-zinc-800/30'
+                }`}
               >
-                <div className={styles.avatar}>
-                  {conv.contactName.charAt(0).toUpperCase()}
+                {/* Avatar */}
+                <div className="relative shrink-0">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 dark:bg-zinc-850 text-xs font-bold text-slate-700 dark:text-slate-300 border border-slate-200/40">
+                    {initials}
+                  </div>
+                  {/* Status Indicator Dot */}
+                  <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-[#111b21] bg-emerald-500" />
                 </div>
 
-                <div className={styles.contactContent}>
-                  <div className={styles.contactRow}>
-                    <span className={`${styles.contactName} ${hasUnread ? styles.contactNameUnread : ''}`}>
-                      {conv.contactName}
-                    </span>
-                    {conv.lastMessage && (
-                      <span className={`${styles.contactTime} ${hasUnread ? styles.contactTimeUnread : ''}`}>
-                        {formatTime(conv.lastMessage.createdAt)}
+                {/* Main Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className={`text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate block ${hasUnread ? 'text-slate-950 font-extrabold' : ''}`}>
+                        {conv.contactName}
                       </span>
-                    )}
-                  </div>
-
-                  <div className={styles.contactRow}>
-                    {typingContacts[conv.contactId] ? (
-                      <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
-                        <span className={styles.channelIcon}>
-                          {CHANNEL_ICONS[conv.channel || ''] || '💭'}
-                        </span>
-                        <span style={{ color: 'rgba(99,102,241,0.95)', fontWeight: 500 }}>typing...</span>
-                      </span>
-                    ) : conv.draft && !isActive && (conv.draft.body?.trim() || conv.draft.attachmentCount > 0) ? (
-                      <span className={styles.contactPreview}>
-                        <span className={styles.draftLabel}>Draft:</span>
-                        <span className={styles.draftText}>
-                          {conv.draft.body?.trim()
-                            ? conv.draft.body.substring(0, 60)
-                            : `${conv.draft.attachmentCount} attachment${conv.draft.attachmentCount > 1 ? 's' : ''}`}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className={`${styles.contactPreview} ${hasUnread ? styles.contactPreviewUnread : ''}`}>
-                        <span className={styles.channelIcon}>
-                          {CHANNEL_ICONS[conv.channel || ''] || '💭'}
-                        </span>
-                        {conv.lastMessage?.direction === 'OUTBOUND' && (
-                          <span className={styles.outboundArrow}>↩ </span>
+                    </div>
+                    
+                    {/* Right block with fixed sizes to keep icons in a straight line */}
+                    <div className="flex items-center gap-3 shrink-0">
+                      {/* Channel Icon Container (Fixed width, centered, slightly bigger) */}
+                      <div className="w-8 flex justify-center shrink-0">
+                        {conv.channel === 'EMAIL' ? (
+                          <EmailIcon className="h-5.5 w-5.5" />
+                        ) : conv.channel === 'WHATSAPP' ? (
+                          <WhatsAppIcon className="h-5.5 w-5.5 text-emerald-500" />
+                        ) : (
+                          <InstagramIcon className="h-5.5 w-5.5 text-pink-500" />
                         )}
-                        {conv.lastMessage?.content || 'No messages'}
+                      </div>
+                      {/* Time Container (Fixed width, right-aligned) */}
+                      <span className="text-[11.5px] text-slate-500 font-semibold w-[60px] text-right shrink-0">
+                        {timeVal}
                       </span>
-                    )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mt-1">
+                    <p className={`text-xs truncate max-w-[170px] ${
+                      typingContacts[conv.contactId] ? 'text-blue-600 font-semibold' :
+                      conv.draft && !isActive ? 'text-amber-600 font-medium' :
+                      'text-slate-500 dark:text-slate-400'
+                    }`}>
+                      {previewText}
+                    </p>
                     {hasUnread && (
-                      <span className={styles.unreadBadge}>{unreadCount}</span>
+                      <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white leading-none">
+                        {unreadCount}
+                      </span>
                     )}
                   </div>
                 </div>

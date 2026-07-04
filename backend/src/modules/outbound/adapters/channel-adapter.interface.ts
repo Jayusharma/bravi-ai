@@ -30,10 +30,18 @@ export interface SendResult {
   failReason?: string;  // Human-readable failure reason (shown to agents in UI tooltip)
 }
 
-/** Credentials resolved from a ChannelConnection row — passed in when one exists for this channel. */
+/**
+ * Credentials resolved from a ChannelConnection row — passed in when one exists for this
+ * channel. Fields are grouped by provider; ChannelRouterService fills the set matching the
+ * connection's provider and the selected adapter reads only its own fields.
+ */
 export interface ResolvedCredentials {
-  apiKey: string;
-  fromEmail: string;
+  // SendGrid (email)
+  apiKey?: string;
+  fromEmail?: string;
+  // Meta WhatsApp (Cloud API)
+  accessToken?: string;
+  phoneNumberId?: string;
 }
 
 export interface ChannelAdapter {

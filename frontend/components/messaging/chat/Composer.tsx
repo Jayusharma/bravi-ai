@@ -277,7 +277,7 @@ export function Composer({
 
   return (
     <div
-      className={styles.composerWrapper}
+      className="bg-white dark:bg-[#111b21] px-6 py-3 border-t border-slate-100 dark:border-zinc-800/80 flex flex-col gap-2 relative z-10"
       onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
       onDragLeave={() => setIsDragOver(false)}
       onDrop={handleDrop}
@@ -292,9 +292,9 @@ export function Composer({
       />
 
       {(error || sendError) && (
-        <div className={styles.composerError}>
-          ⚠️ {error || sendError}
-          <button onClick={() => { setError(null); clearSendError(); }} className={styles.composerErrorDismiss}>✕</button>
+        <div className="text-xs text-destructive bg-destructive/5 rounded-xl border border-destructive/10 p-3 flex items-center justify-between mb-1 shadow-sm">
+          <span className="flex items-center gap-1.5 font-medium">⚠️ {error || sendError}</span>
+          <button onClick={() => { setError(null); clearSendError(); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">✕</button>
         </div>
       )}
 
@@ -304,7 +304,7 @@ export function Composer({
           value={draft.subject}
           onChange={(e) => updateDraft({ subject: e.target.value })}
           placeholder="Subject (optional)"
-          className={styles.composerSubjectInput}
+          className="w-full h-9 px-4 border border-slate-100 dark:border-zinc-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 placeholder-slate-400 bg-slate-50/50 dark:bg-zinc-900/50 focus:outline-none focus:border-blue-500 focus:bg-white mb-2 transition-all shadow-inner"
           disabled={isSending}
         />
       )}
@@ -430,12 +430,23 @@ export function Composer({
         </div>
       )}
 
-      <div className={styles.composer}>
-        <button ref={paperclipBtnRef} type="button" className={styles.composerIconBtn}
+      <div className="flex items-center gap-3.5">
+        {/* Emoji Button */}
+        <button type="button" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer transition-colors">
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+            <line x1="9" x2="9.01" y1="9" y2="9" />
+            <line x1="15" x2="15.01" y1="9" y2="9" />
+          </svg>
+        </button>
+
+        {/* Attachment Button */}
+        <button ref={paperclipBtnRef} type="button" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer transition-colors"
           onClick={() => setShowAttachmentMenu((p) => !p)} disabled={isSending} title="Attach"
           style={{ opacity: isSending ? 0.4 : 1 }}>
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
           </svg>
         </button>
 
@@ -446,12 +457,16 @@ export function Composer({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={channel === 'WHATSAPP' ? 'Type a message…' : 'Write an email draft…'}
-          className={styles.composerTextarea}
+          className="flex-1 min-h-[40px] max-h-[120px] bg-slate-50/70 dark:bg-zinc-900 border border-slate-100/80 dark:border-zinc-800/80 rounded-2xl px-4 py-2 text-[13px] text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white resize-none scrollbar-none transition-all"
           disabled={isSending}
         />
 
-        <button className={styles.composerBtn} disabled={!canSend} onClick={handleSend}
-          title={channel === 'EMAIL' ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}>
+        <button 
+          className="h-10 w-10 flex items-center justify-center shrink-0 rounded-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-300 dark:disabled:bg-zinc-850 dark:disabled:text-zinc-650 text-white cursor-pointer transition-all shadow-sm"
+          disabled={!canSend} 
+          onClick={handleSend}
+          title={channel === 'EMAIL' ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
+        >
           {isSending ? (
             <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -462,7 +477,7 @@ export function Composer({
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
             </svg>
           ) : (
-            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" style={{ transform: 'rotate(45deg)', marginLeft: '-2px' }}>
+            <svg className="w-4.5 h-4.5 fill-current" viewBox="0 0 24 24" style={{ transform: 'rotate(45deg)', marginLeft: '-2px', marginTop: '-2px' }}>
               <path d="M24 0l-6 22-8.129-7.239 7.802-8.234-10.458 7.227-7.215-1.754 24-12zm-15 16.668v7.332l3.258-4.431-3.258-2.901z" />
             </svg>
           )}

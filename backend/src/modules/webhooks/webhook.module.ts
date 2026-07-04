@@ -3,6 +3,7 @@ import { IngestionModule } from '../Ingestion/ingestion.module';
 import { WebhookController } from './webhook.controller';
 import { TwilioWhatsAppNormalizer } from './normalizer/twilio-whatsapp.normalizer';
 import { SendGridEmailNormalizer } from './normalizer/email.normalizer';
+import { MetaWhatsAppNormalizer } from './normalizer/meta-whatsapp.normalizer';
 import { ChannelsModule } from '../channels/channels.module';
 
 
@@ -15,6 +16,7 @@ import { ChannelsModule } from '../channels/channels.module';
   providers: [
     TwilioWhatsAppNormalizer,
     SendGridEmailNormalizer,
+    MetaWhatsAppNormalizer,
   ],
 })
 export class WebhookModule { }

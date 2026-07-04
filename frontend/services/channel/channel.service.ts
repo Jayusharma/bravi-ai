@@ -10,7 +10,7 @@ import type { ServiceResult } from '@/lib/error';
 // crosses this boundary — only `apiKeyMasked` (e.g. "••••9f2a").
 // ═══════════════════════════════════════════════════════════════════
 
-export type ChannelProvider = 'SENDGRID_EMAIL';
+export type ChannelProvider = 'SENDGRID_EMAIL' | 'META_WHATSAPP' | 'TWILIO_WHATSAPP';
 export type ChannelType = 'EMAIL' | 'WHATSAPP' | 'SMS'; // mirrors Prisma MessageChannel
 export type ConnectionStatus = 'ACTIVE' | 'DISABLED';
 
@@ -20,7 +20,7 @@ export interface ChannelConnection {
     channel: ChannelType;
     displayName: string;
     status: ConnectionStatus;
-    externalAccountId: string; // the from-email
+    externalAccountId: string; // from-email (SendGrid) / Phone Number ID (Meta WhatsApp)
     apiKeyMasked: string;
     lastInboundAt: string | null;
     lastError: string | null;
@@ -29,12 +29,19 @@ export interface ChannelConnection {
     updatedAt: string;
 }
 
-/** Body for POST /channels — the "Add Channel" modal, Connect button. */
+/** Body for POST /channels — the "Add Channel" modal, Connect button.
+ *  Provider-specific fields (backend asserts the required set per provider):
+ *  SENDGRID_EMAIL → apiKey + fromEmail · META_WHATSAPP → phoneNumberId + accessToken + verifyToken */
 export interface CreateChannelInput {
     provider: ChannelProvider;
     displayName: string;
-    apiKey: string;
-    fromEmail: string;
+    // SendGrid (email)
+    apiKey?: string;
+    fromEmail?: string;
+    // Meta WhatsApp (Cloud API)
+    phoneNumberId?: string;
+    accessToken?: string;
+    verifyToken?: string;
 }
 
 /** Body for PATCH /channels/:id — rename, or rotate the key/from-email. All optional. */
