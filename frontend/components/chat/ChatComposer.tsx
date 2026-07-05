@@ -1,25 +1,31 @@
 'use client';
 
 // ChatComposer — internal team-chat message input.
-// VISUAL SHELL ONLY: local state for the textarea + attachment previews.
-// No socket, no upload API, no draft autosave yet — that gets wired in a later step.
+// Attachments are REAL now: on send, each staged file is uploaded to
+// POST /chat/room/:id/attachments (with per-file progress), then the returned
+// descriptors go to onSend alongside the text — sendMessage persists both.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styles from '@/styles/TeamChat.module.css';
 
-import { type ChatMessage } from '@/services/chat/chat.service';
+import { type ChatMessage, type ChatAttachmentDescriptor } from '@/services/chat/chat.service';
+import { uploadChatAttachment } from '@/lib/chat-upload';
 
 interface PendingAttachment {
   id: string;
   file: File;
   previewUrl: string | null; // object URL for images, null otherwise
+  progress?: number; // 0-100 while uploading
+  error?: string; // upload failed — user removes it and retries
 }
 
 const MAX_ATTACHMENTS = 20;
 
 interface ChatComposerProps {
-  /** Called with the trimmed text when the user sends. Attachments are not wired yet. */
-  onSend?: (content: string) => void;
+  /** The open conversation — uploads are scoped to it. */
+  conversationId: string;
+  /** Called with the trimmed text + uploaded-attachment descriptors when the user sends. */
+  onSend?: (content: string, attachments: ChatAttachmentDescriptor[]) => void;
   replyingTo?: ChatMessage | null;
   onCancelReply?: () => void;
   editingMessage?: ChatMessage | null;
@@ -41,6 +47,7 @@ function fileIcon(mime: string): string {
 }
 
 export function ChatComposer({
+  conversationId,
   onSend,
   replyingTo,
   onCancelReply,
@@ -50,6 +57,7 @@ export function ChatComposer({
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [showMenu, setShowMenu] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -134,17 +142,45 @@ export function ChatComposer({
     });
   }, []);
 
-  const canSend = text.trim().length > 0 || attachments.length > 0;
+  const canSend = (text.trim().length > 0 || attachments.length > 0) && !uploading;
 
-  const handleSend = useCallback(() => {
-    if (!canSend) return;
+  const handleSend = useCallback(async () => {
+    if (!canSend || !onSend) return;
     const body = text.trim();
-    // Text path is wired; attachment upload is a later step.
-    if (body && onSend) onSend(body);
+
+    // 1. Upload every staged file first (sequential, per-file progress on its card).
+    //    On the first failure: stop, flag the file, keep everything — user removes
+    //    the bad file (or retries) and sends again. Nothing half-sends.
+    const descriptors: ChatAttachmentDescriptor[] = [];
+    if (attachments.length > 0) {
+      setUploading(true);
+      for (const att of attachments) {
+        try {
+          const controller = new AbortController();
+          const descriptor = await uploadChatAttachment(
+            conversationId,
+            att.file,
+            (pct) => setAttachments((prev) => prev.map((a) => (a.id === att.id ? { ...a, progress: pct } : a))),
+            controller.signal,
+          );
+          descriptors.push(descriptor);
+        } catch (err) {
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === att.id ? { ...a, progress: undefined, error: err instanceof Error ? err.message : 'Upload failed' } : a)),
+          );
+          setUploading(false);
+          return; // abort the send — the failed card shows why
+        }
+      }
+      setUploading(false);
+    }
+
+    // 2. Send the message with text + descriptors; sendMessage writes the rows.
+    onSend(body, descriptors);
     attachments.forEach((a) => a.previewUrl && URL.revokeObjectURL(a.previewUrl));
     setText('');
     setAttachments([]);
-  }, [canSend, text, onSend, attachments]);
+  }, [canSend, text, onSend, attachments, conversationId]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -211,7 +247,7 @@ export function ChatComposer({
       {attachments.length > 0 && (
         <div className={styles.previewRow}>
           {attachments.map((att) => (
-            <div key={att.id} className={styles.previewCard}>
+            <div key={att.id} className={styles.previewCard} style={att.error ? { outline: '2px solid #ef4444' } : undefined}>
               {att.previewUrl ? (
                 <img src={att.previewUrl} alt={att.file.name} className={styles.previewImage} />
               ) : (
@@ -220,6 +256,17 @@ export function ChatComposer({
                   <span className={styles.previewFileName}>{att.file.name}</span>
                   <span className={styles.previewFileSize}>{formatSize(att.file.size)}</span>
                 </div>
+              )}
+              {/* Upload progress / failure overlay */}
+              {att.progress !== undefined && att.progress < 100 && (
+                <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.45)', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 8 }}>
+                  {att.progress}%
+                </span>
+              )}
+              {att.error && (
+                <span title={att.error} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,68,68,0.25)', color: '#ef4444', fontSize: 11, fontWeight: 700, borderRadius: 8 }}>
+                  Failed
+                </span>
               )}
               <button
                 type="button"

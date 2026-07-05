@@ -2134,6 +2134,12 @@
   transform-origin: top right;
 }
 
+.msgActionMenuInbound {
+  right: auto !important;
+  left: 0 !important;
+  transform-origin: top left !important;
+}
+
 .msgActionItem {
   display: flex;
   align-items: center;

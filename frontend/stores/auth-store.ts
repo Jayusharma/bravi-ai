@@ -39,6 +39,7 @@ export type AppSubjects =
     | 'qualificationresult'
     | 'rolepermission'
     | 'chat'
+    | 'chatchannel'
     | 'channelconnection'
     | 'all';
 

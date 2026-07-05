@@ -1,10 +1,15 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from 'src/database/prisma.service';
+import { StorageService } from '../storage/storage.service';
+// Shared MIME → AttachmentKind map (single source of truth for upload rules)
+import { MIME_TO_KIND } from '../outbound/draft.service';
 import {
+  AttachmentKind,
   ChatConversation,
   ChatConversationType,
   ChatMessageType,
+  ChatParticipantRole,
   Prisma,
 } from '@prisma/client';
 
@@ -51,6 +56,10 @@ const MESSAGE_INCLUDE = {
       sender: { select: { id: true, displayName: true, userName: true } },
     },
   },
+  // Raw reaction rows — the client groups them into {emoji, count, reactedByMe}.
+  // (Raw on purpose: the same hydrated message is broadcast to the whole room,
+  // so it can't carry per-user flags.)
+  reactions: { select: { userId: true, emoji: true } },
 } satisfies Prisma.ChatMessageInclude;
 
 @Injectable()
@@ -60,6 +69,7 @@ export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly storage: StorageService,
   ) {}
 
   /**
@@ -97,24 +107,80 @@ export class ChatService {
   }
 
   /**
-   * Ensure the user is a participant of the conversation (auto-join).
+   * Ensure the user is a participant of the conversation.
    * Idempotent: upsert on the unique (conversationId, userId) pair.
+   *
+   * ONLY called from: the general channel resolve (org-wide by definition),
+   * explicit add-member, and DM creation. Never as a silent auto-join for
+   * arbitrary channels — membership is the single source of access.
    */
-  async ensureMembership(conversationId: string, userId: string): Promise<void> {
+  async ensureMembership(
+    conversationId: string,
+    userId: string,
+    role: ChatParticipantRole = ChatParticipantRole.MEMBER,
+  ): Promise<void> {
     await this.prisma.chatParticipant.upsert({
       where: { conversationId_userId: { conversationId, userId } },
-      create: { conversationId, userId },
+      create: { conversationId, userId, role },
       update: { isActive: true },
     });
   }
 
   /**
-   * Entry point for the chat page: resolves the common room, makes sure the
-   * caller is a member, and returns lightweight room metadata.
+   * THE access check. True only when the user has an ACTIVE membership row.
+   * Public (boolean) so the socket gateway can silently refuse `chat:join`.
+   */
+  async isActiveMember(conversationId: string, userId: string): Promise<boolean> {
+    const participant = await this.prisma.chatParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId } },
+      select: { isActive: true },
+    });
+    return participant?.isActive === true;
+  }
+
+  /**
+   * Guard called at the top of EVERY conversation read/write below.
+   * No membership row, or isActive=false (removed/left) → 403.
+   * With { admin: true }, additionally requires ChatParticipantRole.ADMIN.
+   */
+  private async assertActiveMember(
+    conversationId: string,
+    userId: string,
+    opts: { admin?: boolean } = {},
+  ): Promise<void> {
+    const participant = await this.prisma.chatParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId } },
+      select: { isActive: true, role: true },
+    });
+    if (!participant?.isActive) {
+      throw new ForbiddenException('You are not a member of this conversation.');
+    }
+    if (opts.admin && participant.role !== ChatParticipantRole.ADMIN) {
+      throw new ForbiddenException('Only channel admins can do this.');
+    }
+  }
+
+  /**
+   * Resolves the org-wide general channel (COMMON_ROOM key) for the caller.
+   * Auto-join is kept HERE ONLY: the general channel is org-wide by definition —
+   * every other conversation requires an explicit membership row (add-member/DM).
    */
   async getRoomForUser(userId: string) {
     const room = await this.getOrCreateCommonRoom();
     await this.ensureMembership(room.id, userId);
+    return this.getRoomMeta(room.id, userId);
+  }
+
+  /**
+   * Bootstrap metadata for ANY conversation the user is a member of — what the
+   * room view needs to open: read boundary, unread count, first-unread anchor,
+   * group receipts. Members only.
+   */
+  async getRoomMeta(conversationId: string, userId: string) {
+    await this.assertActiveMember(conversationId, userId);
+
+    const room = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
+    if (!room) throw new NotFoundException('Conversation not found');
 
     const [memberCount, participant] = await Promise.all([
       this.prisma.chatParticipant.count({
@@ -122,7 +188,7 @@ export class ChatService {
       }),
       this.prisma.chatParticipant.findUnique({
         where: { conversationId_userId: { conversationId: room.id, userId } },
-        select: { lastReadAt: true },
+        select: { lastReadAt: true, role: true },
       }),
     ]);
 
@@ -148,10 +214,24 @@ export class ChatService {
       firstUnreadMessageId = firstUnread?.id ?? null;
     }
 
+    // DM display name = the other person's name (the row's own name is null)
+    let displayName = room.name;
+    if (room.type === ChatConversationType.DIRECT) {
+      const partner = await this.prisma.chatParticipant.findFirst({
+        where: { conversationId: room.id, userId: { not: userId } },
+        select: { user: { select: { displayName: true, userName: true } } },
+      });
+      displayName = partner?.user.displayName || partner?.user.userName || 'Direct Message';
+    }
+
     return {
       id: room.id,
       type: room.type,
-      name: room.name,
+      name: displayName,
+      description: room.description,
+      key: room.key, // 'COMMON_ROOM' marks #general
+      archivedAt: room.archivedAt,
+      myRole: participant?.role ?? null,
       lastMessageAt: room.lastMessageAt,
       memberCount,
       lastReadAt: participant?.lastReadAt ?? null, // read boundary for the unread divider
@@ -236,8 +316,9 @@ export class ChatService {
    * Advances lastDeliveredAt and re-broadcasts the room's receipts.
    */
   async markDelivered(conversationId: string, userId: string): Promise<void> {
+    // isActive filter: a removed member's stale socket can't move the watermark.
     await this.prisma.chatParticipant.updateMany({
-      where: { conversationId, userId },
+      where: { conversationId, userId, isActive: true },
       data: { lastDeliveredAt: new Date() },
     });
     await this.emitReceipts(conversationId);
@@ -250,7 +331,7 @@ export class ChatService {
   async markRead(conversationId: string, userId: string): Promise<void> {
     const now = new Date();
     await this.prisma.chatParticipant.updateMany({
-      where: { conversationId, userId },
+      where: { conversationId, userId, isActive: true },
       data: { lastReadAt: now, lastDeliveredAt: now },
     });
     await this.emitReceipts(conversationId);
@@ -277,15 +358,16 @@ export class ChatService {
   async getMessages(
     conversationId: string,
     opts: { cursor?: string; limit?: number } = {},
-    userId?: string,
+    userId: string,
   ) {
+    await this.assertActiveMember(conversationId, userId); // membership = access
     const take = opts.limit ?? DEFAULT_PAGE_SIZE;
 
     // Fetch one extra row to know whether an older page exists.
     const rows = await this.prisma.chatMessage.findMany({
       where: {
         conversationId,
-        ...(userId ? { NOT: { deletedFor: { has: userId } } } : {}),
+        NOT: { deletedFor: { has: userId } },
       },
       orderBy: { createdAt: 'desc' },
       take: take + 1,
@@ -318,23 +400,57 @@ export class ChatService {
   async sendMessage(input: {
     conversationId: string;
     senderId: string;
-    content: string;
+    content?: string;
     type?: ChatMessageType;
     parentMessageId?: string;
+    attachments?: {
+      kind: AttachmentKind;
+      fileName: string;
+      mimeType: string;
+      fileSize: number;
+      storageKey: string;
+      cdnUrl?: string;
+    }[];
   }) {
     const { conversationId, senderId } = input;
+    const attachments = input.attachments ?? [];
+    const content = input.content?.trim() || null;
 
-    // Make sure the sender is a participant (auto-join the common room).
-    await this.ensureMembership(conversationId, senderId);
+    if (!content && attachments.length === 0) {
+      throw new BadRequestException('Message needs text or at least one attachment.');
+    }
+
+    // Members only — no auto-join. Access comes from an explicit membership row.
+    await this.assertActiveMember(conversationId, senderId);
+
+    // Archived channels are read-only history — no new messages.
+    const conversation = await this.prisma.chatConversation.findUnique({
+      where: { id: conversationId },
+      select: { archivedAt: true },
+    });
+    if (conversation?.archivedAt) {
+      throw new BadRequestException('This channel is archived — it is read-only.');
+    }
+
+    // Media-only message → type reflects the payload (all images = IMAGE, else DOCUMENT).
+    const derivedType =
+      input.type ??
+      (attachments.length > 0 && !content
+        ? attachments.every((a) => a.kind === AttachmentKind.IMAGE)
+          ? ChatMessageType.IMAGE
+          : ChatMessageType.DOCUMENT
+        : ChatMessageType.TEXT);
 
     const message = await this.prisma.$transaction(async (tx) => {
       const created = await tx.chatMessage.create({
         data: {
           conversationId,
           senderId,
-          type: input.type ?? ChatMessageType.TEXT,
-          content: input.content,
+          type: derivedType,
+          content,
           parentMessageId: input.parentMessageId || null,
+          // Upload already happened (uploadAttachment) — these are just the rows.
+          ...(attachments.length > 0 ? { attachments: { create: attachments } } : {}),
         },
         include: MESSAGE_INCLUDE,
       });
@@ -369,9 +485,14 @@ export class ChatService {
     conversationId: string,
     cursor: string,
     limit = 30,
+    userId: string,
   ) {
+    await this.assertActiveMember(conversationId, userId);
     const rows = await this.prisma.chatMessage.findMany({
-      where: { conversationId },
+      where: {
+        conversationId,
+        NOT: { deletedFor: { has: userId } },
+      },
       orderBy: { createdAt: 'asc' },
       cursor: { id: cursor },
       skip: 1,
@@ -402,13 +523,14 @@ export class ChatService {
     messageId: string,
     before = 25,
     after = 25,
-    userId?: string,
+    userId: string,
   ) {
+    await this.assertActiveMember(conversationId, userId);
     const target = await this.prisma.chatMessage.findFirst({
       where: {
         id: messageId,
         conversationId,
-        ...(userId ? { NOT: { deletedFor: { has: userId } } } : {}),
+        NOT: { deletedFor: { has: userId } },
       },
       include: MESSAGE_INCLUDE,
     });
@@ -420,7 +542,7 @@ export class ChatService {
       this.prisma.chatMessage.findMany({
         where: {
           conversationId,
-          ...(userId ? { NOT: { deletedFor: { has: userId } } } : {}),
+          NOT: { deletedFor: { has: userId } },
         },
         orderBy: { createdAt: 'desc' },
         cursor: { id: messageId },
@@ -431,7 +553,7 @@ export class ChatService {
       this.prisma.chatMessage.findMany({
         where: {
           conversationId,
-          ...(userId ? { NOT: { deletedFor: { has: userId } } } : {}),
+          NOT: { deletedFor: { has: userId } },
         },
         orderBy: { createdAt: 'asc' },
         cursor: { id: messageId },
@@ -453,7 +575,8 @@ export class ChatService {
    * message content). Mirrors the messaging module's simple `contains` search.
    * Returns newest matches first.
    */
-  async searchMessages(conversationId: string, q: string, limit = 50, userId?: string) {
+  async searchMessages(conversationId: string, q: string, limit = 50, userId: string) {
+    await this.assertActiveMember(conversationId, userId);
     const term = q.trim();
     if (!term) return { messages: [] };
 
@@ -462,7 +585,7 @@ export class ChatService {
         conversationId,
         isDeleted: false,
         content: { contains: term, mode: 'insensitive' },
-        ...(userId ? { NOT: { deletedFor: { has: userId } } } : {}),
+        NOT: { deletedFor: { has: userId } },
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -481,7 +604,8 @@ export class ChatService {
   }
 
   /** Active members of a conversation with their name, org role, and presence. */
-  async getMembers(conversationId: string) {
+  async getMembers(conversationId: string, userId: string) {
+    await this.assertActiveMember(conversationId, userId);
     const participants = await this.prisma.chatParticipant.findMany({
       where: { conversationId, isActive: true },
       select: {
@@ -518,6 +642,7 @@ export class ChatService {
   }
 
   async getPinnedMessages(conversationId: string, userId: string): Promise<any[]> {
+    await this.assertActiveMember(conversationId, userId);
     return this.prisma.chatMessage.findMany({
       where: {
         conversationId,
@@ -530,7 +655,23 @@ export class ChatService {
     });
   }
 
-  async togglePinMessage(messageId: string, roomId: string): Promise<any> {
+  /** Starred messages of a conversation — powers the room's "Starred" tab. Newest first. */
+  async getStarredMessages(conversationId: string, userId: string): Promise<any[]> {
+    await this.assertActiveMember(conversationId, userId);
+    return this.prisma.chatMessage.findMany({
+      where: {
+        conversationId,
+        isStarred: true,
+        isDeleted: false,
+        NOT: { deletedFor: { has: userId } },
+      },
+      include: MESSAGE_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async togglePinMessage(messageId: string, roomId: string, userId: string): Promise<any> {
+    await this.assertActiveMember(roomId, userId);
     const msg = await this.prisma.chatMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Message not found');
 
@@ -549,7 +690,8 @@ export class ChatService {
     return updated;
   }
 
-  async toggleStarMessage(messageId: string, roomId: string): Promise<any> {
+  async toggleStarMessage(messageId: string, roomId: string, userId: string): Promise<any> {
+    await this.assertActiveMember(roomId, userId);
     const msg = await this.prisma.chatMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Message not found');
 
@@ -569,6 +711,7 @@ export class ChatService {
   }
 
   async editMessage(messageId: string, content: string, userId: string, roomId: string): Promise<any> {
+    await this.assertActiveMember(roomId, userId);
     const msg = await this.prisma.chatMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Message not found');
     if (msg.senderId !== userId) throw new Error('Cannot edit another user\'s message');
@@ -591,6 +734,7 @@ export class ChatService {
   }
 
   async deleteMessageForEveryone(messageId: string, userId: string, roomId: string): Promise<any> {
+    await this.assertActiveMember(roomId, userId);
     const msg = await this.prisma.chatMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Message not found');
     if (msg.senderId !== userId) throw new Error('Cannot delete another user\'s message for everyone');
@@ -617,6 +761,7 @@ export class ChatService {
   async deleteMessageForMe(messageId: string, userId: string): Promise<any> {
     const msg = await this.prisma.chatMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Message not found');
+    await this.assertActiveMember(msg.conversationId, userId);
 
     if (!msg.deletedFor.includes(userId)) {
       const updated = await this.prisma.chatMessage.update({
@@ -632,5 +777,410 @@ export class ChatService {
     }
 
     return msg;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CHANNELS & DMs — Discord-style multi-conversation layer
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Everything the sidebar needs in one call: every channel + DM the user is an
+   * ACTIVE member of, each with unread count, last-message preview and member count.
+   * Unreads come from ONE grouped SQL query (not N+1 counts).
+   */
+  async listConversations(userId: string, includeArchived = false) {
+    const memberships = await this.prisma.chatParticipant.findMany({
+      where: { userId, isActive: true },
+      select: { conversationId: true, role: true, lastReadAt: true },
+    });
+    if (memberships.length === 0) return [];
+    const roleByConv = new Map(memberships.map((m) => [m.conversationId, m.role]));
+    const ids = memberships.map((m) => m.conversationId);
+
+    const conversations = await this.prisma.chatConversation.findMany({
+      where: { id: { in: ids }, ...(includeArchived ? {} : { archivedAt: null }) },
+      include: {
+        _count: { select: { participants: { where: { isActive: true } } } },
+        // Last visible message for the sidebar preview line
+        messages: {
+          where: { isDeleted: false, NOT: { deletedFor: { has: userId } } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            content: true,
+            type: true,
+            createdAt: true,
+            senderId: true,
+            sender: { select: { displayName: true, userName: true } },
+          },
+        },
+      },
+      orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+    });
+
+    // DMs have name=null — the display name is the OTHER person's name.
+    const dmIds = conversations.filter((c) => c.type === ChatConversationType.DIRECT).map((c) => c.id);
+    const dmPartners = dmIds.length
+      ? await this.prisma.chatParticipant.findMany({
+          where: { conversationId: { in: dmIds }, userId: { not: userId } },
+          select: {
+            conversationId: true,
+            userId: true,
+            user: { select: { displayName: true, userName: true } },
+          },
+        })
+      : [];
+    const partnerByConv = new Map(dmPartners.map((p) => [p.conversationId, p]));
+
+    // One grouped query: unread per conversation = messages newer than MY lastReadAt,
+    // not mine, not deleted, not deleted-for-me.
+    const unreadRows = await this.prisma.$queryRaw<{ conversationId: string; count: bigint }[]>`
+      SELECT m."conversationId", COUNT(*)::bigint AS count
+      FROM "ChatMessage" m
+      JOIN "ChatParticipant" p
+        ON p."conversationId" = m."conversationId" AND p."userId" = ${userId}
+      WHERE m."conversationId" IN (${Prisma.join(ids)})
+        AND p."isActive" = true
+        AND m."isDeleted" = false
+        AND m."senderId" <> ${userId}
+        AND NOT (${userId} = ANY(m."deletedFor"))
+        AND (p."lastReadAt" IS NULL OR m."createdAt" > p."lastReadAt")
+      GROUP BY m."conversationId"
+    `;
+    const unreadByConv = new Map(unreadRows.map((r) => [r.conversationId, Number(r.count)]));
+
+    return conversations.map((c) => {
+      const partner = partnerByConv.get(c.id);
+      const last = c.messages[0] ?? null;
+      return {
+        id: c.id,
+        type: c.type,
+        // Channel → its name; DM → the other person's name
+        name:
+          c.type === ChatConversationType.DIRECT
+            ? partner?.user.displayName || partner?.user.userName || 'Direct Message'
+            : c.name,
+        description: c.description,
+        key: c.key, // 'COMMON_ROOM' marks the general channel (leave disabled in UI)
+        archivedAt: c.archivedAt,
+        memberCount: c._count.participants,
+        myRole: roleByConv.get(c.id),
+        dmPartnerId: partner?.userId ?? null,
+        lastMessageAt: c.lastMessageAt,
+        lastMessage: last
+          ? {
+              content: last.content,
+              type: last.type,
+              senderId: last.senderId,
+              senderName: last.sender.displayName || last.sender.userName,
+              createdAt: last.createdAt,
+            }
+          : null,
+        unreadCount: unreadByConv.get(c.id) ?? 0,
+      };
+    });
+  }
+
+  /**
+   * Create a named channel. Caller (already CASL-checked: create:chatchannel)
+   * becomes the channel ADMIN; listed members join as MEMBER.
+   */
+  async createChannel(creatorId: string, input: { name: string; description?: string; memberIds?: string[] }) {
+    // Only add users that actually exist and are active — silently drop the rest.
+    const requestedIds = [...new Set(input.memberIds ?? [])].filter((id) => id !== creatorId);
+    const validUsers = requestedIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: requestedIds }, isActive: true },
+          select: { id: true },
+        })
+      : [];
+
+    const channel = await this.prisma.$transaction(async (tx) => {
+      const conv = await tx.chatConversation.create({
+        data: {
+          type: ChatConversationType.GROUP,
+          name: input.name,
+          description: input.description ?? null,
+          createdBy: creatorId,
+        },
+      });
+      await tx.chatParticipant.create({
+        data: { conversationId: conv.id, userId: creatorId, role: ChatParticipantRole.ADMIN },
+      });
+      if (validUsers.length) {
+        await tx.chatParticipant.createMany({
+          data: validUsers.map((u) => ({ conversationId: conv.id, userId: u.id })),
+        });
+      }
+      return conv;
+    });
+
+    await this.emitConversationUpdated(channel.id); // members' sidebars refresh live
+    return channel;
+  }
+
+  /**
+   * Edit a channel's name/description, or archive/restore it.
+   * Requires channel ADMIN (org-admins with manage:chatchannel bypass via `bypassAdmin`).
+   */
+  async updateChannel(
+    conversationId: string,
+    userId: string,
+    input: { name?: string; description?: string; archived?: boolean },
+    bypassAdmin = false,
+  ) {
+    const conv = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
+    if (!conv) throw new NotFoundException('Channel not found');
+    if (conv.type === ChatConversationType.DIRECT) {
+      throw new BadRequestException('Direct messages cannot be edited.');
+    }
+    if (!bypassAdmin) await this.assertActiveMember(conversationId, userId, { admin: true });
+
+    // The org-wide general channel can never be archived.
+    if (input.archived && conv.key === COMMON_ROOM_KEY) {
+      throw new BadRequestException('The general channel cannot be archived.');
+    }
+
+    const updated = await this.prisma.chatConversation.update({
+      where: { id: conversationId },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.archived !== undefined ? { archivedAt: input.archived ? new Date() : null } : {}),
+      },
+    });
+
+    await this.emitConversationUpdated(conversationId);
+    return updated;
+  }
+
+  /** Add users to a channel (channel ADMIN only). Idempotent — rejoining reactivates. */
+  async addMembers(conversationId: string, actorId: string, userIds: string[], bypassAdmin = false) {
+    const conv = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
+    if (!conv) throw new NotFoundException('Channel not found');
+    if (conv.type === ChatConversationType.DIRECT) {
+      throw new BadRequestException('Direct messages cannot have members added.');
+    }
+    if (!bypassAdmin) await this.assertActiveMember(conversationId, actorId, { admin: true });
+
+    const validUsers = await this.prisma.user.findMany({
+      where: { id: { in: userIds }, isActive: true },
+      select: { id: true },
+    });
+    for (const u of validUsers) {
+      await this.ensureMembership(conversationId, u.id);
+    }
+
+    await this.emitConversationUpdated(conversationId);
+    return this.getMembers(conversationId, actorId);
+  }
+
+  /**
+   * Remove a member (channel ADMIN) or leave yourself (anyone).
+   * Soft-remove: isActive=false — the membership row keeps lastReadAt history.
+   * Emits `chat.membership.removed` so the gateway can kick their sockets live.
+   */
+  async removeMember(conversationId: string, actorId: string, targetUserId: string, bypassAdmin = false) {
+    const conv = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
+    if (!conv) throw new NotFoundException('Channel not found');
+    if (conv.type === ChatConversationType.DIRECT) {
+      throw new BadRequestException('You cannot leave a direct message.');
+    }
+    if (conv.key === COMMON_ROOM_KEY) {
+      throw new BadRequestException('The general channel is org-wide — members cannot leave or be removed.');
+    }
+
+    const isSelfLeave = actorId === targetUserId;
+    if (!isSelfLeave && !bypassAdmin) {
+      await this.assertActiveMember(conversationId, actorId, { admin: true });
+    }
+
+    await this.prisma.chatParticipant.updateMany({
+      where: { conversationId, userId: targetUserId },
+      data: { isActive: false },
+    });
+
+    // Live kick: gateway forces the user's sockets out of the room on this event.
+    this.eventEmitter.emit('chat.membership.removed', { conversationId, userId: targetUserId });
+    await this.emitConversationUpdated(conversationId);
+  }
+
+  /**
+   * Open (or find) the 1-to-1 DM with another user — IDEMPOTENT.
+   * The sorted-pair key ('DM:<a>:<b>') is unique, so the same two users always
+   * land in the same conversation. P2002 race handled like getOrCreateCommonRoom.
+   */
+  async openDm(userId: string, otherUserId: string) {
+    if (userId === otherUserId) {
+      throw new BadRequestException('You cannot DM yourself.');
+    }
+    const other = await this.prisma.user.findUnique({
+      where: { id: otherUserId },
+      select: { id: true, isActive: true },
+    });
+    if (!other?.isActive) throw new NotFoundException('User not found');
+
+    const key = `DM:${[userId, otherUserId].sort().join(':')}`;
+
+    const existing = await this.prisma.chatConversation.findUnique({ where: { key } });
+    if (existing) {
+      // Re-activate both sides in case one previously deactivated
+      await this.ensureMembership(existing.id, userId);
+      await this.ensureMembership(existing.id, otherUserId);
+      return existing;
+    }
+
+    try {
+      const dm = await this.prisma.$transaction(async (tx) => {
+        const conv = await tx.chatConversation.create({
+          data: { type: ChatConversationType.DIRECT, key, createdBy: userId },
+        });
+        await tx.chatParticipant.createMany({
+          data: [
+            { conversationId: conv.id, userId },
+            { conversationId: conv.id, userId: otherUserId },
+          ],
+        });
+        return conv;
+      });
+      await this.emitConversationUpdated(dm.id);
+      return dm;
+    } catch (error) {
+      // Concurrent open from both sides — the key is unique, re-fetch the winner.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const concurrent = await this.prisma.chatConversation.findUnique({ where: { key } });
+        if (concurrent) return concurrent;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Files tab: every attachment in the conversation, newest first, paginated.
+   * A filtered query over ChatAttachment→ChatMessage — no separate storage.
+   */
+  async getChannelFiles(conversationId: string, userId: string, opts: { cursor?: string; limit?: number } = {}) {
+    await this.assertActiveMember(conversationId, userId);
+    const take = opts.limit ?? 30;
+
+    const rows = await this.prisma.chatAttachment.findMany({
+      where: {
+        message: {
+          conversationId,
+          isDeleted: false,
+          NOT: { deletedFor: { has: userId } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: take + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+      include: {
+        message: {
+          select: {
+            id: true,
+            senderId: true,
+            createdAt: true,
+            sender: { select: { displayName: true, userName: true } },
+          },
+        },
+      },
+    });
+
+    const hasMore = rows.length > take;
+    const page = hasMore ? rows.slice(0, take) : rows;
+    return {
+      files: page,
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+      hasMore,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ATTACHMENTS & REACTIONS
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Stage a file for a chat message: upload to R2 under chat/<conversationId>/,
+   * return a descriptor. NO DB row yet — the client sends the descriptor back
+   * with the message and sendMessage creates the ChatAttachment rows.
+   */
+  async uploadAttachment(conversationId: string, userId: string, file: Express.Multer.File) {
+    await this.assertActiveMember(conversationId, userId);
+
+    const kind = MIME_TO_KIND[file.mimetype];
+    if (!kind) throw new BadRequestException(`Unsupported file type: ${file.mimetype}`);
+
+    const storageKey = this.storage.generateKey(`chat/${conversationId}`, file.originalname);
+    const cdnUrl = await this.storage.uploadBuffer(storageKey, file.buffer, file.mimetype);
+
+    return {
+      kind,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      fileSize: file.size,
+      storageKey,
+      cdnUrl,
+    };
+  }
+
+  /**
+   * Toggle an emoji reaction: first tap adds, same tap again removes.
+   * The (message, user, emoji) unique constraint makes this race-safe.
+   */
+  async toggleReaction(conversationId: string, messageId: string, userId: string, emoji: string) {
+    await this.assertActiveMember(conversationId, userId);
+
+    const msg = await this.prisma.chatMessage.findFirst({
+      where: { id: messageId, conversationId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!msg) throw new NotFoundException('Message not found in this conversation');
+
+    let added: boolean;
+    try {
+      await this.prisma.chatMessageReaction.create({
+        data: { chatMessageId: messageId, userId, emoji },
+      });
+      added = true;
+    } catch (error) {
+      // Already reacted with this emoji → the toggle means REMOVE.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        await this.prisma.chatMessageReaction.deleteMany({
+          where: { chatMessageId: messageId, userId, emoji },
+        });
+        added = false;
+      } else {
+        throw error;
+      }
+    }
+
+    // Broadcast so every open room updates its reaction chips live.
+    this.eventEmitter.emit('chat.message.reacted', { conversationId, messageId, userId, emoji, added });
+
+    const reactions = await this.prisma.chatMessageReaction.findMany({
+      where: { chatMessageId: messageId },
+      select: { userId: true, emoji: true },
+    });
+    return { messageId, reactions };
+  }
+
+  /**
+   * Ids of every ACTIVE member. Used by the broadcast layer to target
+   * membership-scoped events at member user-rooms (never a global emit).
+   */
+  async getActiveMemberIds(conversationId: string): Promise<string[]> {
+    const members = await this.prisma.chatParticipant.findMany({
+      where: { conversationId, isActive: true },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
+  }
+
+  /** Tells every ACTIVE member's sidebar to refresh (rename/members/archive/new conversation). */
+  private async emitConversationUpdated(conversationId: string): Promise<void> {
+    this.eventEmitter.emit('chat.conversation.updated', {
+      conversationId,
+      memberIds: await this.getActiveMemberIds(conversationId),
+    });
   }
 }

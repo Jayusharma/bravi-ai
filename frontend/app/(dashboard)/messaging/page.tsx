@@ -141,7 +141,7 @@ function MessagingPageInner() {
     }, []);
 
     return (
-        <div className={styles.messagingPage} style={{ zoom: 0.9, height: 'calc((100vh - 80px) / 0.9)' }}>
+        <div className={styles.messagingPage} style={{ zoom: 0.9 }}>
             <div className={styles.messagingLayout} ref={layoutRef}>
                 {/* Left panel: Resizable contact list */}
                 <div 
@@ -183,15 +183,19 @@ function MessagingPageInner() {
                                     }}
                                     onBack={() => setActiveConversation(null)}
                                     onToggleDetail={() => setShowDetailPanel(prev => !prev)}
+                                    showDetailPanel={showDetailPanel}
                                 />
                             </div>
-                            {showDetailPanel && (
-                                <div className="hidden xl:block w-[360px] border-l border-slate-100 dark:border-zinc-800 shrink-0">
+                            <div 
+                                className="hidden xl:flex border-l border-slate-100 dark:border-zinc-800 shrink-0 transition-all duration-300 ease-out overflow-hidden flex-col h-full bg-white dark:bg-[#111b21]"
+                                style={{ width: showDetailPanel ? '360px' : '0px', borderLeftWidth: showDetailPanel ? '1px' : '0px' }}
+                            >
+                                <div className="w-[360px] h-full shrink-0">
                                     <ContactDetailPanel
                                         contactId={activeConversation.contactId}
                                     />
                                 </div>
-                            )}
+                            </div>
                         </div>
                     ) : (
                         <div className={styles.emptyView}>

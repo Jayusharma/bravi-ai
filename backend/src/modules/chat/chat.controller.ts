@@ -1,17 +1,121 @@
-import { Controller, Get, Post, Patch, Delete, Body, UseGuards, Req, Param, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
+import multer = require('multer');
 import { ChatService } from './chat.service';
 import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
+// Shared upload rules — same allowlist the enquiry-messaging uploads use
+import { ALLOWED_MIMES } from '../outbound/draft.service';
 import { GetMessagesDto } from './dto/get-messages.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { SearchMessagesDto } from './dto/search-messages.dto';
 import { MessagesAroundDto } from './dto/messages-around.dto';
+import { CreateChannelDto } from './dto/create-channel.dto';
+import { UpdateChannelDto } from './dto/update-channel.dto';
+import { AddMembersDto, OpenDmDto } from './dto/members.dto';
+import { ReactDto } from './dto/react.dto';
 
 @Controller('chat')
 @UseGuards(CaslGuard)
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
+
+  /** Org-admins (manage:chatchannel via manage:all) bypass channel-level ADMIN checks. */
+  private canManageChannels(req: Request): boolean {
+    return req.ability?.can('manage', 'chatchannel') ?? false;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // GET /chat/conversations — the sidebar: my channels + DMs with unreads
+  // ═══════════════════════════════════════════════════════════════════
+  @Get('conversations')
+  @CheckAbility({ action: 'read', subject: 'chat' })
+  listConversations(@Query('includeArchived') includeArchived: string, @Req() req: Request) {
+    return this.chatService.listConversations(req.user!.userId, includeArchived === 'true');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /chat/channels — create a channel (admin/manager only)
+  // ═══════════════════════════════════════════════════════════════════
+  @Post('channels')
+  @CheckAbility({ action: 'create', subject: 'chatchannel' })
+  createChannel(@Body() dto: CreateChannelDto, @Req() req: Request) {
+    return this.chatService.createChannel(req.user!.userId, dto);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PATCH /chat/channels/:id — rename / edit description / archive-restore
+  // ═══════════════════════════════════════════════════════════════════
+  @Patch('channels/:id')
+  @CheckAbility({ action: 'update', subject: 'chatchannel' })
+  updateChannel(@Param('id') id: string, @Body() dto: UpdateChannelDto, @Req() req: Request) {
+    return this.chatService.updateChannel(id, req.user!.userId, dto, this.canManageChannels(req));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /chat/channels/:id/members — "Add People" (channel admin)
+  // CASL gate is just "can use chat" — the REAL rule (channel ADMIN) is in the service.
+  // ═══════════════════════════════════════════════════════════════════
+  @Post('channels/:id/members')
+  @CheckAbility({ action: 'read', subject: 'chat' })
+  addMembers(@Param('id') id: string, @Body() dto: AddMembersDto, @Req() req: Request) {
+    return this.chatService.addMembers(id, req.user!.userId, dto.userIds, this.canManageChannels(req));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DELETE /chat/channels/:id/members/:userId — kick (channel admin) or self-leave
+  // ═══════════════════════════════════════════════════════════════════
+  @Delete('channels/:id/members/:userId')
+  @CheckAbility({ action: 'read', subject: 'chat' })
+  removeMember(@Param('id') id: string, @Param('userId') userId: string, @Req() req: Request) {
+    return this.chatService.removeMember(id, req.user!.userId, userId, this.canManageChannels(req));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /chat/dm — open (or find) the DM with another user — idempotent
+  // ═══════════════════════════════════════════════════════════════════
+  @Post('dm')
+  @CheckAbility({ action: 'create', subject: 'chat' })
+  openDm(@Body() dto: OpenDmDto, @Req() req: Request) {
+    return this.chatService.openDm(req.user!.userId, dto.userId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // GET /chat/room/:id/files — Files tab (paginated attachments)
+  // ═══════════════════════════════════════════════════════════════════
+  @Get('room/:id/files')
+  @CheckAbility({ action: 'read', subject: 'chat' })
+  getChannelFiles(@Param('id') id: string, @Query() query: GetMessagesDto, @Req() req: Request) {
+    return this.chatService.getChannelFiles(id, req.user!.userId, {
+      cursor: query.cursor,
+      limit: query.limit,
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // GET /chat/room/:id/meta — bootstrap metadata to open ANY channel/DM
+  // (read boundary, unread count, first-unread anchor, receipts)
+  // ═══════════════════════════════════════════════════════════════════
+  @Get('room/:id/meta')
+  @CheckAbility({ action: 'read', subject: 'chat' })
+  getRoomMeta(@Param('id') id: string, @Req() req: Request) {
+    return this.chatService.getRoomMeta(id, req.user!.userId);
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // GET /chat/room — resolve (and lazily create + join) the common room
@@ -57,8 +161,8 @@ export class ChatController {
   // ═══════════════════════════════════════════════════════════════════
   @Get('room/:id/messages/newer')
   @CheckAbility({ action: 'read', subject: 'chat' })
-  getNewerMessages(@Param('id') id: string, @Query() query: GetMessagesDto) {
-    return this.chatService.getNewerMessages(id, query.cursor!, query.limit);
+  getNewerMessages(@Param('id') id: string, @Query() query: GetMessagesDto, @Req() req: Request) {
+    return this.chatService.getNewerMessages(id, query.cursor!, query.limit, req.user!.userId);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -81,12 +185,12 @@ export class ChatController {
   // ═══════════════════════════════════════════════════════════════════
   @Get('room/:id/members')
   @CheckAbility({ action: 'read', subject: 'chat' })
-  getMembers(@Param('id') id: string) {
-    return this.chatService.getMembers(id);
+  getMembers(@Param('id') id: string, @Req() req: Request) {
+    return this.chatService.getMembers(id, req.user!.userId);
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /chat/room/:id/pinned — active pinned messages
+  // GET /chat/room/:id/pinned — active pinned messages (thread banner)
   // ═══════════════════════════════════════════════════════════════════
   @Get('room/:id/pinned')
   @CheckAbility({ action: 'read', subject: 'chat' })
@@ -95,7 +199,16 @@ export class ChatController {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // POST /chat/room/:id/messages — send a text message
+  // GET /chat/room/:id/starred — starred messages (the room's Starred tab)
+  // ═══════════════════════════════════════════════════════════════════
+  @Get('room/:id/starred')
+  @CheckAbility({ action: 'read', subject: 'chat' })
+  getStarredMessages(@Param('id') id: string, @Req() req: Request) {
+    return this.chatService.getStarredMessages(id, req.user!.userId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /chat/room/:id/messages — send a message (text and/or attachments)
   // ═══════════════════════════════════════════════════════════════════
   @Post('room/:id/messages')
   @CheckAbility({ action: 'create', subject: 'chat' })
@@ -109,7 +222,44 @@ export class ChatController {
       senderId: req.user!.userId,
       content: dto.content,
       parentMessageId: dto.parentMessageId,
+      attachments: dto.attachments,
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /chat/room/:id/attachments — stage a file upload (returns a descriptor;
+  // the client passes descriptors back via POST .../messages to attach them)
+  // ═══════════════════════════════════════════════════════════════════
+  @Post('room/:id/attachments')
+  @CheckAbility({ action: 'create', subject: 'chat' })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multer.memoryStorage(),
+      limits: { fileSize: 100 * 1024 * 1024 }, // same cap as enquiry-messaging uploads
+      fileFilter: (_req, file, cb) => { cb(null, ALLOWED_MIMES.has(file.mimetype)); },
+    }),
+  )
+  async uploadAttachment(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request,
+  ) {
+    if (!file) throw new BadRequestException('No file provided or unsupported file type');
+    return this.chatService.uploadAttachment(id, req.user!.userId, file);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /chat/room/:roomId/messages/:messageId/reactions — toggle an emoji reaction
+  // ═══════════════════════════════════════════════════════════════════
+  @Post('room/:roomId/messages/:messageId/reactions')
+  @CheckAbility({ action: 'create', subject: 'chat' })
+  toggleReaction(
+    @Param('roomId') roomId: string,
+    @Param('messageId') messageId: string,
+    @Body() dto: ReactDto,
+    @Req() req: Request,
+  ) {
+    return this.chatService.toggleReaction(roomId, messageId, req.user!.userId, dto.emoji);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -120,8 +270,9 @@ export class ChatController {
   pinMessage(
     @Param('roomId') roomId: string,
     @Param('messageId') messageId: string,
+    @Req() req: Request,
   ) {
-    return this.chatService.togglePinMessage(messageId, roomId);
+    return this.chatService.togglePinMessage(messageId, roomId, req.user!.userId);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -132,8 +283,9 @@ export class ChatController {
   starMessage(
     @Param('roomId') roomId: string,
     @Param('messageId') messageId: string,
+    @Req() req: Request,
   ) {
-    return this.chatService.toggleStarMessage(messageId, roomId);
+    return this.chatService.toggleStarMessage(messageId, roomId, req.user!.userId);
   }
 
   // ═══════════════════════════════════════════════════════════════════

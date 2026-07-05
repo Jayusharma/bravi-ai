@@ -1,8 +1,14 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import type { ConversationThread, ThreadMessage } from '@/services/messaging/chat.service';
 import { getConversations, type ConversationPreview } from '@/services/messaging/chat.service';
+
+const EmojiPicker = dynamic(
+  () => import('emoji-picker-react'),
+  { ssr: false }
+);
 
 import { getSocket } from '@/lib/socket';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
@@ -26,6 +32,8 @@ interface ComposerProps {
 
 const MAX_ATTACHMENTS = 20;
 
+
+
 /** Channel-aware composer with debounced draft auto-save and socket send */
 export function Composer({
   enquiryId,
@@ -40,16 +48,27 @@ export function Composer({
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [showContactSelector, setShowContactSelector] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('light');
   const [contactSearch, setContactSearch] = useState('');
   const [contactOptions, setContactOptions] = useState<ConversationPreview[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const isDark = document.documentElement.classList.contains('dark');
+      setThemeMode(isDark ? 'dark' : 'light');
+    }
+  }, [showEmojiPicker]);
 
   const isSendingRef = useRef(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const paperclipBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const photoVideoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -100,17 +119,23 @@ export function Composer({
     if (typingTimerRef.current) { clearTimeout(typingTimerRef.current); typingTimerRef.current = null; }
     isTypingRef.current = false;
     setShowAttachmentMenu(false);
+    setShowEmojiPicker(false);
     setError(null);
     clearSendError();
   }, [enquiryId, channel]);
 
-  // Click-outside handler for attachment menu
+  // Click-outside handler for attachment menu and emoji picker
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (
         attachmentMenuRef.current && !attachmentMenuRef.current.contains(e.target as Node) &&
         paperclipBtnRef.current && !paperclipBtnRef.current.contains(e.target as Node)
       ) setShowAttachmentMenu(false);
+
+      if (
+        emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node) &&
+        emojiBtnRef.current && !emojiBtnRef.current.contains(e.target as Node)
+      ) setShowEmojiPicker(false);
     }
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
@@ -254,6 +279,28 @@ export function Composer({
     e.preventDefault();
     setIsDragOver(false);
     handleAddFiles(Array.from(e.dataTransfer.files));
+  };
+
+  const handleEmojiSelect = (emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      updateDraft({ body: draft.body + emoji });
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const newBody = text.substring(0, start) + emoji + text.substring(end);
+    
+    updateDraft({ body: newBody });
+
+    // Focus and restore cursor
+    setTimeout(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+      adjustTextareaHeight();
+    }, 10);
   };
 
   if (!enquiryId) {
@@ -430,9 +477,32 @@ export function Composer({
         </div>
       )}
 
+      {/* Emoji Picker Popover */}
+      {showEmojiPicker && (
+        <div 
+          ref={emojiPickerRef}
+          className="absolute bottom-16 left-6 z-50 animate-in slide-in-from-bottom-3 duration-200"
+        >
+          <EmojiPicker
+            onEmojiClick={(emojiData: any) => handleEmojiSelect(emojiData.emoji)}
+            theme={themeMode as any}
+            lazyLoadEmojis={true}
+            autoFocusSearch={false}
+          />
+        </div>
+      )}
+
       <div className="flex items-center gap-3.5">
         {/* Emoji Button */}
-        <button type="button" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer transition-colors">
+        <button 
+          ref={emojiBtnRef}
+          type="button" 
+          onClick={() => setShowEmojiPicker((p) => !p)}
+          className={`hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer transition-colors ${
+            showEmojiPicker ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400'
+          }`}
+          title="Emoji"
+        >
           <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <path d="M8 14s1.5 2 4 2 4-2 4-2" />

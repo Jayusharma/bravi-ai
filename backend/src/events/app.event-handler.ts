@@ -64,13 +64,19 @@ export class AppEventHandler {
         message,
       });
 
-    // Global notification so users NOT currently in the room can bump their
-    // sidebar unread badge.
-    this.gateway.server.emit(SOCKET_EVENTS.CHAT_NOTIFICATION, {
+    // Unread notification — MEMBERS ONLY, via their personal user rooms.
+    // Never a global emit: non-members must not even learn the channel exists.
+    const memberIds = await this.chatService.getActiveMemberIds(payload.conversationId);
+    const notification = {
       conversationId: payload.conversationId,
       messageId: message.id,
       senderId: message.senderId,
-    });
+      preview: typeof message.content === 'string' ? message.content.substring(0, 80) : 'Attachment',
+    };
+    for (const memberId of memberIds) {
+      if (memberId === message.senderId) continue; // no self-notification
+      this.gateway.server.to(ROOMS.user(memberId)).emit(SOCKET_EVENTS.CHAT_NOTIFICATION, notification);
+    }
   }
 
   /** Room read/delivery watermarks changed — push them so senders update their ticks. */
@@ -400,5 +406,56 @@ export class AppEventHandler {
     this.gateway.server
       .to(ROOMS.chat(payload.conversationId))
       .emit(SOCKET_EVENTS.CHAT_MESSAGE_DELETED, payload);
+  }
+
+  /** Reaction toggled — everyone with the room open updates that message's chips. */
+  @OnEvent('chat.message.reacted')
+  onChatMessageReacted(payload: {
+    conversationId: string;
+    messageId: string;
+    userId: string;
+    emoji: string;
+    added: boolean;
+  }) {
+    this.gateway.server
+      .to(ROOMS.chat(payload.conversationId))
+      .emit(SOCKET_EVENTS.CHAT_MESSAGE_REACTED, payload);
+  }
+
+  /**
+   * Conversation changed (created / renamed / archived / members changed) —
+   * tell each MEMBER's sidebar to refresh. Targeted at user rooms, never global.
+   */
+  @OnEvent('chat.conversation.updated')
+  onChatConversationUpdated(payload: { conversationId: string; memberIds: string[] }) {
+    for (const memberId of payload.memberIds) {
+      this.gateway.server
+        .to(ROOMS.user(memberId))
+        .emit(SOCKET_EVENTS.CHAT_CONVERSATION_UPDATED, { conversationId: payload.conversationId });
+    }
+  }
+
+  /**
+   * LIVE KICK — a member was removed (or left). Two steps, instant:
+   * 1. Tell their client (all tabs) so the UI routes away + drops the channel.
+   * 2. Force every one of their sockets OUT of the conversation room — after
+   *    this line no live event from that room can reach them again.
+   */
+  @OnEvent('chat.membership.removed')
+  onChatMembershipRemoved(payload: { conversationId: string; userId: string }) {
+    this.gateway.server
+      .to(ROOMS.user(payload.userId))
+      .emit(SOCKET_EVENTS.CHAT_MEMBERSHIP_REMOVED, { conversationId: payload.conversationId });
+
+    this.gateway.server
+      .in(ROOMS.user(payload.userId))
+      .socketsLeave(ROOMS.chat(payload.conversationId));
+  }
+
+  @OnEvent('message.star.toggled')
+  onMessageStarToggled(payload: { contactId: string; messageId: string; isStarred: boolean }) {
+    this.gateway.server
+      .to(ROOMS.contact(payload.contactId))
+      .emit(SOCKET_EVENTS.MESSAGE_STAR_TOGGLED, payload);
   }
 }

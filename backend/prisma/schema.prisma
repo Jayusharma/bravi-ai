@@ -508,6 +508,7 @@ model ConversationMessage {
   deletedReason   DeleteReason?
   editedAt        DateTime?
   source          MessageSource @default(HUMAN)
+  isStarred       Boolean       @default(false)
 
   attachments MessageAttachment[]
   reactions   MessageReaction[]
@@ -877,11 +878,15 @@ enum ChatMessageType {
 model ChatConversation {
   id   String               @id @default(uuid())
   type ChatConversationType @default(GROUP)
-  name String? // "Team Chat" for the common room; group name later
+  name String? // "general" for the org-wide channel; channel name / null for DMs
 
   // Deterministic find-or-create for singleton rooms: 'COMMON_ROOM' for the
-  // org-wide room, null for everything else. Unique so the room can't dupe.
+  // org-wide channel, 'DM:<userIdA>:<userIdB>' (sorted) for DMs — makes the same
+  // user pair always resolve to the SAME conversation. Null for named channels.
   key String? @unique
+
+  description String? // channel purpose line, shown in header + details panel
+  archivedAt  DateTime? // set = archived: hidden from sidebars, history readable, sends blocked
 
   createdBy     String?
   lastMessageAt DateTime?
@@ -938,9 +943,25 @@ model ChatMessage {
   createdAt DateTime @default(now())
 
   attachments ChatAttachment[]
+  reactions   ChatMessageReaction[]
 
   @@index([conversationId, createdAt])
   @@index([conversationId, isPinned])
+}
+
+// Emoji reactions on team-chat messages. Mirrors MessageReaction (enquiry side):
+// one row per (message, user, emoji) — toggling off deletes the row.
+model ChatMessageReaction {
+  id            String   @id @default(uuid())
+  chatMessageId String
+  userId        String
+  emoji         String
+  createdAt     DateTime @default(now())
+
+  message ChatMessage @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
+
+  @@unique([chatMessageId, userId, emoji])
+  @@index([chatMessageId])
 }
 
 model ChatAttachment {

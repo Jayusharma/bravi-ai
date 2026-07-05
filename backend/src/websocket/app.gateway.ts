@@ -92,6 +92,11 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = jwt.verify(token as string, this.jwtSecret) as { sub: string; role: string };
       client.data.userId = payload.sub;
       client.data.role = payload.role;
+
+      // Personal room: lets the server reach THIS user across all their tabs
+      // (membership-scoped chat notifications, live kick) — no socket map needed.
+      client.join(ROOMS.user(payload.sub));
+
       this.logger.log(`🔌 Connected: ${client.id} user=${payload.sub}`);
 
       // Query and cache userName during connection setup to avoid DB calls on high-frequency events like typing
@@ -214,14 +219,25 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // ─── INTERNAL TEAM CHAT ──────────────────────────────────────────────────
 
-  /** Joins an internal chat conversation room (the common room for now). */
+  /**
+   * Joins an internal chat conversation room — MEMBERS ONLY.
+   * Membership is the single access source: a non-member's join is silently
+   * refused, so they can never receive that room's live events.
+   */
   @SubscribeMessage(SOCKET_EVENTS.CHAT_JOIN)
-  handleChatJoin(
+  async handleChatJoin(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { conversationId: string },
   ) {
     if (!client.data?.userId) return { status: 'error', message: 'Not authenticated' };
     if (!data?.conversationId) return { status: 'error', message: 'No conversationId' };
+
+    const isMember = await this.chatService?.isActiveMember(data.conversationId, client.data.userId);
+    if (!isMember) {
+      this.logger.warn(`💬 chat:join refused — ${client.data.userId} is not a member of ${data.conversationId}`);
+      return { status: 'error', message: 'Not a member of this conversation' };
+    }
+
     const room = ROOMS.chat(data.conversationId);
     client.join(room);
     this.logger.log(`💬 User ${client.data.userId} joined chat room ${room}`);

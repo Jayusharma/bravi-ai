@@ -18,7 +18,8 @@
       "Bash(xargs grep -l \"keyboard\\\\|hotkey\\\\|shortcut\")",
       "Bash(xargs grep -l \"notification\\\\|pushNotification\\\\|toast\")",
       "Bash(npx tsc *)",
-      "Bash(Sort-Object)"
+      "Bash(Sort-Object)",
+      "mcp__claude_ai_Postman__getWorkspaces"
     ]
   }
 }

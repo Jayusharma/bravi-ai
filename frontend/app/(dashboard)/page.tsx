@@ -143,9 +143,9 @@ export default async function DashboardPage() {
                                 <span className="metric-meta">Current active enquiries</span>
                             </div>
                             <div className="metric-tile">
-                                <span className="metric-label">Today intake</span>
-                                <strong className="metric-value">{formatCompactNumber(stats.totalToday)}</strong>
-                                <span className="metric-meta">Fresh demand since midnight</span>
+                                <span className="metric-label">This week</span>
+                                <strong className="metric-value">{formatCompactNumber(stats.kpis?.newThisWeek ?? 0)}</strong>
+                                <span className="metric-meta">New enquiries this week</span>
                             </div>
                             <div className="metric-tile">
                                 <span className="metric-label">Ownership</span>

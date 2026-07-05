@@ -5,6 +5,8 @@ import Link from 'next/link';
 import {
     getConversationThread,
     getConversations,
+    toggleMessageStar,
+    getStarredMessages,
     type ConversationThread,
     type EnquiryThread,
     type ThreadMessage,
@@ -162,6 +164,7 @@ interface ChatViewProps {
     onClearHighlight?: () => void;
     onBack?: () => void;
     onToggleDetail?: () => void;
+    showDetailPanel?: boolean;
 }
 
 const CHANNEL_LABELS: Record<string, { icon: string; label: string }> = {
@@ -399,11 +402,13 @@ function MessageActions({
     isOpen,
     onToggle,
     onForward,
+    onStar,
 }: {
     msg: ThreadMessage;
     isOpen: boolean;
     onToggle: () => void;
     onForward: () => void;
+    onStar: () => void;
 }) {
     const toast = useToast();
 
@@ -432,7 +437,7 @@ function MessageActions({
                 </svg>
             </button>
             {isOpen && (
-                <div className={styles.msgActionMenu} data-msg-menu onClick={(e) => e.stopPropagation()}>
+                <div className={`${styles.msgActionMenu} ${msg.direction === 'INBOUND' ? styles.msgActionMenuInbound : ''}`} data-msg-menu onClick={(e) => e.stopPropagation()}>
                     <button
                         type="button"
                         className={styles.msgActionItem}
@@ -488,16 +493,16 @@ function MessageActions({
                     </button>
                     <button
                         type="button"
-                        className={styles.msgActionItem}
+                        className={`${styles.msgActionItem} ${msg.isStarred ? 'text-amber-500' : ''}`}
                         onClick={() => {
-                            toast.info('Star feature is coming soon!');
+                            onStar();
                             onToggle();
                         }}
                     >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill={msg.isStarred ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                         </svg>
-                        Star
+                        {msg.isStarred ? 'Unstar' : 'Star'}
                     </button>
                     <div className={styles.msgActionDivider} />
                     <button
@@ -528,6 +533,7 @@ function EnquiryBlock({
     onImageClick,
     currentHighlightId,
     activeSearchQuery,
+    onStarMessage,
 }: {
     enq: EnquiryThread;
     contactId: string;
@@ -536,6 +542,7 @@ function EnquiryBlock({
     onImageClick?: (src: string, fileName: string) => void;
     currentHighlightId?: string | null;
     activeSearchQuery: string;
+    onStarMessage: (messageId: string) => void;
 }) {
     // Which message's action menu is open, and which message is being forwarded
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -598,7 +605,14 @@ function EnquiryBlock({
                                         </span>
                                     </div>
                                 )}
-                                <div className={`mx-6 my-2 bg-white dark:bg-[#162026] border border-slate-100 dark:border-zinc-800/60 rounded-2xl p-4.5 shadow-sm transition-all ${newMessageIds.has(msg.id) ? 'ring-2 ring-blue-500/20' : ''}`}>
+                                <div className={`relative mx-6 my-2 bg-white dark:bg-[#162026] border border-slate-100 dark:border-zinc-800/60 rounded-2xl p-4.5 shadow-sm transition-all ${newMessageIds.has(msg.id) ? 'ring-2 ring-blue-500/20' : ''} ${msg.isStarred ? 'border-amber-300 dark:border-amber-900/60 shadow-amber-500/5' : ''}`}>
+                                    {msg.isStarred && (
+                                        <div className="absolute top-4 right-10 z-10 text-amber-500">
+                                            <svg className="h-4 w-4 fill-current" viewBox="0 0 24 24">
+                                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                            </svg>
+                                        </div>
+                                    )}
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex items-center gap-3">
                                             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 text-xs font-bold text-slate-600 dark:text-slate-400">
@@ -618,6 +632,7 @@ function EnquiryBlock({
                                                 isOpen={openMenuId === msg.id}
                                                 onToggle={() => setOpenMenuId((cur) => (cur === msg.id ? null : msg.id))}
                                                 onForward={() => { setForwardSourceId(msg.id); setOpenMenuId(null); }}
+                                                onStar={() => onStarMessage(msg.id)}
                                             />
                                         </div>
                                     </div>
@@ -679,12 +694,20 @@ function EnquiryBlock({
                                         </div>
                                     )}
 
-                                    <div className={bubbleClass}>
+                                    <div className={msg.isStarred ? `${bubbleClass} border border-amber-300 dark:border-amber-900/60 shadow-amber-500/5 relative` : `${bubbleClass} relative`}>
+                                        {msg.isStarred && (
+                                            <div className="absolute top-1.5 right-2 z-10 text-amber-500 select-none pointer-events-none">
+                                                <svg className="h-3 w-3 fill-current" viewBox="0 0 24 24">
+                                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                                </svg>
+                                            </div>
+                                        )}
                                         <MessageActions
                                             msg={msg}
                                             isOpen={openMenuId === msg.id}
                                             onToggle={() => setOpenMenuId((cur) => (cur === msg.id ? null : msg.id))}
                                             onForward={() => { setForwardSourceId(msg.id); setOpenMenuId(null); }}
+                                            onStar={() => onStarMessage(msg.id)}
                                         />
 
                                         {msg.isDeleted ? (
@@ -707,7 +730,7 @@ function EnquiryBlock({
                                         {/* Timestamp & Ticks (floats absolutely) */}
                                         <div className={`${styles.msgFooterHover} ${styles.msgFooterVisible}`}>
                                             <span className={styles.msgTime}>{formatMsgTime(msg.createdAt)}</span>
-                                            {msg.editedAt && <span className="opacity-75 font-normal text-[8px]">edited</span>}
+                                            {msg.editedAt && <span className="opacity-75 font-normal text-[8px] ml-1">edited</span>}
                                             {!isInbound && (
                                                 <DeliveryTicks
                                                     status={msg.deliveryStatus}
@@ -755,6 +778,7 @@ export default function ChatView({
     onClearHighlight,
     onBack,
     onToggleDetail,
+    showDetailPanel,
 }: ChatViewProps) {
     const [thread, dispatch] = useReducer(threadReducer, null);
     const [loading, setLoading] = useState(true);
@@ -781,6 +805,89 @@ export default function ChatView({
     const [localSearchQuery, setLocalSearchQuery] = useState('');
     const [localSearchResults, setLocalSearchResults] = useState<any[]>([]);
     const [localSearchLoading, setLocalSearchLoading] = useState(false);
+
+    // Starring Messages Feature States & Callbacks
+    const toast = useToast();
+    const [starredPanelOpen, setStarredPanelOpen] = useState(false);
+    const [starredMessages, setStarredMessages] = useState<ThreadMessage[]>([]);
+    const [starredLoading, setStarredLoading] = useState(false);
+
+    // Sync contact detail drawer with starred messages drawer and search drawer (mutually exclusive)
+    useEffect(() => {
+        if (showDetailPanel) {
+            setStarredPanelOpen(false);
+            setShowSearchPanel(false);
+        }
+    }, [showDetailPanel]);
+
+    const loadStarredMessages = useCallback(async () => {
+        setStarredLoading(true);
+        try {
+            const data = await getStarredMessages(contactId);
+            setStarredMessages(data);
+        } catch (err) {
+            console.error('Failed to load starred messages:', err);
+        } finally {
+            setStarredLoading(false);
+        }
+    }, [contactId]);
+
+    // Re-load starred messages when panel is opened
+    useEffect(() => {
+        if (starredPanelOpen) {
+            loadStarredMessages();
+        }
+    }, [starredPanelOpen, loadStarredMessages]);
+
+    const handleToggleStar = async (messageId: string) => {
+        try {
+            const updated = await toggleMessageStar(messageId);
+            
+            // Eagerly update local thread messages state
+            setEnqStates(prev => {
+                const next = { ...prev };
+                let found = false;
+                for (const enquiryId of Object.keys(next)) {
+                    const enqState = next[enquiryId];
+                    const msgIndex = enqState.messages.findIndex(m => m.id === messageId);
+                    if (msgIndex !== -1) {
+                        const updatedMsgs = [...enqState.messages];
+                        updatedMsgs[msgIndex] = { ...updatedMsgs[msgIndex], isStarred: updated.isStarred };
+                        next[enquiryId] = { ...enqState, messages: updatedMsgs };
+                        found = true;
+                        break;
+                    }
+                }
+                return found ? next : prev;
+            });
+
+            // Update starred messages list if panel is open
+            if (starredPanelOpen) {
+                setStarredMessages(prev => {
+                    if (updated.isStarred) {
+                        // Find the message in enqStates to add to starredMessages list
+                        let messageToAdd: ThreadMessage | null = null;
+                        for (const enqState of Object.values(enqStates)) {
+                            const found = enqState.messages.find(m => m.id === messageId);
+                            if (found) {
+                                messageToAdd = { ...found, isStarred: true };
+                                break;
+                            }
+                        }
+                        if (messageToAdd) {
+                            return [messageToAdd, ...prev];
+                        }
+                    }
+                    return prev.filter(m => m.id !== messageId);
+                });
+            }
+
+            toast.success(updated.isStarred ? 'Message starred' : 'Message unstarred');
+        } catch (err) {
+            console.error('Failed to toggle star:', err);
+            toast.error('Error', 'Failed to update message star status');
+        }
+    };
     
     const bottomRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -801,6 +908,11 @@ export default function ChatView({
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }, 150);
+
+        // Automatically clear highlight after 2.5 seconds
+        setTimeout(() => {
+            setCurrentHighlightId(prev => prev === msgId ? null : prev);
+        }, 2500);
     }, []);
 
     // Load messages page-by-page until targeted message is found, then scroll and highlight
@@ -1294,6 +1406,31 @@ export default function ChatView({
             });
         };
 
+        const onMessageStarToggled = (payload: { contactId: string; messageId: string; isStarred: boolean }) => {
+            if (!mounted) return;
+            if (payload.contactId !== contactId) return;
+
+            setEnqStates(prev => {
+                const next = { ...prev };
+                let found = false;
+                for (const enquiryId of Object.keys(next)) {
+                    const enqState = next[enquiryId];
+                    const msgIndex = enqState.messages.findIndex(m => m.id === payload.messageId);
+                    if (msgIndex !== -1) {
+                        const updatedMsgs = [...enqState.messages];
+                        updatedMsgs[msgIndex] = { ...updatedMsgs[msgIndex], isStarred: payload.isStarred };
+                        next[enquiryId] = { ...enqState, messages: updatedMsgs };
+                        found = true;
+                        break;
+                    }
+                }
+                return found ? next : prev;
+            });
+
+            // If the starred messages drawer is currently showing the unstarred message, filter it out
+            setStarredMessages(prev => prev.filter(m => m.id !== payload.messageId));
+        };
+
         socket.on(SOCKET_EVENTS.MESSAGE_NEW, onNewMessage);
         socket.on(SOCKET_EVENTS.OUTBOUND_SENT, onOutboundSent);
         socket.on(SOCKET_EVENTS.OUTBOUND_DELIVERY_UPDATED, onDeliveryUpdated);
@@ -1301,6 +1438,7 @@ export default function ChatView({
         socket.on(SOCKET_EVENTS.MESSAGE_DELETED, onMessageDeleted);
         socket.on(SOCKET_EVENTS.MESSAGE_EDITED, onMessageEdited);
         socket.on(SOCKET_EVENTS.TYPING_UPDATE, onTypingUpdate);
+        socket.on(SOCKET_EVENTS.MESSAGE_STAR_TOGGLED, onMessageStarToggled);
 
         return () => {
             mounted = false;
@@ -1311,8 +1449,9 @@ export default function ChatView({
             socket.off(SOCKET_EVENTS.MESSAGE_DELETED, onMessageDeleted);
             socket.off(SOCKET_EVENTS.MESSAGE_EDITED, onMessageEdited);
             socket.off(SOCKET_EVENTS.TYPING_UPDATE, onTypingUpdate);
+            socket.off(SOCKET_EVENTS.MESSAGE_STAR_TOGGLED, onMessageStarToggled);
         };
-    }, [socket, contactId]);
+    }, [socket, contactId, starredPanelOpen]);
 
     // ── Auto-scroll calculation ──
     const totalMsgCount = useMemo(() => {
@@ -1460,9 +1599,55 @@ export default function ChatView({
 
                     {/* Right Side actions */}
                     <div className="flex items-center gap-2">
-                        {/* Star Button */}
-                        <button className="rounded-xl border border-slate-100 dark:border-zinc-800 p-2 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-all cursor-pointer shadow-sm">
+                        {/* Search Button */}
+                        <button 
+                            onClick={() => {
+                                setShowSearchPanel(prev => {
+                                    const next = !prev;
+                                    if (next) {
+                                        setStarredPanelOpen(false);
+                                        if (showDetailPanel && onToggleDetail) {
+                                            onToggleDetail(); // close ContactDetailPanel
+                                        }
+                                    }
+                                    return next;
+                                });
+                            }}
+                            className={`rounded-xl border p-2 transition-all cursor-pointer shadow-sm ${
+                                showSearchPanel 
+                                    ? 'border-blue-100 dark:border-blue-950 bg-blue-50 dark:bg-blue-950/20 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-950/40' 
+                                    : 'border-slate-100 dark:border-zinc-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800'
+                            }`}
+                            title="Search Messages"
+                        >
                             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                            </svg>
+                        </button>
+
+                        {/* Star Button */}
+                        <button 
+                            onClick={() => {
+                                setStarredPanelOpen(prev => {
+                                    const next = !prev;
+                                    if (next) {
+                                        setShowSearchPanel(false);
+                                        if (showDetailPanel && onToggleDetail) {
+                                            onToggleDetail(); // close ContactDetailPanel
+                                        }
+                                    }
+                                    return next;
+                                });
+                            }}
+                            className={`rounded-xl border p-2 transition-all cursor-pointer shadow-sm ${
+                                starredPanelOpen 
+                                    ? 'border-amber-100 dark:border-amber-950 bg-amber-50 dark:bg-amber-950/20 text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-950/40' 
+                                    : 'border-slate-100 dark:border-zinc-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800'
+                            }`}
+                            title="Starred Messages"
+                        >
+                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill={starredPanelOpen ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.5">
                                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                             </svg>
                         </button>
@@ -1562,6 +1747,7 @@ export default function ChatView({
                                     onImageClick={(src, name) => setLightbox({ src, fileName: name })}
                                     currentHighlightId={currentHighlightId}
                                     activeSearchQuery={localSearchQuery || highlightQuery || ''}
+                                    onStarMessage={handleToggleStar}
                                 />
                             ))
                         )}
@@ -1677,89 +1863,226 @@ export default function ChatView({
                 />
             </div>
 
-            {/* ── Right Search Panel ───────────────────────────── */}
-            {showSearchPanel && (
-                <div className={styles.chatSearchPanel}>
-                    <div className={styles.searchPanelHeader}>
-                        <h3>Search Messages</h3>
-                        <button
-                            className={styles.closeSearchBtn}
-                            onClick={() => {
-                                setShowSearchPanel(false);
-                                setLocalSearchQuery('');
-                                setLocalSearchResults([]);
-                                setCurrentHighlightId(null);
-                                onClearHighlight?.();
-                            }}
-                            title="Close search"
-                        >
-                            ✕
-                        </button>
-                    </div>
-                    <div className={styles.searchPanelBody}>
-                        <div className={styles.searchPanelInputWrapper}>
-                            <input
-                                type="text"
-                                className={styles.searchPanelInput}
-                                placeholder="Search in this chat..."
-                                value={localSearchQuery}
-                                onChange={(e) => setLocalSearchQuery(e.target.value)}
-                                autoFocus
-                            />
-                            {localSearchQuery && (
+            {/* ── Right-side Drawer (Search / Starred Messages) ── */}
+            <div 
+                className="h-full border-l border-slate-200 dark:border-zinc-800 bg-white dark:bg-[#111b21] flex flex-col shrink-0 overflow-hidden transition-all duration-300 ease-out select-none"
+                style={{ 
+                    width: (showSearchPanel || starredPanelOpen) ? '360px' : '0px', 
+                    borderLeftWidth: (showSearchPanel || starredPanelOpen) ? '1px' : '0px'
+                }}
+            >
+                <div className="w-[360px] h-full flex flex-col shrink-0 overflow-hidden relative">
+                    {showSearchPanel && (
+                        <div className="w-full h-full flex flex-col animate-in fade-in duration-200">
+                            {/* Search Panel Header */}
+                            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-slate-50/50 dark:bg-zinc-900/30">
+                                <h3 className="font-extrabold text-[15px] text-slate-800 dark:text-slate-200 tracking-tight">
+                                    Search Messages
+                                </h3>
                                 <button
-                                    className={styles.clearSearchBtn}
+                                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-all cursor-pointer text-xs"
                                     onClick={() => {
+                                        setShowSearchPanel(false);
                                         setLocalSearchQuery('');
                                         setLocalSearchResults([]);
                                         setCurrentHighlightId(null);
+                                        onClearHighlight?.();
                                     }}
+                                    title="Close search"
                                 >
                                     ✕
                                 </button>
-                            )}
-                        </div>
-                        {localSearchLoading ? (
-                            <div className={styles.searchPanelLoading}>Searching...</div>
-                        ) : localSearchQuery && localSearchResults.length === 0 ? (
-                            <div className={styles.searchPanelEmpty}>No messages found</div>
-                        ) : !localSearchQuery ? (
-                            <div className={styles.searchPanelInfo}>
-                                Search for messages inside this chat.
                             </div>
-                        ) : (
-                            <div className={styles.searchPanelResults}>
-                                {localSearchResults.map((msg) => (
-                                    <div
-                                        key={msg.id}
-                                        className={`${styles.searchResultItem} ${msg.id === currentHighlightId ? styles.searchResultItemActive : ''}`}
-                                        onClick={() => {
-                                            const channelToSet = msg.channel === 'EMAIL' ? 'EMAIL' : 'WHATSAPP';
-                                            if (channelToSet !== activeChannel) {
-                                                setActiveChannel(channelToSet);
-                                            }
-                                            loadAndHighlightMessage(msg.id, msg.enquiryId);
-                                        }}
-                                    >
-                                        <div className={styles.searchResultMeta}>
-                                            <span className={styles.searchResultSender}>
-                                                {msg.direction === 'INBOUND' ? contactName : (msg.sentByUser?.displayName || msg.sentByUser?.userName || 'Staff')}
-                                            </span>
-                                            <span className={styles.searchResultTime}>
-                                                {new Date(msg.createdAt).toLocaleDateString('en-IN', {
-                                                    day: '2-digit',
-                                                    month: 'short',
-                                                })}
-                                            </span>
-                                        </div>
-                                        <div className={styles.searchResultText}>{msg.content}</div>
+
+                            {/* Search Panel Body */}
+                            <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-[#111b21]">
+                                <div className="p-4 border-b border-slate-100 dark:border-zinc-800 shrink-0">
+                                    <div className="relative flex items-center bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-xl px-3 py-2">
+                                        <input
+                                            type="text"
+                                            className="w-full bg-transparent border-none text-[13px] text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none"
+                                            placeholder="Search in this chat..."
+                                            value={localSearchQuery}
+                                            onChange={(e) => setLocalSearchQuery(e.target.value)}
+                                            autoFocus
+                                        />
+                                        {localSearchQuery && (
+                                            <button
+                                                className="ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                                onClick={() => {
+                                                    setLocalSearchQuery('');
+                                                    setLocalSearchResults([]);
+                                                    setCurrentHighlightId(null);
+                                                }}
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
                                     </div>
-                                ))}
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5 custom-scrollbar">
+                                    {localSearchLoading ? (
+                                        <div className="h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                                            Searching...
+                                        </div>
+                                    ) : localSearchQuery && localSearchResults.length === 0 ? (
+                                        <div className="h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                                            No messages found
+                                        </div>
+                                    ) : !localSearchQuery ? (
+                                        <div className="h-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs font-medium text-center px-6">
+                                            Search for messages inside this chat.
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {localSearchResults.map((msg) => (
+                                                <div
+                                                    key={msg.id}
+                                                    className={`group relative bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-50 dark:hover:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800/80 rounded-2xl p-4 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md flex flex-col gap-2.5 ${msg.id === currentHighlightId ? 'ring-2 ring-blue-500/20' : ''}`}
+                                                    onClick={() => {
+                                                        const channelToSet = msg.channel === 'EMAIL' ? 'EMAIL' : 'WHATSAPP';
+                                                        if (channelToSet !== activeChannel) {
+                                                            setActiveChannel(channelToSet);
+                                                        }
+                                                        void loadAndHighlightMessage(msg.id, msg.enquiryId || '');
+                                                    }}
+                                                >
+                                                    <div className="flex items-center justify-between select-none">
+                                                        <span className="font-bold text-[12px] text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                                                            {msg.direction === 'INBOUND' ? contactName : (msg.sentByUser?.displayName || msg.sentByUser?.userName || 'Staff')}
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                                                            {new Date(msg.createdAt).toLocaleDateString('en-IN', {
+                                                                day: '2-digit',
+                                                                month: 'short',
+                                                            })}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-[12.5px] leading-relaxed text-slate-600 dark:text-slate-300 line-clamp-4 break-words">{msg.content}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
+
+                    {starredPanelOpen && (
+                        <div className="w-full h-full flex flex-col animate-in fade-in duration-200">
+                            {/* Header */}
+                            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-slate-50/50 dark:bg-zinc-900/30">
+                                <div className="flex items-center gap-2">
+                                    <svg className="h-4.5 w-4.5 text-amber-500 fill-amber-500" viewBox="0 0 24 24">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                    </svg>
+                                    <h3 className="font-extrabold text-[15px] text-slate-800 dark:text-slate-200 tracking-tight">
+                                        Starred Messages
+                                    </h3>
+                                </div>
+                                <button
+                                    onClick={() => setStarredPanelOpen(false)}
+                                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-all cursor-pointer"
+                                >
+                                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            {/* Content List */}
+                            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5 custom-scrollbar">
+                                {starredLoading ? (
+                                    <div className="h-full flex items-center justify-center flex-col text-slate-400 dark:text-slate-500 gap-2">
+                                        <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                                        <span className="text-xs font-semibold">Loading starred messages...</span>
+                                    </div>
+                                ) : starredMessages.length === 0 ? (
+                                    <div className="h-full flex items-center justify-center flex-col text-slate-400 dark:text-slate-500 px-6 text-center select-none py-12">
+                                        <div className="h-12 w-12 rounded-full bg-slate-50 dark:bg-zinc-900 flex items-center justify-center text-[22px] mb-3 border border-slate-100 dark:border-zinc-800/50 shadow-inner">
+                                            ⭐
+                                        </div>
+                                        <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm">No Starred Messages</h4>
+                                        <p className="text-[11.5px] mt-1.5 leading-relaxed max-w-[220px]">
+                                            Hover over any message bubble and click the option menu to star important messages.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    starredMessages.map((msg) => {
+                                        const senderName = msg.direction === 'INBOUND' 
+                                            ? contactName 
+                                            : (msg.sentByUser?.displayName || msg.sentByUser?.userName || 'Staff');
+                                        const isWhatsApp = msg.channel === 'WHATSAPP';
+
+                                        return (
+                                            <div 
+                                                key={msg.id}
+                                                className="group relative bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-50 dark:hover:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800/80 rounded-2xl p-4 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md flex flex-col gap-2.5"
+                                                onClick={() => {
+                                                    void loadAndHighlightMessage(msg.id, msg.enquiryId || '');
+                                                }}
+                                            >
+                                                {/* Meta row */}
+                                                <div className="flex items-center justify-between select-none">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="h-6 w-6 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-zinc-800 dark:to-zinc-700 text-slate-600 dark:text-zinc-300 font-bold text-[9px] flex items-center justify-center shadow-sm shrink-0">
+                                                            {senderName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <span className="font-bold text-[12px] text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                                                            {senderName}
+                                                        </span>
+                                                        {isWhatsApp ? (
+                                                            <span className="text-[10px] text-emerald-500 font-extrabold flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100/30">
+                                                                <WhatsAppIcon className="h-3 w-3 shrink-0" />
+                                                                WA
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[10px] text-indigo-500 font-extrabold flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100/30">
+                                                                <EmailIcon className="h-3 w-3 shrink-0" />
+                                                                Gmail
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex items-center gap-1.5 shrink-0">
+                                                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                                                            {new Date(msg.createdAt).toLocaleDateString('en-IN', {
+                                                                day: '2-digit',
+                                                                month: 'short',
+                                                                hour: '2-digit',
+                                                                minute: '2-digit',
+                                                                hour12: true
+                                                            })}
+                                                        </span>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                void handleToggleStar(msg.id);
+                                                            }}
+                                                            className="p-1 rounded-md text-slate-300 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
+                                                            title="Unstar message"
+                                                        >
+                                                            <svg className="h-3.5 w-3.5 fill-current" viewBox="0 0 24 24">
+                                                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Body */}
+                                                <div className="text-[12.5px] leading-relaxed text-slate-600 dark:text-slate-300 line-clamp-4 break-words">
+                                                    {msg.content}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
-            )}
+            </div>
 
             {/* Image lightbox */}
             {lightbox && (

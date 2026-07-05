@@ -8,6 +8,7 @@ import {
   Req,
   Get,
   Query,
+  Delete,
 } from '@nestjs/common';
 import { EnquiryService } from './enquiry.service';
 import {
@@ -147,5 +148,23 @@ export class EnquiryController {
     @Req() req: Request,
   ) {
     return this.enquiryService.addNote(id, dto, req.user!.userId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DELETE /enquiry/:id — Delete single enquiry
+  // ═══════════════════════════════════════════════════════════════════
+  @Delete(':id')
+  @CheckAbility({ action: 'delete', subject: 'enquiry' })
+  remove(@Param('id') id: string) {
+    return this.enquiryService.remove(id);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POST /enquiry/bulk-delete — Delete multiple enquiries
+  // ═══════════════════════════════════════════════════════════════════
+  @Post('bulk-delete')
+  @CheckAbility({ action: 'delete', subject: 'enquiry' })
+  bulkDelete(@Body() body: { ids: string[] }) {
+    return this.enquiryService.bulkDelete(body.ids);
   }
 }

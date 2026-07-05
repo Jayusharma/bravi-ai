@@ -213,6 +213,7 @@ export async function apiClient<T = unknown>(
             logSuccess(method, url, res.status, durationMs);
 
             const json = await res.json();
+            console.log(`[API RESPONSE] ${method} ${url}:`, json);
 
             // Unwrap standardized { success, data } envelope
             if (json && typeof json === 'object' && 'success' in json && 'data' in json) {

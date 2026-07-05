@@ -105,6 +105,18 @@ export class EnquiryService {
           assignedTo: {
             select: { id: true, displayName: true, userName: true },
           },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              content: true,
+              direction: true,
+              from: true,
+              sentByUser: {
+                select: { displayName: true, userName: true },
+              },
+            },
+          },
           _count: { select: { messages: true, notes: true } },
         },
         orderBy: { [orderField]: sortOrder },
@@ -115,33 +127,47 @@ export class EnquiryService {
     ]);
 
     // Flatten for the frontend: extract name/email/phone from contact
-    const flatItems = items.map((e) => ({
-      id: e.id,
-      type: e.type,
-      status: e.status,
-      tags: e.tags,
-      intent: e.intent,
-      urgency: e.urgency,
-      priority: e.priority,
-      version: e.version,
-      createdAt: e.createdAt,
-      updatedAt: e.updatedAt,
-      lastActivityAt: e.lastActivityAt,
-      lastCustomerReplyAt: e.lastCustomerReplyAt,
-      // Flatten contact info
-      contactId: e.contactId,
-      name: e.contact?.displayName || 'Unknown',
-      email: e.contact?.channels?.find((c) => c.channel === 'EMAIL')?.identifier || null,
-      phone: e.contact?.channels?.find((c) => c.channel === 'WHATSAPP')?.identifier
-        || e.contact?.channels?.find((c) => c.channel === 'SMS')?.identifier
-        || null,
-      source: e.contact?.channels?.[0]?.channel || 'MANUAL',
-      // Assignment
-      assignedTo: e.assignedTo,
-      // Counts
-      messageCount: e._count.messages,
-      noteCount: e._count.notes,
-    }));
+    const flatItems = items.map((e) => {
+      const lastMsg = e.messages?.[0] || null;
+      const lastMsgSender = lastMsg?.direction === 'OUTBOUND'
+        ? (lastMsg.sentByUser?.displayName || lastMsg.sentByUser?.userName || 'You')
+        : (e.contact?.displayName || 'Customer');
+      const lastMsgPreview = lastMsg?.content
+        ? lastMsg.content.slice(0, 60) + (lastMsg.content.length > 60 ? '...' : '')
+        : null;
+
+      return {
+        id: e.id,
+        type: e.type,
+        status: e.status,
+        tags: e.tags,
+        intent: e.intent,
+        urgency: e.urgency,
+        priority: e.priority,
+        version: e.version,
+        createdAt: e.createdAt,
+        updatedAt: e.updatedAt,
+        lastActivityAt: e.lastActivityAt,
+        lastCustomerReplyAt: e.lastCustomerReplyAt,
+        // Flatten contact info
+        contactId: e.contactId,
+        name: e.contact?.displayName || 'Unknown',
+        company: e.contact?.organization || null,
+        email: e.contact?.channels?.find((c) => c.channel === 'EMAIL')?.identifier || null,
+        phone: e.contact?.channels?.find((c) => c.channel === 'WHATSAPP')?.identifier
+          || e.contact?.channels?.find((c) => c.channel === 'SMS')?.identifier
+          || null,
+        source: e.contact?.channels?.[0]?.channel || 'MANUAL',
+        // Assignment
+        assignedTo: e.assignedTo,
+        // Counts
+        messageCount: e._count.messages,
+        noteCount: e._count.notes,
+        // Last message preview
+        lastMessagePreview: lastMsgPreview,
+        lastMessageSender: lastMsgSender,
+      };
+    });
 
     return {
       items: flatItems,
@@ -793,22 +819,71 @@ export class EnquiryService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // STATS — Dashboard KPIs
+  // STATS — Enquiry page KPIs, overview, and source breakdown
   // ═══════════════════════════════════════════════════════════════════
 
   async getStats() {
-    const [statusCounts, totalToday, unassigned] = await Promise.all([
+    const now = new Date();
+
+    // Start of current week (Monday)
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    // Start of current month
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Start of last month
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+    const [
+      statusCounts,
+      newThisWeek,
+      thisMonthCount,
+      lastMonthCount,
+      sourceCounts,
+      unassigned,
+    ] = await Promise.all([
+      // 1. Count by status
       this.prisma.enquiry.groupBy({
         by: ['status'],
         _count: { id: true },
       }),
+
+      // 2. New this week
+      this.prisma.enquiry.count({
+        where: { createdAt: { gte: startOfWeek } },
+      }),
+
+      // 3. This month total
+      this.prisma.enquiry.count({
+        where: { createdAt: { gte: startOfMonth } },
+      }),
+
+      // 4. Last month total
       this.prisma.enquiry.count({
         where: {
-          createdAt: {
-            gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          },
+          createdAt: { gte: startOfLastMonth, lte: endOfLastMonth },
         },
       }),
+
+      // 5. Source breakdown — count contacts by their primary channel
+      this.prisma.$queryRaw<Array<{ channel: string; count: bigint }>>`
+        SELECT cc."channel", COUNT(DISTINCT e."id") as count
+        FROM "Enquiry" e
+        JOIN "Contact" c ON e."contactId" = c."id"
+        JOIN "ContactChannel" cc ON cc."contactId" = c."id"
+        WHERE cc."isPrimary" = true OR cc."id" = (
+          SELECT cc2."id" FROM "ContactChannel" cc2
+          WHERE cc2."contactId" = c."id"
+          ORDER BY cc2."createdAt" ASC LIMIT 1
+        )
+        GROUP BY cc."channel"
+        ORDER BY count DESC
+      `,
+
+      // 6. Unassigned
       this.prisma.enquiry.count({
         where: {
           assignedToId: null,
@@ -823,9 +898,42 @@ export class EnquiryService {
       byStatus[row.status] = row._count.id;
     });
 
+    const totalAll = Object.values(byStatus).reduce((a, b) => a + b, 0);
+
+    // Month-over-month change
+    const changeVsLastMonth = lastMonthCount > 0
+      ? Math.round(((thisMonthCount - lastMonthCount) / lastMonthCount) * 100)
+      : thisMonthCount > 0 ? 100 : 0;
+
+    // Source breakdown with percentages
+    const totalSourced = sourceCounts.reduce((a, b) => a + Number(b.count), 0);
+    const sourceBreakdown = sourceCounts.map((s) => ({
+      source: s.channel,
+      count: Number(s.count),
+      percentage: totalSourced > 0 ? Math.round((Number(s.count) / totalSourced) * 100) : 0,
+    }));
+
     return {
+      // KPI cards
+      kpis: {
+        all: totalAll,
+        new: byStatus.NEW || 0,
+        inProgress: (byStatus.IN_PROGRESS || 0) + (byStatus.OPEN || 0),
+        followUp: byStatus.FOLLOW_UP || 0,
+        converted: byStatus.CONVERTED || 0,
+        closedLost: byStatus.CLOSED_LOST || 0,
+        newThisWeek,
+      },
+      // Donut chart data
+      overview: {
+        total: totalAll,
+        byStatus,
+        changeVsLastMonth,
+      },
+      // Source bars
+      sourceBreakdown,
+      // Legacy fields for backward compat
       byStatus,
-      totalToday,
       unassigned,
       totalOpen:
         (byStatus.NEW || 0) +
@@ -959,6 +1067,37 @@ export class EnquiryService {
       contactId,
       enquiryId: enquiry.id,
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DELETE — Delete single enquiry
+  // ═══════════════════════════════════════════════════════════════════
+  async remove(id: string) {
+    const enquiry = await this.prisma.enquiry.findUnique({
+      where: { id },
+    });
+    if (!enquiry) {
+      throw new NotFoundException(`Enquiry ${id} not found`);
+    }
+    await this.prisma.enquiry.delete({
+      where: { id },
+    });
+    this.logger.log(`🗑️ Enquiry ${id} deleted`);
+    return { success: true };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BULK DELETE — Delete multiple enquiries
+  // ═══════════════════════════════════════════════════════════════════
+  async bulkDelete(ids: string[]) {
+    if (!ids || ids.length === 0) {
+      throw new BadRequestException('No enquiry IDs provided');
+    }
+    const result = await this.prisma.enquiry.deleteMany({
+      where: { id: { in: ids } },
+    });
+    this.logger.log(`🗑️ Bulk deleted ${result.count} enquiries`);
+    return { success: true, count: result.count };
   }
 
   // ═══════════════════════════════════════════════════════════════════

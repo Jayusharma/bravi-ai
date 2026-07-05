@@ -42,6 +42,7 @@ export type MessageAttachment = {
 
 export type ThreadMessage = {
   id: string;
+  enquiryId?: string;
   content: string;
   direction: string;
   channel: string;
@@ -56,6 +57,7 @@ export type ThreadMessage = {
   reactions?: { emoji: string; count: number; userId?: string }[];
   attachments?: MessageAttachment[];
   tempId?: string;
+  isStarred?: boolean;
 };
 
 export type EnquiryThread = {
@@ -252,4 +254,14 @@ export async function forwardMessage(
     method: 'POST',
     body: { targetEnquiryId },
   });
+}
+
+export async function toggleMessageStar(messageId: string): Promise<ThreadMessage> {
+  return apiClient<ThreadMessage>(API.CONVERSATION.STAR(messageId), {
+    method: 'PATCH',
+  });
+}
+
+export async function getStarredMessages(contactId: string): Promise<ThreadMessage[]> {
+  return apiClient<ThreadMessage[]>(API.CONVERSATION.STARRED(contactId));
 }

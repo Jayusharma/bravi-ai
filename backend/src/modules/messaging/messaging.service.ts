@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from 'src/database/prisma.service';
 /**
  * READ-ONLY service for the chat view.
@@ -18,7 +19,10 @@ import { PrismaService } from 'src/database/prisma.service';
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) { }
   // ═══════════════════════════════════════════════════════════════
   // LIST CONVERSATIONS
   //
@@ -268,4 +272,61 @@ export class ConversationService {
     };
   }
 
+  async toggleMessageStar(messageId: string) {
+    const msg = await this.prisma.conversationMessage.findUnique({
+      where: { id: messageId },
+      include: {
+        enquiry: {
+          select: { contactId: true }
+        }
+      }
+    });
+
+    if (!msg) {
+      throw new NotFoundException(`Message "${messageId}" not found`);
+    }
+
+    const updated = await this.prisma.conversationMessage.update({
+      where: { id: messageId },
+      data: { isStarred: !msg.isStarred },
+    });
+
+    this.eventEmitter.emit('message.star.toggled', {
+      contactId: msg.enquiry.contactId,
+      messageId: msg.id,
+      isStarred: updated.isStarred,
+    });
+
+    return updated;
+  }
+
+  async getStarredMessages(contactId: string) {
+    return this.prisma.conversationMessage.findMany({
+      where: {
+        isStarred: true,
+        enquiry: {
+          contactId,
+        },
+      },
+      include: {
+        sentByUser: {
+          select: { id: true, displayName: true, userName: true },
+        },
+        attachments: {
+          select: {
+            id: true,
+            kind: true,
+            fileName: true,
+            mimeType: true,
+            fileSize: true,
+            cdnUrl: true,
+            width: true,
+            height: true,
+            durationMs: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 }

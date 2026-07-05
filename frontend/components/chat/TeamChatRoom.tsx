@@ -1,14 +1,14 @@
 'use client';
 
-// TeamChatRoom — the single org-wide internal chat room.
-// Now loads the real room + message history from the backend.
-// Sending / real-time delivery still land in later steps (composer stays local).
+// TeamChatRoom — the open channel/DM (center pane of the Discord-style layout).
+// Generalized: takes a conversationId prop; ChatShell remounts it per conversation.
+// Tabs: Messages (live thread) | Files (attachment gallery) | Pinned (pin list).
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChatComposer } from './ChatComposer';
 import { useSocket } from '@/contexts/SocketContext';
 import {
-  getChatRoom,
+  getChatRoomMeta,
   getChatMessages,
   getChatMessagesAround,
   getChatMessagesNewer,
@@ -18,18 +18,25 @@ import {
   editChatMessage,
   deleteChatMessage,
   getPinnedMessages,
+  getStarredMessages,
+  toggleChatReaction,
   type ChatRoom,
   type ChatMessage,
   type ChatReceipts,
+  type ChatReaction,
+  type ChatAttachmentDescriptor,
 } from '@/services/chat/chat.service';
 import { useAuthStore } from '@/stores/auth-store';
 import { getSocket, joinChatRoom, leaveChatRoom } from '@/lib/socket';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
 import { DeliveryTicks } from '@/components/messaging/chat/DeliveryTicks';
-import { MembersSidebar } from './MembersSidebar';
 import { SearchSidebar } from './SearchSidebar';
+import { ReactionBar, QUICK_EMOJIS } from './ReactionBar';
+import { ChannelFilesTab } from './ChannelFilesTab';
 import { highlightKeyword } from './highlight';
 import styles from '@/styles/TeamChat.module.css';
+
+type RoomTab = 'messages' | 'files' | 'starred';
 
 const EMPTY_RECEIPTS: ChatReceipts = { deliveredUpTo: null, readUpTo: null };
 
@@ -47,17 +54,24 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function TeamChatRoom() {
+interface TeamChatRoomProps {
+  /** Which channel/DM to show — ChatShell remounts this component per conversation (key). */
+  conversationId: string;
+  /** Opens/closes the right-hand Channel Details panel. */
+  onOpenDetails?: () => void;
+}
+
+export function TeamChatRoom({ conversationId, onOpenDetails }: TeamChatRoomProps) {
   const currentUser = useAuthStore((s) => s.user);
   const currentUserId = currentUser?.id ?? null;
-  const { setChatActive, clearChatUnread } = useSocket();
+  const { setActiveChatConversation } = useSocket();
 
   const [room, setRoom] = useState<ChatRoom | null>(null);
+  const [activeTab, setActiveTab] = useState<RoomTab>('messages');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [receipts, setReceipts] = useState<ChatReceipts>(EMPTY_RECEIPTS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showMembers, setShowMembers] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
   const [highlightTerm, setHighlightTerm] = useState<string | null>(null);
@@ -66,6 +80,7 @@ export function TeamChatRoom() {
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [pinnedMessages, setPinnedMessages] = useState<ChatMessage[]>([]);
+  const [starredMessages, setStarredMessages] = useState<ChatMessage[]>([]);
   const [activePinnedIndex, setActivePinnedIndex] = useState<number>(0);
   const [deleteTargetMessage, setDeleteTargetMessage] = useState<ChatMessage | null>(null);
 
@@ -90,7 +105,7 @@ export function TeamChatRoom() {
   // Mirror isAnchored into a ref so the socket callback reads the latest value.
   useEffect(() => { isAnchoredRef.current = isAnchored; }, [isAnchored]);
 
-  // Fetch pinned messages
+  // Fetch pinned messages (thread banner)
   const fetchPinned = useCallback(async () => {
     if (!room) return;
     try {
@@ -101,11 +116,23 @@ export function TeamChatRoom() {
     }
   }, [room]);
 
+  // Fetch starred messages (the Starred tab)
+  const fetchStarred = useCallback(async () => {
+    if (!room) return;
+    try {
+      const starred = await getStarredMessages(room.id);
+      setStarredMessages(starred);
+    } catch (err) {
+      console.error('Failed to load starred messages:', err);
+    }
+  }, [room]);
+
   useEffect(() => {
     if (room) {
       fetchPinned();
+      fetchStarred();
     }
-  }, [room, fetchPinned]);
+  }, [room, fetchPinned, fetchStarred]);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -123,14 +150,15 @@ export function TeamChatRoom() {
     return () => document.removeEventListener('click', handleGlobalClick);
   }, []);
 
-  // Load room + first page of history on mount.
+  // Load THIS conversation's metadata + first page of history on mount.
+  // (ChatShell remounts us via key when the conversation changes.)
   useEffect(() => {
     let active = true;
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const r = await getChatRoom();
+        const r = await getChatRoomMeta(conversationId);
         if (!active) return;
         setRoom(r);
         setReceipts(r.receipts ?? EMPTY_RECEIPTS);
@@ -178,14 +206,13 @@ export function TeamChatRoom() {
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [conversationId]);
 
-  // Viewing the chat clears the sidebar badge and suppresses further increments.
+  // Viewing this conversation zeroes ITS badge and suppresses further increments.
   useEffect(() => {
-    setChatActive(true);
-    clearChatUnread();
-    return () => setChatActive(false);
-  }, [setChatActive, clearChatUnread]);
+    setActiveChatConversation(conversationId);
+    return () => setActiveChatConversation(null);
+  }, [conversationId, setActiveChatConversation]);
 
   // First unread message (from the boundary captured at load) → where the divider goes.
   const firstUnreadId = useMemo(() => {
@@ -251,6 +278,12 @@ export function TeamChatRoom() {
       setMessages((prev) =>
         prev.map((m) => (m.id === data.messageId ? { ...m, isStarred: data.isStarred } : m))
       );
+      // Keep the Starred tab in sync: unstar drops it; star refetches (needs hydration)
+      if (data.isStarred) {
+        fetchStarred();
+      } else {
+        setStarredMessages((prev) => prev.filter((s) => s.id !== data.messageId));
+      }
     };
 
     const onMessageEdited = (data: { conversationId: string; messageId: string; content: string; editedAt: string }) => {
@@ -261,6 +294,9 @@ export function TeamChatRoom() {
       setPinnedMessages((prev) =>
         prev.map((p) => (p.id === data.messageId ? { ...p, content: data.content, editedAt: data.editedAt } : p))
       );
+      setStarredMessages((prev) =>
+        prev.map((s) => (s.id === data.messageId ? { ...s, content: data.content, editedAt: data.editedAt } : s))
+      );
     };
 
     const onMessageDeleted = (data: { conversationId: string; messageId: string; isDeleted: boolean }) => {
@@ -269,7 +305,21 @@ export function TeamChatRoom() {
         prev.map((m) => (m.id === data.messageId ? { ...m, isDeleted: true, content: 'This message was deleted' } : m))
       );
       setPinnedMessages((prev) => prev.filter((p) => p.id !== data.messageId));
+      setStarredMessages((prev) => prev.filter((s) => s.id !== data.messageId));
       setActivePinnedIndex(0);
+    };
+
+    // Reaction toggled by anyone (incl. our other tabs) → patch that message's raw rows.
+    const onMessageReacted = (data: { conversationId: string; messageId: string; userId: string; emoji: string; added: boolean }) => {
+      if (data.conversationId !== roomId) return;
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== data.messageId) return m;
+          const without = (m.reactions ?? []).filter((r) => !(r.userId === data.userId && r.emoji === data.emoji));
+          const next: ChatReaction[] = data.added ? [...without, { userId: data.userId, emoji: data.emoji }] : without;
+          return { ...m, reactions: next };
+        }),
+      );
     };
 
     joinChatRoom(roomId);
@@ -282,6 +332,7 @@ export function TeamChatRoom() {
       sock.on(SOCKET_EVENTS.CHAT_MESSAGE_STARRED, onMessageStarred);
       sock.on(SOCKET_EVENTS.CHAT_MESSAGE_EDITED, onMessageEdited);
       sock.on(SOCKET_EVENTS.CHAT_MESSAGE_DELETED, onMessageDeleted);
+      sock.on(SOCKET_EVENTS.CHAT_MESSAGE_REACTED, onMessageReacted);
       markRead(); // opening the room reads everything currently in it
     });
 
@@ -293,9 +344,38 @@ export function TeamChatRoom() {
       socketRef?.off(SOCKET_EVENTS.CHAT_MESSAGE_STARRED, onMessageStarred);
       socketRef?.off(SOCKET_EVENTS.CHAT_MESSAGE_EDITED, onMessageEdited);
       socketRef?.off(SOCKET_EVENTS.CHAT_MESSAGE_DELETED, onMessageDeleted);
+      socketRef?.off(SOCKET_EVENTS.CHAT_MESSAGE_REACTED, onMessageReacted);
       leaveChatRoom(roomId);
     };
-  }, [room, currentUserId, fetchPinned]);
+  }, [room, currentUserId, fetchPinned, fetchStarred]);
+
+  // Toggle my reaction — optimistic flip, server + socket reconcile.
+  const handleToggleReaction = useCallback(
+    async (msg: ChatMessage, emoji: string) => {
+      if (!room || !currentUserId) return;
+      const mineAlready = (msg.reactions ?? []).some((r) => r.userId === currentUserId && r.emoji === emoji);
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== msg.id) return m;
+          const without = (m.reactions ?? []).filter((r) => !(r.userId === currentUserId && r.emoji === emoji));
+          return { ...m, reactions: mineAlready ? without : [...without, { userId: currentUserId, emoji }] };
+        }),
+      );
+      try {
+        await toggleChatReaction(room.id, msg.id, emoji);
+      } catch {
+        // Revert on failure (rare) — flip back
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== msg.id) return m;
+            const without = (m.reactions ?? []).filter((r) => !(r.userId === currentUserId && r.emoji === emoji));
+            return { ...m, reactions: mineAlready ? [...without, { userId: currentUserId, emoji }] : without };
+          }),
+        );
+      }
+    },
+    [room, currentUserId],
+  );
 
   // Pin to newest. Only auto-scroll when the user is already at the bottom,
   // so incoming messages don't yank them away while they're reading history.
@@ -444,8 +524,9 @@ export function TeamChatRoom() {
   }, []);
 
   // Optimistic send: show the message immediately, then reconcile with the server.
+  // Attachments were already uploaded by the composer — we get their descriptors.
   const handleSend = useCallback(
-    async (content: string) => {
+    async (content: string, attachmentDescriptors: ChatAttachmentDescriptor[] = []) => {
       if (!room || !currentUser) return;
 
       if (editingMessage) {
@@ -488,8 +569,17 @@ export function TeamChatRoom() {
           displayName: currentUser.displayName,
           userName: currentUser.userName,
         },
-        attachments: [],
+        // Preview the already-uploaded files instantly (temp ids; server rows replace them)
+        attachments: attachmentDescriptors.map((d, i) => ({
+          id: `temp-${tempId}-${i}`,
+          kind: d.kind,
+          fileName: d.fileName,
+          mimeType: d.mimeType,
+          fileSize: d.fileSize,
+          cdnUrl: d.cdnUrl,
+        })),
         enquiry: null,
+        reactions: [],
         pending: true,
         parentMessageId: parentId || null,
         parentMessage: originalReplyMsg || null,
@@ -500,7 +590,7 @@ export function TeamChatRoom() {
       setMessages((prev) => [...prev, optimistic]);
 
       try {
-        const saved = await sendChatMessage(room.id, content, parentId);
+        const saved = await sendChatMessage(room.id, content, parentId, attachmentDescriptors.length ? attachmentDescriptors : undefined);
         // Replace the optimistic row with the persisted message.
         setMessages((prev) => prev.map((m) => (m.tempId === tempId ? saved : m)));
       } catch {
@@ -513,24 +603,50 @@ export function TeamChatRoom() {
     [room, currentUser, editingMessage, replyingTo],
   );
 
+  const isDm = room?.type === 'DIRECT';
+
   return (
     <div className={styles.room}>
-      {/* ── Header ── */}
+      {/* ── Header: identity + tabs + actions ── */}
       <div className={styles.header}>
-        <div className={styles.headerAvatar}>TC</div>
+        <div className={styles.headerAvatar}>{isDm ? (room?.name ?? '?').charAt(0).toUpperCase() : '#'}</div>
         <div className={styles.headerInfo}>
-          <p className={styles.headerTitle}>{room?.name ?? 'Team Chat'}</p>
+          <p className={styles.headerTitle}>{isDm ? room?.name : room?.name ? `# ${room.name}` : 'Loading…'}</p>
           <p className={styles.headerSubtitle}>
-            <span className={styles.presenceDot} />
-            {room ? `${room.memberCount} member${room.memberCount === 1 ? '' : 's'}` : 'Internal · everyone'}
+            {room?.description
+              ? room.description
+              : room
+                ? `${room.memberCount} member${room.memberCount === 1 ? '' : 's'}`
+                : ''}
           </p>
         </div>
+
+        {/* Tabs: Messages | Files | Starred (pins live in the thread banner, not a tab) */}
+        <div className="mx-3 flex items-center gap-1">
+          {([['messages', 'Messages'], ['files', 'Files'], ['starred', 'Starred']] as [RoomTab, string][]).map(([tab, label]) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors cursor-pointer ${
+                activeTab === tab
+                  ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+              }`}
+            >
+              {label}
+              {tab === 'starred' && starredMessages.length > 0 && (
+                <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] font-bold">{starredMessages.length}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
         <div className={styles.headerActions}>
           <button
             className={styles.headerIconBtn}
             title="Search"
             aria-label="Search messages"
-            onClick={() => { setShowMembers(false); setShowSearch((p) => !p); }}
+            onClick={() => setShowSearch((p) => !p)}
           >
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="8" />
@@ -539,21 +655,65 @@ export function TeamChatRoom() {
           </button>
           <button
             className={styles.headerIconBtn}
-            title="Members"
-            aria-label="View members"
-            onClick={() => { setShowSearch(false); setShowMembers((p) => !p); }}
+            title="Channel details"
+            aria-label="Channel details"
+            onClick={() => onOpenDetails?.()}
           >
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4M12 8h.01" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* ── Pinned Banner ── */}
-      {pinnedMessages.length > 0 && (
+      {/* ── Files tab ── */}
+      {activeTab === 'files' && <ChannelFilesTab conversationId={conversationId} />}
+
+      {/* ── Starred tab: your saved messages, click to jump, unstar inline ── */}
+      {activeTab === 'starred' && (
+        <div className="flex-1 overflow-y-auto p-4">
+          {starredMessages.length === 0 ? (
+            <p className="p-10 text-center text-sm text-muted-foreground">No starred messages in this channel yet. Star one from its message menu.</p>
+          ) : (
+            <div className="space-y-2">
+              {starredMessages.map((s) => (
+                <div key={s.id} className="group flex items-start gap-3 rounded-xl border border-border/40 bg-card/60 px-3 py-2.5">
+                  <span className="mt-0.5 shrink-0 text-amber-500">★</span>
+                  <button
+                    className="min-w-0 flex-1 text-left cursor-pointer"
+                    onClick={() => { setActiveTab('messages'); handleSelectSearchResult(s.id, ''); }}
+                    title="Jump to message"
+                  >
+                    <span className="block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                      {s.sender.displayName || s.sender.userName} · {formatTime(s.createdAt)}
+                    </span>
+                    <span className="mt-0.5 block truncate text-sm">{s.content}</span>
+                  </button>
+                  <button
+                    className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 cursor-pointer"
+                    title="Unstar"
+                    aria-label="Unstar message"
+                    onClick={async () => {
+                      if (!room) return;
+                      try {
+                        await starChatMessage(room.id, s.id);
+                        setStarredMessages((prev) => prev.filter((x) => x.id !== s.id));
+                        setMessages((prev) => prev.map((m) => (m.id === s.id ? { ...m, isStarred: false } : m)));
+                      } catch { /* ignore */ }
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Pinned Banner (messages tab) ── */}
+      {activeTab === 'messages' && pinnedMessages.length > 0 && (
         <div 
           className={styles.pinnedBanner}
           onClick={() => {
@@ -606,7 +766,8 @@ export function TeamChatRoom() {
         </div>
       )}
 
-      {/* ── Message list ── */}
+      {/* ── Message list (messages tab) ── */}
+      {activeTab === 'messages' && (
       <div className={styles.messageList} ref={listRef} onScroll={handleListScroll}>
         {loading ? (
           <div className={styles.stateNote}>Loading messages…</div>
@@ -687,6 +848,44 @@ export function TeamChatRoom() {
                     </span>
                   )}
 
+                  {/* Attachments: image previews + document rows */}
+                  {!isDeletedByUser && msg.attachments?.length > 0 && (
+                    <div className="mt-1.5 space-y-1.5">
+                      {msg.attachments.map((att) =>
+                        att.kind === 'IMAGE' && att.cdnUrl ? (
+                          <a key={att.id} href={att.cdnUrl} target="_blank" rel="noreferrer" className="block">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={att.cdnUrl} alt={att.fileName} className="max-h-64 max-w-full rounded-xl border border-black/5 object-cover" />
+                          </a>
+                        ) : (
+                          <a
+                            key={att.id}
+                            href={att.cdnUrl ?? '#'}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2 rounded-lg bg-black/5 px-2.5 py-2 text-inherit no-underline transition-colors hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                              <polyline points="14 2 14 8 20 8" />
+                            </svg>
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">{att.fileName}</span>
+                            <span className="shrink-0 text-xs opacity-70">{(att.fileSize / 1024 / 1024) >= 1 ? `${(att.fileSize / 1024 / 1024).toFixed(1)} MB` : `${Math.round(att.fileSize / 1024)} KB`}</span>
+                          </a>
+                        ),
+                      )}
+                    </div>
+                  )}
+
+                  {/* Reaction chips */}
+                  {!isDeletedByUser && (
+                    <ReactionBar
+                      reactions={msg.reactions ?? []}
+                      currentUserId={currentUserId}
+                      onToggle={(emoji) => handleToggleReaction(msg, emoji)}
+                    />
+                  )}
+
                   {!isDeletedByUser && (
                     <button
                       className={styles.bubbleArrow}
@@ -716,6 +915,22 @@ export function TeamChatRoom() {
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {/* Quick reactions — Discord-style fixed set, toggle on tap */}
+                      <div style={{ display: 'flex', gap: 2, padding: '4px 6px', borderBottom: '1px solid rgba(128,128,128,0.15)', marginBottom: 4 }}>
+                        {QUICK_EMOJIS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            className="rounded-md px-1.5 py-0.5 text-base transition-transform hover:scale-125 cursor-pointer"
+                            onClick={() => {
+                              setActiveMenuId(null);
+                              handleToggleReaction(msg, emoji);
+                            }}
+                            title={`React ${emoji}`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
                       <button
                         className={styles.contextMenuItem}
                         onClick={() => {
@@ -854,9 +1069,10 @@ export function TeamChatRoom() {
           })
         )}
       </div>
+      )}
 
-      {/* ── Scroll to newest ── */}
-      {(showScrollDown || isAnchored) && (
+      {/* ── Scroll to newest (messages tab) ── */}
+      {activeTab === 'messages' && (showScrollDown || isAnchored) && (
         <button
           className={styles.scrollDownBtn}
           onClick={scrollToNewest}
@@ -869,18 +1085,21 @@ export function TeamChatRoom() {
         </button>
       )}
 
-      {/* ── Composer ── */}
-      <ChatComposer 
-        onSend={handleSend}
-        replyingTo={replyingTo}
-        onCancelReply={() => setReplyingTo(null)}
-        editingMessage={editingMessage}
-        onCancelEdit={() => setEditingMessage(null)}
-      />
-
-      {/* ── Members drawer ── */}
-      {showMembers && room && (
-        <MembersSidebar roomId={room.id} onClose={() => setShowMembers(false)} />
+      {/* ── Composer (messages tab; archived channels are read-only) ── */}
+      {activeTab === 'messages' && !room?.archivedAt && (
+        <ChatComposer
+          conversationId={conversationId}
+          onSend={handleSend}
+          replyingTo={replyingTo}
+          onCancelReply={() => setReplyingTo(null)}
+          editingMessage={editingMessage}
+          onCancelEdit={() => setEditingMessage(null)}
+        />
+      )}
+      {activeTab === 'messages' && room?.archivedAt && (
+        <div className="border-t border-border/40 bg-accent/30 px-4 py-3 text-center text-sm text-muted-foreground">
+          This channel is archived — it is read-only.
+        </div>
       )}
 
       {/* ── Search drawer ── */}

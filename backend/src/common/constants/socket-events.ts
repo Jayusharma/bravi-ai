@@ -32,6 +32,7 @@ export const SOCKET_EVENTS = {
   MESSAGE_REACTION_UPDATED: 'message:reaction_updated',
   MESSAGE_DELETED:          'message:deleted',
   MESSAGE_EDITED:           'message:edited',
+  MESSAGE_STAR_TOGGLED:     'message:star_toggled',
 
   // Server → Client: presence
   PRESENCE_ONLINE:  'presence:online',
@@ -46,11 +47,14 @@ export const SOCKET_EVENTS = {
   // Server → Client
   CHAT_MESSAGE_NEW:     'chat:message:new',
   CHAT_RECEIPTS:        'chat:receipts',     // { deliveredUpTo, readUpTo } for the room
-  CHAT_NOTIFICATION:    'chat:notification', // global — drives the sidebar unread badge
+  CHAT_NOTIFICATION:    'chat:notification', // to MEMBERS' user rooms only — drives per-channel unread badges
   CHAT_MESSAGE_PINNED:  'chat:message:pinned',
   CHAT_MESSAGE_STARRED: 'chat:message:starred',
   CHAT_MESSAGE_EDITED:  'chat:message:edited',
   CHAT_MESSAGE_DELETED: 'chat:message:deleted',
+  CHAT_MESSAGE_REACTED: 'chat:message:reacted',          // reaction toggled — update chips live
+  CHAT_CONVERSATION_UPDATED: 'chat:conversation:updated', // to member user rooms — sidebar refresh (rename/members/archive/new)
+  CHAT_MEMBERSHIP_REMOVED:   'chat:membership:removed',   // to the kicked user's user room — leave + route away
 } as const;
 
 export type SocketEvent = (typeof SOCKET_EVENTS)[keyof typeof SOCKET_EVENTS];
@@ -58,6 +62,12 @@ export type SocketEvent = (typeof SOCKET_EVENTS)[keyof typeof SOCKET_EVENTS];
 /** Builds the room name for a contact — all real-time events scope to this room. */
 export const ROOMS = {
   contact: (contactId: string) => `contact:${contactId}`,
-  /** Internal chat conversation room (the common room, and DMs/groups later). */
+  /** Internal chat conversation room (channels + DMs). */
   chat: (conversationId: string) => `chat:${conversationId}`,
+  /**
+   * Per-user personal room — every socket of a user joins this on connect.
+   * Lets the server target one user across all their tabs (membership-scoped
+   * notifications, live kick) without keeping a userId→socket map.
+   */
+  user: (userId: string) => `user:${userId}`,
 } as const;

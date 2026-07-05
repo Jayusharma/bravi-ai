@@ -22,12 +22,15 @@ export interface EnquiryListItem {
     lastCustomerReplyAt: string | null;
     contactId: string;
     name: string;
+    company: string | null;
     email: string | null;
     phone: string | null;
     source: string;
     assignedTo: { id: string; displayName: string | null; userName: string } | null;
     messageCount: number;
     noteCount: number;
+    lastMessagePreview: string | null;
+    lastMessageSender: string | null;
 }
 
 export interface EnquiryListResponse {
@@ -93,9 +96,23 @@ export interface EnquiryDetail {
 
 export interface EnquiryStats {
     byStatus: Record<string, number>;
-    totalToday: number;
     unassigned: number;
     totalOpen: number;
+    kpis: {
+        all: number;
+        new: number;
+        inProgress: number;
+        followUp: number;
+        converted: number;
+        closedLost: number;
+        newThisWeek: number;
+    };
+    overview: {
+        total: number;
+        byStatus: Record<string, number>;
+        changeVsLastMonth: number;
+    };
+    sourceBreakdown: Array<{ source: string; count: number; percentage: number }>;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -201,5 +218,18 @@ export async function addNote(id: string, content: string) {
     return apiClient(API.ENQUIRY.NOTES(id), {
         method: 'POST',
         body: { content },
+    });
+}
+
+export async function deleteEnquiry(id: string) {
+    return apiClient(API.ENQUIRY.DETAIL(id), {
+        method: 'DELETE',
+    });
+}
+
+export async function bulkDeleteEnquiries(ids: string[]) {
+    return apiClient(API.ENQUIRY.BULK_DELETE, {
+        method: 'POST',
+        body: { ids },
     });
 }

@@ -38,6 +38,7 @@ const SUBJECTS = [
   'messagetemplate',
   'deadletter',
   'chat',
+  'chatchannel', // team-chat channel management (create/edit/archive) — admin+manager only
   'contact',
   'channelconnection',
   'all',
@@ -92,6 +93,10 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
         { action: 'create', subject: 'chat' },
         { action: 'update', subject: 'chat' },
         { action: 'delete', subject: 'chat' },
+        // Team-chat channels — managers can create/edit/archive channels
+        { action: 'create', subject: 'chatchannel' },
+        { action: 'update', subject: 'chatchannel' },
+        { action: 'delete', subject: 'chatchannel' },
         // Contact permissions
         { action: 'read', subject: 'contact' },
         { action: 'create', subject: 'contact' },

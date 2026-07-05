@@ -26,6 +26,7 @@ export type AppSubjects =
   | 'conversationmessage'
   | 'messagetemplate'
   | 'chat'
+  | 'chatchannel'
   | 'channelconnection'
   | 'all';
 

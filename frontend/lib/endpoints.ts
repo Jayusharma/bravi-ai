@@ -23,6 +23,7 @@ export const API = {
         TAGS: (id: string) => `/enquiry/${id}/tags`,
         MESSAGES: (id: string) => `/enquiry/${id}/messages`,
         NOTES: (id: string) => `/enquiry/${id}/notes`,
+        BULK_DELETE: '/enquiry/bulk-delete',
     },
 
     // ── Contact ──
@@ -61,18 +62,33 @@ export const API = {
     CONVERSATION: {
         LIST: '/conversations',
         THREAD: (enquiryId: string) => `/conversations/${enquiryId}/thread`,
+        STAR: (messageId: string) => `/conversations/messages/${messageId}/star`,
+        STARRED: (contactId: string) => `/conversations/${contactId}/starred`,
     },
 
     // ── Internal Team Chat ──
     CHAT: {
-        ROOM: '/chat/room',
+        ROOM: '/chat/room', // resolves the #general channel (org-wide default landing)
         UNREAD: '/chat/unread',
+        // Channels & DMs (Discord-style)
+        CONVERSATIONS: '/chat/conversations', // sidebar: my channels + DMs with unread counts
+        CHANNELS: '/chat/channels', // POST create
+        CHANNEL: (id: string) => `/chat/channels/${id}`, // PATCH edit/archive
+        CHANNEL_MEMBERS: (id: string) => `/chat/channels/${id}/members`, // POST add people
+        CHANNEL_MEMBER: (id: string, userId: string) => `/chat/channels/${id}/members/${userId}`, // DELETE kick/leave
+        DM: '/chat/dm', // POST open (or find) the DM with a user — idempotent
+        META: (roomId: string) => `/chat/room/${roomId}/meta`, // bootstrap metadata to open any channel/DM
+        FILES: (roomId: string) => `/chat/room/${roomId}/files`, // Files tab
+        UPLOAD: (roomId: string) => `/chat/room/${roomId}/attachments`, // multipart upload → descriptor
+        REACTIONS: (roomId: string, messageId: string) => `/chat/room/${roomId}/messages/${messageId}/reactions`,
+        // Messages
         MESSAGES: (roomId: string) => `/chat/room/${roomId}/messages`,
         NEWER: (roomId: string) => `/chat/room/${roomId}/messages/newer`,
         SEARCH: (roomId: string) => `/chat/room/${roomId}/messages/search`,
         AROUND: (roomId: string) => `/chat/room/${roomId}/messages/around`,
         MEMBERS: (roomId: string) => `/chat/room/${roomId}/members`,
-        PINNED: (roomId: string) => `/chat/room/${roomId}/pinned`,
+        PINNED: (roomId: string) => `/chat/room/${roomId}/pinned`, // thread banner
+        STARRED_LIST: (roomId: string) => `/chat/room/${roomId}/starred`, // the Starred tab
         PIN: (roomId: string, messageId: string) => `/chat/room/${roomId}/messages/${messageId}/pin`,
         STAR: (roomId: string, messageId: string) => `/chat/room/${roomId}/messages/${messageId}/star`,
         EDIT: (roomId: string, messageId: string) => `/chat/room/${roomId}/messages/${messageId}`,

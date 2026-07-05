@@ -32,6 +32,7 @@ export const SOCKET_EVENTS = {
   MESSAGE_REACTION_UPDATED: 'message:reaction_updated',
   MESSAGE_DELETED:          'message:deleted',
   MESSAGE_EDITED:           'message:edited',
+  MESSAGE_STAR_TOGGLED:     'message:star_toggled',
 
   // Server → Client: presence
   PRESENCE_ONLINE:  'presence:online',
@@ -49,6 +50,9 @@ export const SOCKET_EVENTS = {
   CHAT_MESSAGE_STARRED: 'chat:message:starred',
   CHAT_MESSAGE_EDITED:  'chat:message:edited',
   CHAT_MESSAGE_DELETED: 'chat:message:deleted',
+  CHAT_MESSAGE_REACTED: 'chat:message:reacted',           // reaction toggled — update chips live
+  CHAT_CONVERSATION_UPDATED: 'chat:conversation:updated', // sidebar refresh (rename/members/archive/new)
+  CHAT_MEMBERSHIP_REMOVED:   'chat:membership:removed',   // you were kicked — leave + route to #general
 } as const;
 
 export type SocketEvent = (typeof SOCKET_EVENTS)[keyof typeof SOCKET_EVENTS];

@@ -19,7 +19,7 @@ import { getSocket, disconnectSocket } from '@/lib/socket';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
 import MessageToast, { type ToastMessage } from '@/components/messaging/MessageToast';
 import type { ConversationPreview } from '@/services/messaging/chat.service';
-import { getChatUnread } from '@/services/chat/chat.service';
+import { listConversations } from '@/services/chat/chat.service';
 import { useAuthStore } from '@/stores/auth-store';
 
 // ─────────────────────────────────────────────
@@ -40,11 +40,15 @@ interface SocketContextValue {
   setActiveContactId: (id: string | null) => void;
   // Called by ContactList after load — feeds the name-lookup map used in notification toasts
   setConversations: (convs: ConversationPreview[]) => void;
-  // Internal team-chat unread badge
-  chatUnread: number;
-  clearChatUnread: () => void;
-  // Called by the chat page on mount/unmount — suppresses badge increments while viewing
-  setChatActive: (active: boolean) => void;
+  // ── Internal team chat (Discord-style) ──
+  // Per-conversation unread counts — the nav badge shows the sum
+  chatUnreadByConversation: Record<string, number>;
+  chatUnread: number; // sum of the map — what SidebarClient renders
+  clearConversationUnread: (conversationId: string) => void;
+  // The channel/DM currently open — its notifications don't bump the badge
+  setActiveChatConversation: (conversationId: string | null) => void;
+  // Bumped whenever a conversation changes (created/renamed/members/kick) — ChannelSidebar refetches on it
+  conversationsVersion: number;
 }
 
 const SocketContext = createContext<SocketContextValue | null>(null);
@@ -59,13 +63,14 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const [lastEventAt, setLastEventAt] = useState<Date | null>(null);
   const [unreadContacts, setUnreadContacts] = useState<Record<string, number>>({});
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [chatUnread, setChatUnread] = useState(0);
+  const [chatUnreadByConversation, setChatUnreadByConversation] = useState<Record<string, number>>({});
+  const [conversationsVersion, setConversationsVersion] = useState(0);
 
   // Refs avoid stale closures inside socket event callbacks without triggering re-renders
   const socketRef = useRef<Socket | null>(null);
   const activeContactIdRef = useRef<string | null>(null);
   const conversationsRef = useRef<ConversationPreview[]>([]);
-  const chatActiveRef = useRef(false); // true while the user is on /chat
+  const activeChatConversationRef = useRef<string | null>(null); // channel/DM currently open
   // Only show "Reconnecting" banner after the first successful connect — never on initial page load
   const hasConnectedOnce = useRef(false);
 
@@ -89,18 +94,30 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     conversationsRef.current = convs;
   }, []);
 
-  const clearChatUnread = useCallback(() => setChatUnread(0), []);
-
-  const setChatActive = useCallback((active: boolean) => {
-    chatActiveRef.current = active;
-    if (active) setChatUnread(0); // opening the chat clears the badge
+  const clearConversationUnread = useCallback((conversationId: string) => {
+    setChatUnreadByConversation(prev => {
+      if (!prev[conversationId]) return prev;
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
   }, []);
 
-  // Seed the chat badge from the server once on mount (read-only — no auto-join)
+  // Opening a channel/DM zeroes its badge and suppresses further bumps while viewing
+  const setActiveChatConversation = useCallback((conversationId: string | null) => {
+    activeChatConversationRef.current = conversationId;
+    if (conversationId) clearConversationUnread(conversationId);
+  }, [clearConversationUnread]);
+
+  // Seed the per-conversation unread map from the sidebar feed once on mount
   useEffect(() => {
-    getChatUnread()
-      .then((res) => setChatUnread(res.count))
-      .catch(() => { /* not authenticated yet / no room — leave at 0 */ });
+    listConversations()
+      .then((convs) => {
+        const map: Record<string, number> = {};
+        for (const c of convs) if (c.unreadCount > 0) map[c.id] = c.unreadCount;
+        setChatUnreadByConversation(map);
+      })
+      .catch(() => { /* not authenticated yet — leave empty */ });
   }, []);
 
   // ── Single socket lifecycle for the entire dashboard session ──
@@ -183,17 +200,40 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           }
         });
 
-        // Internal team-chat: bump the sidebar badge unless it's our own message
-        // or we're already viewing the chat.
+        // Internal team-chat: bump THAT conversation's badge unless it's our own
+        // message or we currently have that channel/DM open.
+        // (Server only sends this to members — non-members never hear about it.)
         sock.on(SOCKET_EVENTS.CHAT_NOTIFICATION, (data: {
           conversationId: string;
           messageId: string;
           senderId: string;
         }) => {
           if (!mounted) return;
-          if (chatActiveRef.current) return;
+          if (data.conversationId === activeChatConversationRef.current) return;
           if (data.senderId === useAuthStore.getState().user?.id) return;
-          setChatUnread(prev => prev + 1);
+          setChatUnreadByConversation(prev => ({
+            ...prev,
+            [data.conversationId]: (prev[data.conversationId] || 0) + 1,
+          }));
+          // A message in a channel not yet in the sidebar (e.g. fresh DM) → refetch list
+          setConversationsVersion(v => v + 1);
+        });
+
+        // A conversation changed (created/renamed/archived/members) — sidebar refetches
+        sock.on(SOCKET_EVENTS.CHAT_CONVERSATION_UPDATED, () => {
+          if (!mounted) return;
+          setConversationsVersion(v => v + 1);
+        });
+
+        // We were removed from a channel — drop its badge; the chat page routes away itself
+        sock.on(SOCKET_EVENTS.CHAT_MEMBERSHIP_REMOVED, (data: { conversationId: string }) => {
+          if (!mounted) return;
+          setChatUnreadByConversation(prev => {
+            const next = { ...prev };
+            delete next[data.conversationId];
+            return next;
+          });
+          setConversationsVersion(v => v + 1);
         });
 
       } catch {
@@ -212,11 +252,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       socketRef.current?.off(SOCKET_EVENTS.CONVERSATION_UPDATED);
       socketRef.current?.off(SOCKET_EVENTS.CONVERSATION_NEW);
       socketRef.current?.off(SOCKET_EVENTS.CHAT_NOTIFICATION);
+      socketRef.current?.off(SOCKET_EVENTS.CHAT_CONVERSATION_UPDATED);
+      socketRef.current?.off(SOCKET_EVENTS.CHAT_MEMBERSHIP_REMOVED);
       disconnectSocket(); // called only here — no other component should ever call this
     };
   }, []); // socket lifecycle runs once per dashboard mount
 
   const totalUnread = Object.values(unreadContacts).reduce((sum, n) => sum + n, 0);
+  // Nav badge = sum of every channel/DM's unread
+  const chatUnread = Object.values(chatUnreadByConversation).reduce((sum, n) => sum + n, 0);
 
   // Clicking a toast navigates to messaging with the contact pre-selected via URL param
   const handleToastClick = useCallback((contactId: string) => {
@@ -235,7 +279,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       socket, connectionStatus, lastEventAt,
       unreadContacts, totalUnread,
       clearUnread, setActiveContactId, setConversations,
-      chatUnread, clearChatUnread, setChatActive,
+      chatUnreadByConversation, chatUnread, clearConversationUnread,
+      setActiveChatConversation, conversationsVersion,
     }}>
       {showReconnectBanner && (
         <div className="socket-reconnecting-banner" role="status" aria-live="polite">

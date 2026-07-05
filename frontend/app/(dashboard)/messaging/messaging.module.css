@@ -3,13 +3,17 @@
 .messagingPage {
     /* Break out of the dashboard-content padding (p-4 md:p-8) */
     margin: -1rem;
-    height: calc(100vh - 80px); /* 80px = topbar height */
+    height: calc((100vh - 80px) / 0.9); /* 80px = topbar height, divided by 0.9 zoom */
     display: flex;
     flex-direction: column;
     background: #efeae2; /* Default Light Theme: WhatsApp cream background! */
     font-family: 'Inter', system-ui, sans-serif;
     overflow: hidden; /* No page scroll — only panels scroll */
     transition: background-color 0.3s ease, height 0.3s ease;
+}
+
+:global(.topbar-collapsed) .messagingPage {
+    height: calc((100vh - 16px) / 0.9) !important; /* 16px = collapsed topbar peek height */
 }
 
 :global(.dark) .messagingPage {

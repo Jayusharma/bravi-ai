@@ -11,6 +11,7 @@
   "dependencies": {
     "@casl/ability": "^6.8.0",
     "dotenv": "^17.2.3",
+    "emoji-picker-react": "^4.19.1",
     "next": "16.1.2",
     "pg": "^8.17.1",
     "react": "19.2.3",

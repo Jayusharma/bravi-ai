@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Req, Patch } from '@nestjs/common';
 import { ConversationService } from './messaging.service';
 import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
@@ -42,6 +42,16 @@ export class ConversationController {
   getThread(@Param('contactId') contactId: string) {
     return this.conversationService.getThread(contactId);
   }
-  
 
+  @Patch('messages/:messageId/star')
+  @CheckAbility({ action: 'update', subject: 'message' })
+  toggleMessageStar(@Param('messageId') messageId: string) {
+    return this.conversationService.toggleMessageStar(messageId);
+  }
+
+  @Get(':contactId/starred')
+  @CheckAbility({ action: 'read', subject: 'message' })
+  getStarredMessages(@Param('contactId') contactId: string) {
+    return this.conversationService.getStarredMessages(contactId);
+  }
 }
