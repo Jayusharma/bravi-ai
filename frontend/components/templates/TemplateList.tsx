@@ -1,22 +1,17 @@
 'use client';
 
-import { useRef, useState, useTransition, useEffect } from 'react';
+import { useRef, useState, useTransition, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useToast } from '@/components/ui/Toast';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { Badge } from '@/components/ui/Badge';
 import { handleResult, handleVoidResult } from '@/lib/error';
+import { Select } from '@/components/ui/Select';
 import {
     deleteTemplate,
     duplicateTemplate,
     listTemplates,
     type Template,
     type TemplateType,
-    type TemplateChannel,
 } from '@/services/template';
-import { TemplateStatusBadge } from './TemplateStatusBadge';
 
 interface TemplateListProps {
     initialData: Template[];
@@ -27,9 +22,6 @@ interface TemplateListProps {
         totalPages: number;
     };
 }
-
-type TypeFilter = 'ALL' | TemplateType;
-type ChannelFilter = 'ALL' | TemplateChannel;
 
 function formatDate(iso: string): string {
     const d = new Date(iso);
@@ -68,92 +60,167 @@ export function TemplateList({ initialData, initialMeta }: TemplateListProps) {
     const [isPending, startTransition] = useTransition();
 
     // Template state
-    const [templates, setTemplates] = useState<Template[]>(initialData);
-    const [total, setTotal] = useState(initialMeta.total);
-    const [totalPages, setTotalPages] = useState(initialMeta.totalPages);
-
-    // Filters and pagination state
-    const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
-    const [channelFilter, setChannelFilter] = useState<ChannelFilter>('ALL');
-    const [search, setSearch] = useState('');
-    const [debouncedSearch, setDebouncedSearch] = useState('');
-    const [page, setPage] = useState(initialMeta.page);
-    const [limit, setLimit] = useState(initialMeta.limit);
-
-    // UI state
-    const [showFilters, setShowFilters] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
+    const [allTemplates, setAllTemplates] = useState<Template[]>(initialData);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [isLoading, setIsLoading] = useState(false);
 
+    // Filter states
+    const [activeTab, setActiveTab] = useState<TemplateType>('INTERNAL');
+    const [search, setSearch] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('ALL');
+    const [selectedLanguage, setSelectedLanguage] = useState('ALL');
+    const [sortBy, setSortBy] = useState<'RECENT' | 'POPULAR' | 'NAME'>('RECENT');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+
+    // UI Interactive states
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
+    const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
+    const [showCreateDropdown, setShowCreateDropdown] = useState(false);
+    const [showFilters, setShowFilters] = useState(false);
+
+    const searchInputRef = useRef<HTMLInputElement>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
+    const createDropdownRef = useRef<HTMLDivElement | null>(null);
 
-    // Debounce search query
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setDebouncedSearch(search);
-            setPage(1); // Reset to first page on search
-        }, 300);
-        return () => clearTimeout(timer);
-    }, [search]);
-
-    // Handle menu close outside click
-    useEffect(() => {
-        if (!openMenuId) return;
-        const handler = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-                setOpenMenuId(null);
-            }
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [openMenuId]);
-
-    // Client-side fetch
+    // Fetch all templates client-side to do rich stats & filters
     useEffect(() => {
         let active = true;
-        const fetchTemplates = async () => {
+        const fetchAll = async () => {
             setIsLoading(true);
             const res = await listTemplates({
-                filter_by_template: typeFilter,
-                filter_by_channel: channelFilter,
-                search: debouncedSearch,
-                page,
-                limit,
+                filter_by_template: 'ALL',
+                page: 1,
+                limit: 1000,
             });
             if (!active) return;
             if (res.success && res.data) {
-                setTemplates(res.data.data);
-                setTotal(res.data.meta.total);
-                setTotalPages(res.data.meta.totalPages);
+                setAllTemplates(res.data.data);
             } else {
                 toast.error(res.error ?? 'Failed to load templates');
             }
             setIsLoading(false);
         };
 
-        fetchTemplates();
+        fetchAll();
 
         return () => {
             active = false;
         };
-    }, [typeFilter, channelFilter, debouncedSearch, page, limit, refreshKey, toast]);
+    }, [refreshKey, toast]);
 
-    const handleTypeFilterChange = (t: TypeFilter) => {
-        setTypeFilter(t);
-        setPage(1);
-    };
+    // Handle outside clicks for menus
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setOpenMenuId(null);
+            }
+            if (createDropdownRef.current && !createDropdownRef.current.contains(e.target as Node)) {
+                setShowCreateDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
 
-    const handleChannelFilterChange = (c: ChannelFilter) => {
-        setChannelFilter(c);
-        setPage(1);
-    };
+    // Cmd/Ctrl+K Search shortcut
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                searchInputRef.current?.focus();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
-    const handleLimitChange = (l: number) => {
-        setLimit(l);
+    // Filter & Sort Logic
+    const filteredTemplates = useMemo(() => {
+        return allTemplates
+            .filter((t) => t.type === activeTab)
+            .filter((t) => {
+                if (!search.trim()) return true;
+                const q = search.toLowerCase();
+                return (
+                    t.friendlyName.toLowerCase().includes(q) ||
+                    t.name.toLowerCase().includes(q) ||
+                    t.body.toLowerCase().includes(q)
+                );
+            })
+            .filter((t) => {
+                if (selectedCategory === 'ALL') return true;
+                if (activeTab === 'INTERNAL') {
+                    return t.internalCategory === selectedCategory;
+                } else {
+                    return t.category === selectedCategory;
+                }
+            })
+            .filter((t) => {
+                if (selectedLanguage === 'ALL') return true;
+                return t.language === selectedLanguage;
+            });
+    }, [allTemplates, activeTab, search, selectedCategory, selectedLanguage]);
+
+    const sortedTemplates = useMemo(() => {
+        const list = [...filteredTemplates];
+        if (sortBy === 'RECENT') {
+            list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        } else if (sortBy === 'POPULAR') {
+            list.sort((a, b) => b.usedCount - a.usedCount);
+        } else if (sortBy === 'NAME') {
+            list.sort((a, b) => a.friendlyName.localeCompare(b.friendlyName));
+        }
+        return list;
+    }, [filteredTemplates, sortBy]);
+
+    // Pagination
+    const totalItems = sortedTemplates.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const paginatedTemplates = useMemo(() => {
+        const start = (page - 1) * pageSize;
+        return sortedTemplates.slice(start, start + pageSize);
+    }, [sortedTemplates, page, pageSize]);
+
+    // Reset page when filters change
+    useEffect(() => {
         setPage(1);
-    };
+    }, [activeTab, search, selectedCategory, selectedLanguage, sortBy]);
+
+    // Statistics Calculations
+    const stats = useMemo(() => {
+        const internalCount = allTemplates.filter((t) => t.type === 'INTERNAL').length;
+        const whatsappCount = allTemplates.filter((t) => t.type === 'WHATSAPP').length;
+        const approvedCount = allTemplates.filter((t) => t.approvalStatus === 'APPROVED').length;
+        const pendingCount = allTemplates.filter((t) => t.approvalStatus === 'PENDING').length;
+        const rejectedCount = allTemplates.filter((t) => t.approvalStatus === 'REJECTED').length;
+
+        return {
+            total: allTemplates.length,
+            internal: internalCount,
+            whatsapp: whatsappCount,
+            approved: approvedCount,
+            pending: pendingCount,
+            rejected: rejectedCount,
+        };
+    }, [allTemplates]);
+
+    const activeCategories = useMemo(() => {
+        if (activeTab === 'INTERNAL') {
+            return ['Sales', 'Follow-up', 'Information', 'Qualification', 'Support', 'General', 'Others'];
+        } else {
+            return ['UTILITY', 'MARKETING', 'AUTHENTICATION'];
+        }
+    }, [activeTab]);
+
+    // Top used templates (Frequently used)
+    const frequentlyUsed = useMemo(() => {
+        return allTemplates
+            .filter((t) => t.type === activeTab)
+            .sort((a, b) => b.usedCount - a.usedCount)
+            .slice(0, 4);
+    }, [allTemplates, activeTab]);
 
     const handleDuplicate = (id: string) => {
         setOpenMenuId(null);
@@ -161,7 +228,7 @@ export function TemplateList({ initialData, initialMeta }: TemplateListProps) {
         startTransition(async () => {
             const result = await duplicateTemplate(id);
             setBusyId(null);
-            if (!handleResult(result, toast, { successMessage: 'Template duplicated as a new draft.', errorTitle: 'Duplicate failed' })) return;
+            if (!handleResult(result, toast, { successMessage: 'Template duplicated.', errorTitle: 'Duplicate failed' })) return;
             setRefreshKey((k) => k + 1);
         });
     };
@@ -178,383 +245,716 @@ export function TemplateList({ initialData, initialMeta }: TemplateListProps) {
         });
     };
 
-    const activeFilterCount =
-        (typeFilter !== 'ALL' ? 1 : 0) +
-        (channelFilter !== 'ALL' ? 1 : 0) +
-        (limit !== 50 ? 1 : 0);
+    // Use Template (copies snippet text to clipboard and notifies)
+    const handleUseTemplate = (t: Template) => {
+        navigator.clipboard.writeText(t.body);
+        toast.success(`Copied template "${t.friendlyName}" body to clipboard!`);
+    };
+
+    // Category Badge coloring helper
+    const getCategoryStyles = (category: string) => {
+        const clean = category.toLowerCase();
+        if (clean === 'sales' || clean === 'marketing') {
+            return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400';
+        }
+        if (clean === 'follow-up' || clean === 'utility') {
+            return 'bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400';
+        }
+        if (clean === 'qualification' || clean === 'authentication') {
+            return 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400';
+        }
+        if (clean === 'support') {
+            return 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400';
+        }
+        if (clean === 'information') {
+            return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400';
+        }
+        return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+    };
+
+    // Get Icon for specific templates
+    const getTemplateIcon = (category: string | null) => {
+        const cat = (category || '').toLowerCase();
+        if (cat === 'sales') {
+            return (
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                    <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+            );
+        }
+        if (cat === 'follow-up') {
+            return (
+                <div className="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-950 flex items-center justify-center text-purple-600 dark:text-purple-400 shrink-0">
+                    <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                </div>
+            );
+        }
+        if (cat === 'qualification') {
+            return (
+                <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                    <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                </div>
+            );
+        }
+        return (
+            <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0V12m-3-6.5a1.5 1.5 0 013 0v6.5m0-6.5a1.5 1.5 0 013 0V12m0-5.5a1.5 1.5 0 013 0v1.5M12 12v3m0 3H9m3 0h3" />
+                </svg>
+            </div>
+        );
+    };
 
     return (
         <div className="space-y-6">
             {/* ── Header ── */}
-            <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-br from-foreground via-foreground/90 to-foreground/75 bg-clip-text text-transparent">
-                        Message Templates
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+                        Templates
                     </h1>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                        Reusable replies and Meta-approved WhatsApp templates with variable substitution.
+                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        Create, manage and reuse templates for your team and customer conversations.
                     </p>
                 </div>
-                <Link href="/templates/new">
-                    <Button className="h-11 px-5 rounded-2xl bg-gradient-to-r from-neutral-900 to-neutral-800 dark:from-neutral-100 dark:to-neutral-200 hover:from-neutral-800 hover:to-neutral-700 dark:hover:from-neutral-200 dark:hover:to-neutral-300 shadow-md hover:shadow-lg active:scale-95 transition-all flex items-center gap-2">
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 5v14M5 12h14" />
-                        </svg>
-                        <span className="font-semibold">New Template</span>
-                    </Button>
-                </Link>
-            </div>
 
-            {/* ── Stats Summary ── */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="rounded-2xl border border-border/30 bg-card/45 p-4.5 backdrop-blur-md flex items-center gap-3.5 shadow-sm hover:shadow-md transition-all">
-                    <div className="p-3 bg-neutral-900/5 dark:bg-white/5 rounded-xl text-muted-foreground shrink-0">
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18M9 21V9" />
+                <div className="flex items-center gap-3 self-end sm:self-center">
+                    {/* Inline Search Bar */}
+                    <div className="relative w-60 hidden sm:block">
+                        <svg className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search templates..."
+                            className="w-full h-9 pl-8.5 pr-8 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all dark:text-white"
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-semibold text-slate-400 px-1.5 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-md select-none pointer-events-none">
+                            ⌘K
+                        </span>
                     </div>
-                    <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 truncate">Total Templates</p>
-                        <p className="text-xl font-bold mt-0.5 tracking-tight">{total}</p>
-                    </div>
-                </div>
 
-                <div className="rounded-2xl border border-border/30 bg-card/45 p-4.5 backdrop-blur-md flex items-center gap-3.5 shadow-sm hover:shadow-md transition-all">
-                    <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-600 dark:text-emerald-400 shrink-0">
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                        </svg>
-                    </div>
-                    <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 truncate">WhatsApp</p>
-                        <p className="text-xl font-bold mt-0.5 tracking-tight">
-                            {templates.filter(t => t.channel === 'WHATSAPP').length}
-                        </p>
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-border/30 bg-card/45 p-4.5 backdrop-blur-md flex items-center gap-3.5 shadow-sm hover:shadow-md transition-all">
-                    <div className="p-3 bg-sky-500/10 rounded-xl text-sky-600 dark:text-sky-400 shrink-0">
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                        </svg>
-                    </div>
-                    <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 truncate">Email Channel</p>
-                        <p className="text-xl font-bold mt-0.5 tracking-tight">
-                            {templates.filter(t => t.channel === 'EMAIL').length}
-                        </p>
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-border/30 bg-card/45 p-4.5 backdrop-blur-md flex items-center gap-3.5 shadow-sm hover:shadow-md transition-all">
-                    <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400 shrink-0">
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />
-                        </svg>
-                    </div>
-                    <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 truncate">Dynamic Vars</p>
-                        <p className="text-xl font-bold mt-0.5 tracking-tight">
-                            {templates.filter(t => t.variables.length > 0).length}
-                        </p>
+                    {/* Create Button with Dropdown option */}
+                    <div className="relative" ref={createDropdownRef}>
+                        <button
+                            onClick={() => setShowCreateDropdown(!showCreateDropdown)}
+                            className="h-9 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-all shadow-sm flex items-center gap-1.5 cursor-pointer active:scale-[0.98]"
+                        >
+                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 5v14M5 12h14" />
+                            </svg>
+                            <span>Create Template</span>
+                            <svg className="w-3 h-3 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        {showCreateDropdown && (
+                            <div className="absolute right-0 mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl shadow-xl z-30 p-1 animate-slide-in-bottom">
+                                <Link
+                                    href="/templates/new?type=INTERNAL"
+                                    onClick={() => setShowCreateDropdown(false)}
+                                    className="flex w-full px-3 py-2 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg text-slate-700 dark:text-slate-300"
+                                >
+                                    Internal Reply
+                                </Link>
+                                <Link
+                                    href="/templates/new?type=WHATSAPP"
+                                    onClick={() => setShowCreateDropdown(false)}
+                                    className="flex w-full px-3 py-2 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg text-slate-700 dark:text-slate-300"
+                                >
+                                    WhatsApp Template
+                                </Link>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* ── Search and Filter Toggle Bar ── */}
-            <div className="flex items-center gap-3">
-                {/* Search input (larger, left-aligned) */}
-                <div className="relative flex-1 max-w-lg">
-                    <svg className="pointer-events-none absolute left-4.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-                    </svg>
-                    <Input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search templates by name or slug…"
-                        className="h-11 pl-11 text-sm bg-card/65 border border-border/30 rounded-2xl shadow-sm focus:ring-2 focus:ring-primary/10 transition-all focus:bg-card"
-                    />
-                </div>
-
-                {/* Filter Icon Button (right-aligned) */}
+            {/* ── Selection Tabs Card (Compact Sizing) ── */}
+            <div className="grid grid-cols-2 gap-4 max-w-xl">
                 <button
-                    onClick={() => setShowFilters(!showFilters)}
-                    className={`h-11 px-4 flex items-center gap-2 rounded-2xl border transition-all active:scale-95 cursor-pointer font-medium text-sm ${
-                        showFilters
-                            ? 'border-primary bg-primary text-primary-foreground shadow-md'
-                            : 'border-border/30 bg-card/60 text-foreground hover:bg-accent/40 shadow-sm'
+                    onClick={() => setActiveTab('INTERNAL')}
+                    className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all relative overflow-hidden group cursor-pointer ${
+                        activeTab === 'INTERNAL'
+                            ? 'bg-white dark:bg-slate-900 border-indigo-500/30 dark:border-indigo-500/20 shadow-sm ring-1 ring-indigo-500/10'
+                            : 'bg-white/60 hover:bg-white border-slate-100 hover:border-slate-200 dark:bg-slate-900/40 dark:border-slate-850 dark:hover:bg-slate-900/60'
                     }`}
                 >
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                    </svg>
-                    <span>Filters</span>
-                    {activeFilterCount > 0 && (
-                        <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${showFilters ? 'bg-primary-foreground text-primary' : 'bg-secondary text-secondary-foreground'}`}>
-                            {activeFilterCount}
+                    <div className="flex items-center gap-2.5 w-full">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform flex items-center justify-center">
+                            <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Internal Replies</span>
+                        <span className="ml-auto text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/40">
+                            {stats.internal}
                         </span>
+                    </div>
+                    <span className="text-sm font-bold text-slate-800 dark:text-white mt-2">Internal Replies</span>
+                    <span className="text-[11px] text-slate-400 mt-0.5">For team internal use</span>
+                    {activeTab === 'INTERNAL' && (
+                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500" />
+                    )}
+                </button>
+
+                <button
+                    onClick={() => setActiveTab('WHATSAPP')}
+                    className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all relative overflow-hidden group cursor-pointer ${
+                        activeTab === 'WHATSAPP'
+                            ? 'bg-white dark:bg-slate-900 border-emerald-500/30 dark:border-emerald-500/20 shadow-sm ring-1 ring-emerald-500/10'
+                            : 'bg-white/60 hover:bg-white border-slate-100 hover:border-slate-200 dark:bg-slate-900/40 dark:border-slate-850 dark:hover:bg-slate-900/60'
+                    }`}
+                >
+                    <div className="flex items-center gap-2.5 w-full">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 group-hover:scale-105 transition-transform flex items-center justify-center">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.513 2.262 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.456L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.825 1.451 5.436 0 9.86-4.413 9.864-9.83.002-2.623-1.01-5.09-2.855-6.94C16.639 1.986 14.195 1.95 11.5 1.95c-5.437 0-9.862 4.414-9.866 9.831-.001 1.762.48 3.487 1.395 5.024L2.04 21.96l5.228-1.37z" />
+                            </svg>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">WhatsApp Templates</span>
+                        <span className="ml-auto text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-900/40">
+                            {stats.whatsapp}
+                        </span>
+                    </div>
+                    <span className="text-sm font-bold text-slate-800 dark:text-white mt-2">WhatsApp Templates</span>
+                    <span className="text-[11px] text-slate-400 mt-0.5">24-hour window & approved templates</span>
+                    {activeTab === 'WHATSAPP' && (
+                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />
                     )}
                 </button>
             </div>
 
-            {/* ── Collapsible Filter Panel ── */}
-            <div className={`grid grid-cols-1 sm:grid-cols-3 gap-6 rounded-3xl bg-card/30 backdrop-blur-md transition-all duration-300 ease-in-out overflow-hidden ${
-                showFilters
-                    ? 'max-h-60 opacity-100 p-5 border border-border/30 mt-4 shadow-sm'
-                    : 'max-h-0 opacity-0 p-0 border-transparent mt-0 pointer-events-none'
-            }`}>
-                {/* Filter by Type */}
-                <div className="space-y-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 block px-1">Template Type</span>
-                    <div className="inline-flex rounded-xl border border-border/30 bg-accent/40 p-1 w-full">
-                        {(['ALL', 'INTERNAL', 'WHATSAPP'] as TypeFilter[]).map((t) => (
-                            <button
-                                key={t}
-                                type="button"
-                                onClick={() => handleTypeFilterChange(t)}
-                                className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                                    typeFilter === t
-                                        ? 'bg-background text-foreground shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground'
-                                }`}
+            {/* ── Direct On Screen Search and Filters (No outer card container) ── */}
+            <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                    <div className="relative flex-1 max-w-md">
+                        <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder={`Search ${activeTab === 'INTERNAL' ? 'internal' : 'WhatsApp'} templates...`}
+                            className="w-full h-10 pl-9 pr-8 text-xs bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all dark:text-white shadow-sm"
+                        />
+                    </div>
+
+                    <button
+                        onClick={() => setShowFilters(!showFilters)}
+                        className={`h-10 px-4 flex items-center gap-2 rounded-xl border text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer shadow-sm ${
+                            showFilters
+                                ? 'border-indigo-500 bg-indigo-50 text-indigo-650 dark:bg-indigo-950/20'
+                                : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                        </svg>
+                        <span>Filters</span>
+                        {(selectedCategory !== 'ALL' || selectedLanguage !== 'ALL' || sortBy !== 'RECENT') && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 dark:bg-indigo-400" />
+                        )}
+                    </button>
+                </div>
+
+                {/* Collapsible Filter panel */}
+                {showFilters && (
+                    <div className="flex flex-wrap items-center gap-3 p-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl shadow-sm animate-slide-in-bottom">
+                        <div className="w-44">
+                            <Select
+                                value={selectedCategory}
+                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedCategory(e.target.value)}
+                                className="h-8.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-indigo-500/10 cursor-pointer py-0 px-2.5"
                             >
-                                {t === 'ALL' ? 'All' : t === 'INTERNAL' ? 'Internal' : 'WhatsApp'}
-                            </button>
-                        ))}
+                                <option value="ALL">All Categories</option>
+                                {activeCategories.map((cat) => (
+                                    <option key={cat} value={cat}>
+                                        {cat}
+                                    </option>
+                                ))}
+                            </Select>
+                        </div>
+
+                        <div className="w-44">
+                            <Select
+                                value={selectedLanguage}
+                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedLanguage(e.target.value)}
+                                className="h-8.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-indigo-500/10 cursor-pointer py-0 px-2.5"
+                            >
+                                <option value="ALL">All Languages</option>
+                                <option value="en">English (en)</option>
+                                <option value="es">Spanish (es)</option>
+                                <option value="hi">Hindi (hi)</option>
+                            </Select>
+                        </div>
+
+                        <div className="w-44">
+                            <Select
+                                value={sortBy}
+                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSortBy(e.target.value as any)}
+                                className="h-8.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-indigo-500/10 cursor-pointer py-0 px-2.5"
+                            >
+                                <option value="RECENT">Sort: Recently Used</option>
+                                <option value="POPULAR">Sort: Most Popular</option>
+                                <option value="NAME">Sort: Alphabetical</option>
+                            </Select>
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                setSelectedCategory('ALL');
+                                setSelectedLanguage('ALL');
+                                setSortBy('RECENT');
+                            }}
+                            className="h-8.5 px-3.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-transparent rounded-lg transition-all cursor-pointer flex items-center gap-1.5 text-slate-500 dark:text-slate-400"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Clear
+                        </button>
                     </div>
+                )}
+            </div>
+
+            {/* ── Frequently Used (Left) & Templates Overview (Right) aligned side-by-side ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                
+                {/* Frequently Used (col-span-9) */}
+                <div className="col-span-1 lg:col-span-9 flex flex-col justify-between">
+                    <div className="flex items-center gap-2 mb-3">
+                        <svg className="w-4.5 h-4.5 text-yellow-500 fill-yellow-500" viewBox="0 0 24 24">
+                            <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                        </svg>
+                        <h2 className="text-sm font-bold text-slate-800 dark:text-white">Frequently used</h2>
+                    </div>
+
+                    {frequentlyUsed.length === 0 ? (
+                        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-6 flex-1 flex items-center justify-center text-xs text-slate-400">
+                            No frequently used templates found yet.
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 flex-1">
+                            {frequentlyUsed.map((t) => (
+                                <div
+                                    key={t.id}
+                                    className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between h-[195px] hover:shadow-md transition-all group hover:scale-[1.01]"
+                                >
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            {getTemplateIcon(t.internalCategory || t.category)}
+                                            
+                                            <div className="relative">
+                                                <button
+                                                    onClick={() => setOpenMenuId(openMenuId === t.id ? null : t.id)}
+                                                    className="p-1 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 rounded-lg transition-all cursor-pointer"
+                                                >
+                                                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                                                        <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+                                                    </svg>
+                                                </button>
+                                                {openMenuId === t.id && (
+                                                    <div className="absolute right-0 top-full z-20 mt-1 w-32 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 rounded-xl shadow-xl p-1 animate-slide-in-bottom">
+                                                        <Link href={`/templates/${t.id}`} className="block px-3.5 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg">
+                                                            Edit
+                                                        </Link>
+                                                        <button onClick={() => handleDuplicate(t.id)} className="block w-full text-left px-3.5 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg">
+                                                            Duplicate
+                                                        </button>
+                                                        <button onClick={() => handleDelete(t)} className="block w-full text-left px-3.5 py-1.5 text-[11px] font-semibold text-rose-605 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg">
+                                                            Delete
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-0.5">
+                                            <h3 className="text-xs font-bold text-slate-800 dark:text-white line-clamp-1">{t.friendlyName}</h3>
+                                            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-normal line-clamp-3 min-h-[36px] leading-relaxed">
+                                                {t.body}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2 mt-auto">
+                                        <div className="flex items-center justify-between">
+                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${getCategoryStyles(t.internalCategory || t.category || 'general')}`}>
+                                                {t.internalCategory || t.category || 'General'}
+                                            </span>
+                                            <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500">
+                                                Used {t.usedCount} times
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2 border-t border-slate-50 dark:border-slate-800 pt-2">
+                                            <button
+                                                onClick={() => setPreviewTemplate(t)}
+                                                className="h-7 text-[10px] font-bold border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center justify-center gap-1 cursor-pointer text-slate-600 dark:text-slate-300"
+                                            >
+                                                Preview
+                                            </button>
+                                            <button
+                                                onClick={() => handleUseTemplate(t)}
+                                                className="h-7 text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-indigo-650 dark:text-indigo-400"
+                                            >
+                                                Use
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
-                {/* Filter by Channel */}
-                <div className="space-y-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 block px-1">Channel</span>
-                    <div className="relative">
-                        <Select
-                            value={channelFilter}
-                            onChange={(e) => handleChannelFilterChange(e.target.value as ChannelFilter)}
-                            className="h-10 w-full bg-background/50 border border-border/30 rounded-xl focus:ring-2 focus:ring-primary/10 text-xs px-3 font-semibold cursor-pointer"
-                        >
-                            <option value="ALL">All channels</option>
-                            <option value="WHATSAPP">WhatsApp</option>
-                            <option value="EMAIL">Email</option>
-                        </Select>
-                    </div>
-                </div>
+                {/* Templates Overview Card (col-span-3 - Height Aligned to Left) */}
+                <div className="col-span-1 lg:col-span-3 flex flex-col">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-105 dark:border-slate-800 rounded-2xl p-4.5 shadow-sm flex-1 flex flex-col justify-between">
+                        <div>
+                            <h2 className="text-xs font-bold text-slate-800 dark:text-slate-200">Templates Overview</h2>
+                            
+                            {/* Big total count row */}
+                            <div className="mt-3 bg-slate-50 dark:bg-slate-950 rounded-xl p-3 flex items-center justify-between border border-slate-100/50 dark:border-slate-850">
+                                <div>
+                                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Total Templates</p>
+                                    <p className="text-xl font-extrabold text-slate-800 dark:text-white mt-0.5">{stats.total}</p>
+                                </div>
+                                <div className="w-8.5 h-8.5 rounded-lg bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                                    <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                        <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18M9 21V9" />
+                                    </svg>
+                                </div>
+                            </div>
 
-                {/* Filter by Limit */}
-                <div className="space-y-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 block px-1">Items Per Page</span>
-                    <div className="relative">
-                        <Select
-                            value={String(limit)}
-                            onChange={(e) => handleLimitChange(Number(e.target.value))}
-                            className="h-10 w-full bg-background/50 border border-border/30 rounded-xl focus:ring-2 focus:ring-primary/10 text-xs px-3 font-semibold cursor-pointer"
+                            {/* Sub stats row */}
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                                <div className="p-2 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                                    <p className="text-[8px] font-bold text-slate-450 uppercase tracking-wide">Internal</p>
+                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-0.5">{stats.internal}</p>
+                                </div>
+                                <div className="p-2 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                                    <p className="text-[8px] font-bold text-slate-450 uppercase tracking-wide">WhatsApp</p>
+                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 mt-0.5">{stats.whatsapp}</p>
+                                </div>
+                            </div>
+
+                            {/* Status rows */}
+                            <div className="mt-3 space-y-1.5 border-t border-slate-50 dark:border-slate-800 pt-2.5">
+                                <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500">
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                        Approved
+                                    </span>
+                                    <span className="font-bold text-emerald-600 dark:text-emerald-400">{stats.approved}</span>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500">
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                        Pending Approval
+                                    </span>
+                                    <span className="font-bold text-amber-600 dark:text-amber-400">{stats.pending}</span>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500">
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                        Rejected
+                                    </span>
+                                    <span className="font-bold text-rose-600 dark:text-rose-400">{stats.rejected}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* View Approval Queue button */}
+                        <button
+                            onClick={() => {
+                                setSelectedCategory('ALL');
+                                setSelectedLanguage('ALL');
+                                setSearch('');
+                                if (activeTab !== 'WHATSAPP') setActiveTab('WHATSAPP');
+                                setSortBy('RECENT');
+                                toast.success('Filtered templates for WhatsApp Review queue.');
+                            }}
+                            className="w-full py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-2.5"
                         >
-                            <option value="10">10 templates</option>
-                            <option value="50">50 templates</option>
-                            <option value="100">100 templates</option>
-                        </Select>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            View Approval Queue
+                        </button>
                     </div>
                 </div>
             </div>
 
-            {/* ── Grid / empty state / loading ── */}
-            {isLoading ? (
-                <div className="flex h-64 items-center justify-center rounded-2xl border border-border/70 bg-card/20">
-                    <div className="flex flex-col items-center gap-2">
-                        <svg className="h-8 w-8 animate-spin text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                        <span className="text-xs text-muted-foreground">Loading templates...</span>
-                    </div>
+            {/* ── All Templates Listing Table (Full Page Width) ── */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-105 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm w-full">
+                <div className="p-4 border-b border-slate-50 dark:border-slate-800">
+                    <h2 className="text-sm font-bold text-slate-800 dark:text-white font-semibold">
+                        All {activeTab === 'INTERNAL' ? 'internal' : 'WhatsApp'} templates
+                    </h2>
                 </div>
-            ) : templates.length === 0 ? (
-                <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/70 bg-card/40 py-20 text-center">
-                    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
-                        <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18M9 21V9" />
-                        </svg>
-                    </div>
-                    <p className="text-sm font-medium">No templates match your filters</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Try clearing or changing the filters above.</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    {templates.map((t) => {
-                        const isInternal = t.type === 'INTERNAL';
-                        const status = t.approvalStatus ?? 'DRAFT';
-                        return (
-                            <div
-                                key={t.id}
-                                className={`group relative flex flex-col rounded-3xl border border-border/30 bg-gradient-to-br from-card/85 via-card/75 to-card/65 p-5.5 backdrop-blur-md transition-all duration-300 hover:border-primary/20 hover:from-card/95 hover:via-card/90 hover:to-card/85 hover:shadow-xl hover:shadow-primary/5 hover:-translate-y-1 ${busyId === t.id ? 'opacity-60' : ''}`}
-                            >
-                                {/* Top row: status + kebab */}
-                                <div className="mb-3.5 flex items-center justify-between gap-2">
-                                    {isInternal ? (
-                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                                            Internal
-                                        </span>
-                                    ) : status === 'APPROVED' ? (
-                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                            Approved
-                                        </span>
-                                    ) : status === 'PENDING' ? (
-                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                            Pending
-                                        </span>
-                                    ) : status === 'REJECTED' ? (
-                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20" title={t.rejectionReason || undefined}>
-                                            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                                            Rejected
-                                        </span>
-                                    ) : (
-                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-500/10 px-2.5 py-0.5 text-[11px] font-bold text-slate-600 dark:text-slate-400 border border-slate-500/20">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                                            Draft
-                                        </span>
-                                    )}
 
-                                    {/* Template Options Dropdown */}
-                                    <div className="relative" ref={openMenuId === t.id ? menuRef : null}>
-                                        <button
-                                            onClick={() => setOpenMenuId((c) => (c === t.id ? null : t.id))}
-                                            className="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
-                                            aria-label="Template actions"
-                                        >
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                                                <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
-                                            </svg>
-                                        </button>
-                                        {openMenuId === t.id ? (
-                                            <div className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-xl border border-border/80 bg-popover p-1 shadow-xl">
-                                                <Link href={`/templates/${t.id}`} onClick={() => setOpenMenuId(null)} className="block rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent font-medium">
-                                                    Edit
-                                                </Link>
-                                                <button onClick={() => handleDuplicate(t.id)} disabled={isPending} className="block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent font-medium cursor-pointer">
-                                                    Duplicate
-                                                </button>
-                                                <button onClick={() => handleDelete(t)} disabled={isPending} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10 font-medium cursor-pointer">
-                                                    Delete
-                                                </button>
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                </div>
-
-                                {/* Title */}
-                                <Link href={`/templates/${t.id}`} className="min-w-0 group/title block">
-                                    <h3 className="truncate text-base font-bold tracking-tight text-foreground transition-colors group-hover/title:text-primary">
-                                        {t.friendlyName}
-                                    </h3>
-                                    <span className="inline-flex mt-1 text-[10px] font-mono bg-accent/40 text-muted-foreground px-2 py-0.5 rounded-md border border-border/20 tracking-wide">
-                                        {t.name}
-                                    </span>
-                                </Link>
-
-                                {/* Body preview */}
-                                <div className="mt-3.5 flex-1 rounded-2xl bg-accent/20 border border-border/20 p-3.5 text-xs text-muted-foreground/90 font-normal line-clamp-3 leading-relaxed relative overflow-hidden group-hover:bg-accent/30 transition-colors min-h-[64px]">
-                                    {renderHighlightedBody(t.body)}
-                                </div>
-
-                                {/* Footer meta */}
-                                <div className="mt-4.5 flex items-center gap-2 border-t border-border/20 pt-3.5 text-[11px] text-muted-foreground">
-                                    {t.channel === 'WHATSAPP' ? (
-                                        <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/15">
-                                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                            </svg>
-                                            WhatsApp
-                                        </span>
-                                    ) : (
-                                        <span className="inline-flex items-center gap-1 rounded-lg bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-600 dark:text-sky-400 border border-sky-500/15">
-                                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                                            </svg>
-                                            Email
-                                        </span>
-                                    )}
-
-                                    {t.variables.length > 0 ? (
-                                        <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-500/10 px-2 py-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-500/15">
-                                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />
-                                            </svg>
-                                            {t.variables.length} {t.variables.length === 1 ? 'var' : 'vars'}
-                                        </span>
-                                    ) : null}
-                                    <span className="ml-auto font-medium text-muted-foreground/60" suppressHydrationWarning>{formatDate(t.updatedAt)}</span>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-
-            {/* ── Pagination Controls ── */}
-            {!isLoading && totalPages > 1 && (
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-border/20 pt-5 mt-8">
-                    <div className="text-xs text-muted-foreground font-medium">
-                        Showing <span className="font-semibold text-foreground">{Math.min(total, (page - 1) * limit + 1)}</span> to{' '}
-                        <span className="font-semibold text-foreground">{Math.min(total, page * limit)}</span> of{' '}
-                        <span className="font-semibold text-foreground">{total}</span> templates
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                        {/* Prev Button */}
-                        <button
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            disabled={page === 1}
-                            className="inline-flex items-center justify-center whitespace-nowrap rounded-xl text-xs font-semibold border border-border/30 bg-card hover:bg-accent/40 disabled:pointer-events-none disabled:opacity-40 h-9 px-3.5 cursor-pointer transition-all active:scale-95 shadow-sm"
-                        >
-                            <svg className="h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="m15 18-6-6 6-6" />
+                {isLoading ? (
+                    <div className="flex h-64 items-center justify-center">
+                        <div className="flex flex-col items-center gap-2">
+                            <svg className="h-6 w-6 animate-spin text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                             </svg>
-                            Previous
-                        </button>
+                            <span className="text-xs text-slate-400">Loading templates...</span>
+                        </div>
+                    </div>
+                ) : paginatedTemplates.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <div className="mb-3.5 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400">
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8">
+                                <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18M9 21V9" />
+                            </svg>
+                        </div>
+                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">No templates found</p>
+                        <p className="mt-1 text-[11px] text-slate-450">Try matching your filters or creating a new template.</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="border-b border-slate-50 dark:border-slate-800 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-900/30">
+                                    <th className="py-3.5 px-6 min-w-[280px]">Template</th>
+                                    <th className="py-3.5 px-4">Category</th>
+                                    <th className="py-3.5 px-4">Language</th>
+                                    <th className="py-3.5 px-4 text-center">Used</th>
+                                    <th className="py-3.5 px-4">Updated</th>
+                                    <th className="py-3.5 px-6 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/80">
+                                {paginatedTemplates.map((t) => (
+                                    <tr key={t.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/20 group transition-all">
+                                        {/* Template Column */}
+                                        <td className="py-3 px-6">
+                                            <div className="flex items-center gap-3">
+                                                {getTemplateIcon(t.internalCategory || t.category)}
+                                                <div className="min-w-0">
+                                                    <Link href={`/templates/${t.id}`} className="hover:underline font-bold text-xs text-slate-800 dark:text-slate-200 block truncate">
+                                                        {t.friendlyName}
+                                                    </Link>
+                                                    <span className="text-[11px] text-slate-400 dark:text-slate-500 line-clamp-1 mt-0.5 font-normal">
+                                                        {t.body}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </td>
 
-                        {/* Page Numbers */}
-                        <div className="flex items-center gap-1">
-                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
-                                const isNear = Math.abs(p - page) <= 1;
-                                const isEdge = p === 1 || p === totalPages;
-                                if (!isNear && !isEdge) {
-                                    if (p === 2 || p === totalPages - 1) {
-                                        return <span key={p} className="px-1 text-xs text-muted-foreground/60 font-semibold select-none">...</span>;
-                                    }
-                                    return null;
-                                }
-                                const isSelected = page === p;
-                                return (
-                                    <button
-                                        key={p}
-                                        onClick={() => setPage(p)}
-                                        className={`inline-flex items-center justify-center whitespace-nowrap rounded-xl text-xs font-semibold h-9 w-9 cursor-pointer transition-all active:scale-95 ${
-                                            isSelected
-                                                ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/10'
-                                                : 'border border-transparent bg-transparent hover:bg-accent/40 text-muted-foreground hover:text-foreground'
-                                        }`}
-                                    >
-                                        {p}
-                                    </button>
-                                );
-                            })}
+                                        {/* Category Column */}
+                                        <td className="py-3 px-4 whitespace-nowrap">
+                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${getCategoryStyles(t.internalCategory || t.category || 'general')}`}>
+                                                {t.internalCategory || t.category || 'General'}
+                                            </span>
+                                        </td>
+
+                                        {/* Language Column */}
+                                        <td className="py-3 px-4 font-semibold text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                            {t.language === 'en' ? 'English' : t.language === 'es' ? 'Spanish' : t.language === 'hi' ? 'Hindi' : t.language}
+                                        </td>
+
+                                        {/* Used Column */}
+                                        <td className="py-3 px-4 text-center font-bold text-xs text-slate-850 dark:text-slate-200 tabular-nums whitespace-nowrap">
+                                            {t.usedCount}
+                                        </td>
+
+                                        {/* Updated Column */}
+                                        <td className="py-3 px-4 font-semibold text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                                            {formatDate(t.updatedAt)}
+                                        </td>
+
+                                        {/* Actions Column */}
+                                        <td className="py-3 px-6 text-right whitespace-nowrap">
+                                            <div className="flex items-center justify-end gap-2">
+                                                {/* Preview shortcut icon */}
+                                                <button
+                                                    onClick={() => setPreviewTemplate(t)}
+                                                    className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 rounded-lg transition-all cursor-pointer"
+                                                    title="Preview template"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                    </svg>
+                                                </button>
+
+                                                {/* Options Dropdown */}
+                                                <div className="relative">
+                                                    <button
+                                                        onClick={() => setOpenMenuId(openMenuId === t.id ? null : t.id)}
+                                                        className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 rounded-lg transition-all cursor-pointer"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                                            <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+                                                        </svg>
+                                                    </button>
+                                                    {openMenuId === t.id && (
+                                                        <div className="absolute right-0 top-full z-20 mt-1 w-32 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 rounded-xl shadow-xl p-1 animate-slide-in-bottom">
+                                                            <Link href={`/templates/${t.id}`} className="block px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg text-left">
+                                                                Edit
+                                                            </Link>
+                                                            <button onClick={() => handleDuplicate(t.id)} className="block w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg">
+                                                                Duplicate
+                                                            </button>
+                                                            <button onClick={() => handleDelete(t)} className="block w-full text-left px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg">
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                {/* Pagination Footer */}
+                {!isLoading && totalPages > 1 && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-50 dark:border-slate-800 p-4">
+                        <div className="text-[11px] font-semibold text-slate-400">
+                            Showing <span className="text-slate-700 dark:text-slate-200">{(page - 1) * pageSize + 1}</span> to{' '}
+                            <span className="text-slate-700 dark:text-slate-200">{Math.min(totalItems, page * pageSize)}</span> of{' '}
+                            <span className="text-slate-700 dark:text-slate-200">{totalItems}</span> templates
                         </div>
 
-                        {/* Next Button */}
-                        <button
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            disabled={page === totalPages}
-                            className="inline-flex items-center justify-center whitespace-nowrap rounded-xl text-xs font-semibold border border-border/30 bg-card hover:bg-accent/40 disabled:pointer-events-none disabled:opacity-40 h-9 px-3.5 cursor-pointer transition-all active:scale-95 shadow-sm"
-                        >
-                            Next
-                            <svg className="h-4 w-4 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="m9 18 6-6-6-6" />
-                            </svg>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                            {/* Prev Button */}
+                            <button
+                                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                disabled={page === 1}
+                                className="h-7 w-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-95"
+                            >
+                                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="m15 18-6-6 6-6" />
+                                </svg>
+                            </button>
+
+                            {/* Page numbers */}
+                            <div className="flex items-center gap-1">
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                                    const isSelected = page === p;
+                                    return (
+                                        <button
+                                            key={p}
+                                            onClick={() => setPage(p)}
+                                            className={`h-7 w-7 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                                isSelected
+                                                    ? 'bg-indigo-650 text-white shadow-sm'
+                                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400'
+                                            }`}
+                                        >
+                                            {p}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Next Button */}
+                            <button
+                                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={page === totalPages}
+                                className="h-7 w-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-95"
+                            >
+                                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="m9 18 6-6-6-6" />
+                                </svg>
+                            </button>
+
+                            {/* Page size select */}
+                            <Select
+                                value={String(pageSize)}
+                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPageSize(Number(e.target.value))}
+                                className="h-7 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer py-0 px-2.5"
+                            >
+                                <option value="10">10 / page</option>
+                                <option value="20">20 / page</option>
+                                <option value="50">50 / page</option>
+                            </Select>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* ── Premium Preview Modal ── */}
+            {previewTemplate && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 dark:bg-slate-950/60 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-2xl max-w-lg w-full overflow-hidden animate-slide-in-bottom">
+                        {/* Modal Header */}
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/20 dark:bg-slate-900/20">
+                            <div>
+                                <h3 className="text-sm font-bold text-slate-800 dark:text-white">{previewTemplate.friendlyName}</h3>
+                                <p className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 font-mono mt-0.5">{previewTemplate.name}</p>
+                            </div>
+                            <button
+                                onClick={() => setPreviewTemplate(null)}
+                                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-205 rounded-xl transition-all cursor-pointer"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        {/* Modal Body */}
+                        <div className="p-5 space-y-4">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-150 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase tracking-wide">
+                                    {previewTemplate.type}
+                                </span>
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-650 dark:text-indigo-400 uppercase tracking-wide">
+                                    {previewTemplate.channel}
+                                </span>
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                    {previewTemplate.language === 'en' ? 'English (en)' : previewTemplate.language}
+                                </span>
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ml-auto ${getCategoryStyles(previewTemplate.internalCategory || previewTemplate.category || 'general')}`}>
+                                    {previewTemplate.internalCategory || previewTemplate.category || 'General'}
+                                </span>
+                            </div>
+
+                            {/* Phone chat style preview */}
+                            <div className="rounded-2xl bg-[#e7ddd1] dark:bg-slate-950 p-4 border border-slate-200/40 dark:border-slate-850">
+                                <div className="max-w-[85%] rounded-xl rounded-tr-sm bg-white dark:bg-slate-900 px-3 py-2.5 text-[11px] leading-relaxed text-slate-800 dark:text-slate-100 shadow-sm border border-slate-100/50 dark:border-slate-855">
+                                    {renderHighlightedBody(previewTemplate.body)}
+                                </div>
+                            </div>
+                        </div>
+                        {/* Modal Footer */}
+                        <div className="p-5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText(previewTemplate.body);
+                                    toast.success('Template body copied to clipboard!');
+                                }}
+                                className="h-8.5 px-3.5 text-xs font-bold text-slate-650 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all cursor-pointer"
+                            >
+                                Copy Snippet
+                            </button>
+                            <Link href={`/templates/${previewTemplate.id}`}>
+                                <button className="h-8.5 px-3.5 text-xs font-bold text-white bg-indigo-650 hover:bg-indigo-700 rounded-xl transition-all shadow-sm cursor-pointer">
+                                    Edit Template
+                                </button>
+                            </Link>
+                        </div>
                     </div>
                 </div>
             )}

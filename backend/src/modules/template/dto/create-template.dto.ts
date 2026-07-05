@@ -73,4 +73,11 @@ export class CreateTemplateDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  internalCategory?: string;
+
+  @IsOptional()
+  usedCount?: number;
 }

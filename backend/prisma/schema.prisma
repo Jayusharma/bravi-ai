@@ -826,6 +826,8 @@ model MessageTemplate {
   sampleValues    Json? // { "1": "Rahul", "2": "2BHK Sector 74" } — Meta requires
 
   isActive  Boolean  @default(true)
+  usedCount Int      @default(0)
+  internalCategory String?
   createdBy String // userId who created it
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

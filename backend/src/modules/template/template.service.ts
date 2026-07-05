@@ -77,6 +77,8 @@ export class TemplateService {
                     approvalStatus: isWhatsApp ? WaApprovalStatus.DRAFT : null,
                     sampleValues: (dto.sampleValues as Prisma.InputJsonValue) ?? undefined,
                     isActive: dto.isActive ?? true,
+                    usedCount: dto.usedCount ?? 0,
+                    internalCategory: dto.internalCategory ?? null,
                     createdBy: userId,
                     variables: { create: this.buildVariables(dto.body) },
                 },
@@ -184,6 +186,8 @@ export class TemplateService {
                         ...(dto.buttons !== undefined ? { buttons: dto.buttons as Prisma.InputJsonValue } : {}),
                         ...(dto.sampleValues !== undefined ? { sampleValues: dto.sampleValues as Prisma.InputJsonValue } : {}),
                         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+                        ...(dto.internalCategory !== undefined ? { internalCategory: dto.internalCategory } : {}),
+                        ...(dto.usedCount !== undefined ? { usedCount: dto.usedCount } : {}),
                         ...(dto.body !== undefined
                             ? { body: dto.body, bodyCompiled: isWhatsApp ? compileBody(dto.body) : null }
                             : {}),
@@ -229,6 +233,8 @@ export class TemplateService {
                 approvalStatus: isWhatsApp ? WaApprovalStatus.DRAFT : null,
                 sampleValues: (src.sampleValues as Prisma.InputJsonValue) ?? undefined,
                 isActive: src.isActive,
+                usedCount: src.usedCount,
+                internalCategory: src.internalCategory,
                 createdBy: src.createdBy,
                 variables: { create: this.buildVariables(src.body) },
             },

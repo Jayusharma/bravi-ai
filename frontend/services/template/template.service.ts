@@ -52,6 +52,8 @@ export interface Template {
     sampleValues: Record<string, string> | null;
 
     isActive: boolean;
+    usedCount: number;
+    internalCategory: string | null;
     createdBy: string;
     createdAt: string;
     updatedAt: string;
@@ -112,6 +114,8 @@ export interface CreateTemplateInput {
     category?: WaTemplateCategory;
     sampleValues?: Record<string, string>;
     isActive?: boolean;
+    usedCount?: number;
+    internalCategory?: string;
 }
 
 /** Body for PATCH /templates/:id. All fields optional. */

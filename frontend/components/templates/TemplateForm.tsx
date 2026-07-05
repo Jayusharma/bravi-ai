@@ -62,6 +62,9 @@ export function TemplateForm({ template }: TemplateFormProps) {
     const [sampleValues, setSampleValues] = useState<Record<string, string>>(
         (template?.sampleValues as Record<string, string>) ?? {},
     );
+    const [internalCategory, setInternalCategory] = useState<string>(
+        template?.internalCategory ?? 'General'
+    );
 
     const bodyRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -116,6 +119,7 @@ export function TemplateForm({ template }: TemplateFormProps) {
             channel,
             language: language.trim() || 'en',
             body,
+            ...(!isWhatsApp ? { internalCategory } : {}),
             ...(isEmail ? { subject: subject.trim() || undefined } : {}),
             ...(isWhatsApp
                 ? {
@@ -274,7 +278,20 @@ export function TemplateForm({ template }: TemplateFormProps) {
                                     </Select>
                                 </div>
                             </div>
-                        ) : null}
+                        ) : (
+                            <div>
+                                <label className={LABEL}>Category</label>
+                                <Select value={internalCategory} onChange={(e) => setInternalCategory(e.target.value)} disabled={frozen}>
+                                    <option value="Sales">Sales</option>
+                                    <option value="Follow-up">Follow-up</option>
+                                    <option value="Information">Information</option>
+                                    <option value="Qualification">Qualification</option>
+                                    <option value="Support">Support</option>
+                                    <option value="General">General</option>
+                                    <option value="Others">Others</option>
+                                </Select>
+                            </div>
+                        )}
 
                         {/* Email subject */}
                         {isEmail ? (
