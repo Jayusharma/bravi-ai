@@ -5,11 +5,9 @@ import {
     Param,
     Body,
     Query,
-    UseGuards,
     Post,
     Delete,
 } from '@nestjs/common';
-import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { ContactService } from './contact.service';
 import { EnquiryService } from '../enquiry/enquiry.service';
@@ -18,7 +16,6 @@ import { CreateContactDto } from './dto/create-contact.dto';
 import { AddChannelDto } from './dto/add-channel.dto';
 
 @Controller('contact')
-@UseGuards(CaslGuard)
 export class ContactController {
     constructor(
         private contactService: ContactService,

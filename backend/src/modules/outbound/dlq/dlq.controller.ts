@@ -8,17 +8,14 @@ import {
   Param,
   Query,
   Req,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { CaslGuard } from '../../casl/casl.guard';
 import { CheckAbility } from '../../casl/decorators/check-ability.decorator';
 import { DlqService } from './dlq.service';
 
 @Controller('outbound/dlq')
-@UseGuards(CaslGuard)
 export class DlqController {
   constructor(private readonly dlqService: DlqService) {}
 

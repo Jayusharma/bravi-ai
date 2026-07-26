@@ -4,9 +4,11 @@ import {
     ArgumentsHost,
     HttpException,
     HttpStatus,
+    Injectable,
     Logger,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
+import { ClsService } from 'nestjs-cls';
 
 /**
  * Global Exception Filter
@@ -14,14 +16,18 @@ import { Response, Request } from 'express';
  * Catches ALL exceptions and returns a standardized error response format.
  * Maps Prisma errors to user-friendly messages.
  */
+@Injectable()
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
     private readonly logger = new Logger('ExceptionFilter');
+
+    constructor(private readonly cls: ClsService) {}
 
     catch(exception: unknown, host: ArgumentsHost) {
         const ctx = host.switchToHttp();
         const response = ctx.getResponse<Response>();
         const request = ctx.getRequest<Request>();
+        const requestId = this.cls.getId();
 
         let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
         let message = 'Internal server error';
@@ -48,6 +54,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
                     errorCode = 'VALIDATION_ERROR';
                 }
             }
+            this.logger.warn(
+                `[${requestId}] ${request.method} ${request.url} → ${statusCode} ${errorCode}: ${Array.isArray(message) ? message.join('; ') : message}`,
+            );
         }
         // ─── Handle Prisma errors ────────────────────────────────────
         else if (this.isPrismaError(exception)) {
@@ -55,14 +64,22 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             statusCode = prismaResult.statusCode;
             message = prismaResult.message;
             errorCode = prismaResult.errorCode;
+            this.logger.error(
+                `[${requestId}] ${request.method} ${request.url} → ${statusCode} ${errorCode} (Prisma: ${(exception as any)?.code})`,
+                (exception as Error)?.stack,
+            );
         }
         // ─── Handle unknown errors ───────────────────────────────────
+        // The client only ever gets the generic "Internal server error" message above —
+        // the real exception.message (which can contain file paths, SQL fragments, or
+        // other internals) is logged server-side only, never put in the response body.
         else if (exception instanceof Error) {
-            message = exception.message;
             this.logger.error(
-                `Unhandled error: ${exception.message}`,
+                `[${requestId}] ${request.method} ${request.url} → 500 Unhandled: ${exception.message}`,
                 exception.stack,
             );
+        } else {
+            this.logger.error(`[${requestId}] ${request.method} ${request.url} → 500 Unhandled non-Error exception: ${JSON.stringify(exception)}`);
         }
 
         const errorResponse = {
@@ -71,6 +88,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
                 code: errorCode,
                 message,
                 statusCode,
+                requestId,
                 ...(details && { details }),
             },
             timestamp: new Date().toISOString(),

@@ -10,7 +10,6 @@ import { MessageController } from './message.controller';
 import { OutboundSendService } from './outbound-send.service';
 import { OutboundProcessor, OUTBOUND_QUEUE } from './outbound.processor';
 import { ChannelRouterService } from './channel-router.service';
-import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { EmailAdapter } from './adapters/email.adapter';
 import { MetaWhatsAppAdapter } from './adapters/meta-whatsapp.adapter';
 import { DeliveryTrackingService } from './delivery/delivery-tracking.service';
@@ -39,7 +38,6 @@ import { ChannelsModule } from '../channels/channels.module';
     WhatsAppWindowService,
     DlqService,
     ChannelRouterService,
-    WhatsAppAdapter,
     EmailAdapter,
     MetaWhatsAppAdapter,
     DeliveryTrackingService,

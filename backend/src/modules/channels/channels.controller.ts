@@ -1,9 +1,8 @@
 // channels.controller.ts — Administration → Channels. Admin-only CRUD for connecting a
 // channel (SendGrid today) and toggling it on/off. See channels.service.ts for the logic.
 
-import { Controller, Get, Post, Patch, Delete, Param, Body, Req, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Req, HttpCode, HttpStatus } from '@nestjs/common';
 import type { Request } from 'express';
-import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { ChannelsService } from './channels.service';
 import { CreateChannelDto } from './dto/create-channel.dto';
@@ -11,7 +10,6 @@ import { UpdateChannelDto } from './dto/update-channel.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 
 @Controller('channels')
-@UseGuards(CaslGuard)
 export class ChannelsController {
   constructor(private readonly channelsService: ChannelsService) {}
 

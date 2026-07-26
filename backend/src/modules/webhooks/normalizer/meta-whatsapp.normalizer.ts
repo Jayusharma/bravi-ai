@@ -1,5 +1,5 @@
 // meta-whatsapp.normalizer.ts — turns a raw Meta Cloud API webhook payload into the
-// standard IngestMessageDto, exactly like the Twilio/SendGrid normalizers do for theirs.
+// standard IngestMessageDto, exactly like the SendGrid normalizer does for email.
 
 import { Injectable, Logger } from '@nestjs/common';
 import { MessageChannel } from '@prisma/client';
@@ -30,8 +30,8 @@ export class MetaWhatsAppNormalizer implements WebhookNormalizer<MetaWhatsAppPay
         const value = payload.entry![0].changes![0].value;
         const msg = value.messages![0];
 
-        // Meta sends numbers WITHOUT '+' ("919876..."). Twilio stores "+919876...".
-        // Prefix '+' so the SAME person maps to the SAME ContactChannel across providers.
+        // Meta sends numbers WITHOUT '+' ("919876..."). Prefix '+' so this matches the
+        // format ContactChannel identifiers are stored in.
         const from = `+${msg.from}`;
         const to = value.metadata?.display_phone_number;
 

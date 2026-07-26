@@ -2,6 +2,12 @@ import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { validateEnv } from './common/config/env.schema';
+import { ClsModule, ClsService } from 'nestjs-cls';
+import { LoggerModule } from 'nestjs-pino';
+import { createPinoParams } from './common/logging/pino.config';
+import { randomUUID } from 'crypto';
+import type { Request } from 'express';
 import { PrismaModule } from './database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
@@ -9,10 +15,12 @@ import { EnquiryModule } from './modules/enquiry/enquiry.module';
 import { IngestionModule } from './modules/Ingestion/ingestion.module';
 import { QualificationModule } from './modules/qualification/qualification.module';
 import { IdempotencyMiddleware } from './common/middleware/idempotency.middleware';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_FILTER } from '@nestjs/core';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { WebhookModule } from './modules/webhooks/webhook.module';
 import { CaslModule } from './modules/casl/casl.module';
+import { CaslGuard } from './modules/casl/casl.guard';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bullmq';
 import { ContactModule } from './modules/contact/contact.module';
@@ -32,6 +40,28 @@ import { ChannelsModule } from './modules/channels/channels.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      validate: validateEnv,
+    }),
+
+    // ── Request-scoped context (requestId, and anything a handler wants to stamp
+    //    onto it — e.g. contactId/channelConnectionId) — must come before LoggerModule
+    //    so its middleware has already run by the time pino-http builds its log line.
+    ClsModule.forRoot({
+      global: true,
+      middleware: {
+        mount: true,
+        generateId: true,
+        idGenerator: (req: Request) => (req.headers['x-request-id'] as string) || randomUUID(),
+      },
+    }),
+
+    // ── Structured logging (nestjs-pino) — see common/logging/pino.config.ts for the
+    //    dev-file-vs-prod-stdout split. app.useLogger() in main.ts redirects every
+    //    `new Logger(name)` call site in the app through this, no per-file migration.
+    LoggerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService, ClsService],
+      useFactory: createPinoParams,
     }),
 
     // ── Event System (for enquiry.qualified events) ──
@@ -79,9 +109,23 @@ import { ChannelsModule } from './modules/channels/channels.module';
   controllers: [AppController],
   providers: [
     AppService,
+    // Order matters: JwtAuthGuard runs first (populates request.user), then CaslGuard.
+    // CaslGuard is now global — it enforces every @CheckAbility() decorator app-wide,
+    // so a controller can never ship without permission checks by omission again.
+    // Routes with no @CheckAbility (including every @Public() route) are unaffected —
+    // see CaslGuard.canActivate(), which returns true before it ever looks at request.user
+    // when no ability metadata is present on the handler.
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CaslGuard,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: GlobalExceptionFilter,
     },
   ],
 })

@@ -1,8 +1,7 @@
 // meta-whatsapp.adapter.ts — sends outbound WhatsApp messages via Meta's official Cloud API.
 //
-// Selected by AdapterFactory ONLY when the active WhatsApp ChannelConnection is META_WHATSAPP,
-// so credentials always come from that connection (ChannelRouterService decrypts and passes
-// them in) — there is deliberately NO env fallback here, unlike the Twilio adapter.
+// Selected by AdapterFactory whenever the channel is WHATSAPP — credentials always come from
+// the active ChannelConnection (ChannelRouterService decrypts and passes them in), no env fallback.
 
 import { Injectable, Logger } from '@nestjs/common';
 import { MessageChannel } from '@prisma/client';
@@ -98,7 +97,7 @@ export class MetaWhatsAppAdapter implements ChannelAdapter {
     return { success: true, externalId: json?.messages?.[0]?.id };
   }
 
-  /** Maps Meta Graph API error codes to agent-readable failure reasons (mirrors mapTwilioError). */
+  /** Maps Meta Graph API error codes to agent-readable failure reasons. */
   private mapMetaError(error: any): string {
     const code = error?.code;
     const metaMessages: Record<number, string> = {

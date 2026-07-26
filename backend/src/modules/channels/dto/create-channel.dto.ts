@@ -29,6 +29,12 @@ export class CreateChannelDto {
   @IsEmail()
   fromEmail?: string;
 
+  // SendGrid Event Webhook Signed Verification Key (Public Key) — saved in DB for signature verification
+  @IsOptional()
+  @IsString()
+  @MinLength(10)
+  verificationKey?: string;
+
   // ── Meta WhatsApp (Cloud API) ──
   // The sender identity from the Meta App dashboard (WhatsApp → API Setup → Phone Number ID)
   @IsOptional()
@@ -47,4 +53,10 @@ export class CreateChannelDto {
   @IsString()
   @MinLength(6)
   verifyToken?: string;
+
+  // App Secret from Meta App Dashboard — encrypted and saved in DB for HMAC signature verification
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  appSecret?: string;
 }

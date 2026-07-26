@@ -4,7 +4,6 @@ import {
   Body,
   Patch,
   Param,
-  UseGuards,
   Req,
   Get,
   Query,
@@ -21,20 +20,19 @@ import {
 } from './dto/create-enquiry.dto';
 import { InboxQueryDto } from './dto/inbox-query.dto';
 import type { Request } from 'express';
-import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { Ability } from '../casl/decorators/ability.decorator';
-import { Public } from 'src/common/decorator/public.decorator';
 import { AppAbility } from '../casl/casl.types';
 
 @Controller('enquiry')
-@UseGuards(CaslGuard)
 export class EnquiryController {
   constructor(private enquiryService: EnquiryService) { }
 
-  // ── Test endpoint (existing) ──
+  // Test endpoint — nothing calls this over HTTP (grepped: no frontend or internal
+  // reference). Was @Public(), letting anyone fabricate an enquiry for any contactId
+  // with no qualification. Now requires auth + create:enquiry like the real create route.
   @Patch('qualfiy')
-  @Public()
+  @CheckAbility({ action: 'create', subject: 'enquiry' })
   qualified(@Body() dto: QualifiedDto) {
     return this.enquiryService.handleQualified(dto);
   }

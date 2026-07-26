@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/Toast';
 import { createChannel, type ChannelConnection } from '@/services/channel';
 
 interface AddChannelModalProps {
-    provider: 'SENDGRID_EMAIL' | 'META_WHATSAPP' | 'TWILIO_WHATSAPP';
+    provider: 'SENDGRID_EMAIL' | 'META_WHATSAPP';
     onCreated: (channel: ChannelConnection) => void;
     onClose: () => void;
 }
@@ -19,7 +19,6 @@ interface VerificationStep {
 }
 
 const INBOUND_EMAIL_WEBHOOK_PATH = '/api/v1/webhook/email';
-const INBOUND_WHATSAPP_WEBHOOK_PATH = '/api/v1/webhook/whatsapp';
 const INBOUND_META_WEBHOOK_PATH = '/api/v1/webhook/whatsapp/meta'; // Meta's "Callback URL"
 
 export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModalProps) {
@@ -31,31 +30,25 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
     const [displayName, setDisplayName] = useState('');
     const [apiKey, setApiKey] = useState('');
     const [fromEmail, setFromEmail] = useState('');
+    const [verificationKey, setVerificationKey] = useState('');
 
-    // WhatsApp (Twilio simulator)
-    const [waDisplayName, setWaDisplayName] = useState('');
-    const [accountSid, setAccountSid] = useState('');
-    const [authToken, setAuthToken] = useState('');
-    const [phoneNumber, setPhoneNumber] = useState('');
-
-    // WhatsApp (Meta Cloud API — real connection)
+    // WhatsApp (Meta Cloud API)
     const [metaDisplayName, setMetaDisplayName] = useState('');
     const [phoneNumberId, setPhoneNumberId] = useState('');
     const [accessToken, setAccessToken] = useState('');
     const [verifyToken, setVerifyToken] = useState('');
+    const [appSecret, setAppSecret] = useState('');
 
     // --- Verification States ---
     const [verifSteps, setVerifSteps] = useState<VerificationStep[]>([]);
     const [connectedChannel, setConnectedChannel] = useState<ChannelConnection | null>(null);
 
     const isEmail = provider === 'SENDGRID_EMAIL';
-    const isMeta = provider === 'META_WHATSAPP';
 
     // Validation checks
     const canSubmitEmail = displayName.trim().length >= 2 && apiKey.trim().length >= 10 && fromEmail.trim().length > 0;
-    const canSubmitWhatsApp = waDisplayName.trim().length >= 2 && accountSid.trim().length >= 10 && authToken.trim().length >= 10 && phoneNumber.trim().length >= 8;
     const canSubmitMeta = metaDisplayName.trim().length >= 2 && phoneNumberId.trim().length >= 5 && accessToken.trim().length >= 10 && verifyToken.trim().length >= 6;
-    const canSubmit = isEmail ? canSubmitEmail : isMeta ? canSubmitMeta : canSubmitWhatsApp;
+    const canSubmit = isEmail ? canSubmitEmail : canSubmitMeta;
 
     // Helper to simulate delays for premium animated effect
     const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -81,6 +74,7 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                     displayName: displayName.trim(),
                     apiKey: apiKey.trim(),
                     fromEmail: fromEmail.trim(),
+                    verificationKey: verificationKey.trim() || undefined,
                 });
 
                 if (!result.success) {
@@ -143,7 +137,7 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                     return next;
                 });
             }
-        } else if (isMeta) {
+        } else {
             // Real Meta Cloud API connection — mirrors the email flow: one real backend call
             // (validates the token against graph.facebook.com + stores encrypted), rest is pacing.
             const initialSteps: VerificationStep[] = [
@@ -162,6 +156,7 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                     phoneNumberId: phoneNumberId.trim(),
                     accessToken: accessToken.trim(),
                     verifyToken: verifyToken.trim(),
+                    appSecret: appSecret.trim() || undefined,
                 });
 
                 if (!result.success) {
@@ -218,72 +213,6 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                     return next;
                 });
             }
-        } else {
-            // Initializing steps for WhatsApp Simulator
-            const initialSteps: VerificationStep[] = [
-                { label: 'Authenticating with Twilio Sandbox API', status: 'loading' },
-                { label: 'Provisioning WhatsApp webhook endpoints', status: 'idle' },
-                { label: 'Initializing WhatsApp receiver server', status: 'idle' },
-                { label: 'Connection finalized', status: 'idle' },
-            ];
-            setVerifSteps(initialSteps);
-
-            // Step 1 Simulation
-            await delay(1200);
-            setVerifSteps((prev) => {
-                const next = [...prev];
-                next[0].status = 'success';
-                next[1].status = 'loading';
-                return next;
-            });
-
-            // Step 2 Simulation
-            await delay(1000);
-            setVerifSteps((prev) => {
-                const next = [...prev];
-                next[1].status = 'success';
-                next[2].status = 'loading';
-                return next;
-            });
-
-            // Step 3 Simulation
-            await delay(800);
-            setVerifSteps((prev) => {
-                const next = [...prev];
-                next[2].status = 'success';
-                next[3].status = 'loading';
-                return next;
-            });
-
-            // Step 4 Simulation
-            await delay(600);
-            setVerifSteps((prev) => {
-                const next = [...prev];
-                next[3].status = 'success';
-                return next;
-            });
-            await delay(400);
-
-            // Create a local mock object for WhatsApp to display in table
-            const mockData: ChannelConnection = {
-                id: `mock_wa_${Date.now()}`,
-                provider: 'TWILIO_WHATSAPP' as any,
-                channel: 'WHATSAPP',
-                displayName: waDisplayName.trim(),
-                status: 'ACTIVE',
-                externalAccountId: phoneNumber.trim(),
-                apiKeyMasked: `••••${authToken.trim().slice(-4)}`,
-                lastInboundAt: null,
-                lastError: null,
-                createdBy: 'SYSTEM',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-            };
-
-            onCreated(mockData);
-            setConnectedChannel(mockData);
-            setStep('SUCCESS');
-            toast.success('Sandbox connected', 'WhatsApp integration sandbox initialized!');
         }
     };
 
@@ -301,14 +230,12 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                         <h3 className="text-lg font-bold tracking-tight text-foreground">
                             {step === 'SUCCESS' ? 'Integration Complete' :
                              step === 'VERIFYING' ? 'Connecting Integration...' :
-                             isEmail ? 'Connect SendGrid Email' :
-                             isMeta ? 'Connect WhatsApp (Meta)' : 'Connect Twilio WhatsApp'}
+                             isEmail ? 'Connect SendGrid Email' : 'Connect WhatsApp (Meta)'}
                         </h3>
                         <p className="text-xs text-muted-foreground mt-0.5">
                             {step === 'SUCCESS' ? 'Channel successfully configured.' :
                              step === 'VERIFYING' ? 'Please wait while credentials are verified.' :
-                             isEmail ? 'Integrate SendGrid outbound SMTP and inbound parse.' :
-                             isMeta ? 'Connect the official WhatsApp Cloud API from your Meta App.' : 'Set up your Twilio account to route WhatsApp chats.'}
+                             isEmail ? 'Integrate SendGrid outbound SMTP and inbound parse.' : 'Connect the official WhatsApp Cloud API from your Meta App.'}
                         </p>
                     </div>
                     <button onClick={onClose} className="rounded-xl p-2 text-muted-foreground hover:bg-accent hover:text-foreground transition-all cursor-pointer">
@@ -354,8 +281,22 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                                             className="h-11 rounded-xl"
                                         />
                                     </div>
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Event Webhook Verification Key (Optional)</label>
+                                            <span className="text-[10px] text-muted-foreground">SendGrid → Mail Settings → Event Webhooks</span>
+                                        </div>
+                                        <Input
+                                            type="password"
+                                            value={verificationKey}
+                                            onChange={(e) => setVerificationKey(e.target.value)}
+                                            placeholder="MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+                                            autoComplete="off"
+                                            className="h-11 rounded-xl font-mono text-xs"
+                                        />
+                                    </div>
                                 </>
-                            ) : isMeta ? (
+                            ) : (
                                 <>
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Display Name</label>
@@ -399,48 +340,19 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                                             You&apos;ll paste this same token into Meta&apos;s webhook settings after connecting — Meta uses it to prove it&apos;s talking to your server.
                                         </p>
                                     </div>
-                                </>
-                            ) : (
-                                <>
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Display Name</label>
+                                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">App Secret <span className="normal-case font-normal">(Meta App → App Settings → Basic)</span></label>
                                         <Input
-                                            value={waDisplayName}
-                                            onChange={(e) => setWaDisplayName(e.target.value)}
-                                            placeholder="e.g. Sales WhatsApp"
-                                            className="h-11 rounded-xl"
+                                            type="password"
+                                            value={appSecret}
+                                            onChange={(e) => setAppSecret(e.target.value)}
+                                            placeholder="e.g. 8f9b2a1c4e7d..."
+                                            autoComplete="off"
+                                            className="h-11 rounded-xl font-mono text-sm"
                                         />
-                                    </div>
-                                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Account SID</label>
-                                            <Input
-                                                value={accountSid}
-                                                onChange={(e) => setAccountSid(e.target.value)}
-                                                placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxx"
-                                                className="h-11 rounded-xl font-mono text-sm"
-                                            />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Auth Token</label>
-                                            <Input
-                                                type="password"
-                                                value={authToken}
-                                                onChange={(e) => setAuthToken(e.target.value)}
-                                                placeholder="••••••••••••••••••••••••"
-                                                autoComplete="off"
-                                                className="h-11 rounded-xl font-mono text-sm"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">WhatsApp Number</label>
-                                        <Input
-                                            value={phoneNumber}
-                                            onChange={(e) => setPhoneNumber(e.target.value)}
-                                            placeholder="+919876543210"
-                                            className="h-11 rounded-xl font-mono"
-                                        />
+                                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                            Used to cryptographically verify incoming webhook payloads (HMAC SHA-256).
+                                        </p>
                                     </div>
                                 </>
                             )}
@@ -564,7 +476,7 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                                             </div>
                                         </div>
                                     </>
-                                ) : isMeta ? (
+                                ) : (
                                     <>
                                         <p className="text-xs text-muted-foreground leading-relaxed">
                                             One last step, inside your Meta App dashboard: register this webhook so Meta starts pushing incoming WhatsApp messages to EnquiryHub.
@@ -605,32 +517,6 @@ export function AddChannelModal({ provider, onCreated, onClose }: AddChannelModa
                                                         Copy
                                                     </button>
                                                 </div>
-                                            </div>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <p className="text-xs text-muted-foreground leading-relaxed">
-                                            To route incoming customer WhatsApp messages into your EnquiryHub inbox, configure the Twilio phone number webhook handler:
-                                        </p>
-                                        <div className="space-y-3 rounded-2xl border border-border/40 bg-accent/40 p-4 text-xs">
-                                            <ol className="list-decimal list-inside space-y-1.5 text-muted-foreground font-sans leading-relaxed">
-                                                <li>Open the <span className="font-semibold text-foreground">Twilio Console</span>.</li>
-                                                <li>Go to <span className="font-semibold text-foreground">Messaging &gt; Senders &gt; WhatsApp Senders</span>.</li>
-                                                <li>Click on your WhatsApp phone number configuration.</li>
-                                                <li>Find the <span className="font-semibold text-foreground">Webhook URL for Incoming Messages</span> and paste this URL:</li>
-                                            </ol>
-                                            <div className="flex items-center justify-between gap-3 bg-card/60 p-2 rounded-lg border border-border/10 font-mono">
-                                                <span className="break-all select-all font-semibold text-primary">{`<your-domain>${INBOUND_WHATSAPP_WEBHOOK_PATH}`}</span>
-                                                <button
-                                                    onClick={() => {
-                                                        navigator.clipboard.writeText(`${window.location.origin}${INBOUND_WHATSAPP_WEBHOOK_PATH}`);
-                                                        toast.success('Copied', 'Webhook URL copied to clipboard!');
-                                                    }}
-                                                    className="px-2 py-1 rounded bg-accent text-[10px] font-sans hover:bg-accent-foreground/10 text-muted-foreground transition-all cursor-pointer shrink-0"
-                                                >
-                                                    Copy
-                                                </button>
                                             </div>
                                         </div>
                                     </>

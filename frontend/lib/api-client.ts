@@ -212,7 +212,16 @@ export async function apiClient<T = unknown>(
             // ── Success response ──
             logSuccess(method, url, res.status, durationMs);
 
-            const json = await res.json();
+            if (res.status === 204) {
+                return undefined as T;
+            }
+
+            const text = await res.text();
+            if (!text || text.trim() === '') {
+                return undefined as T;
+            }
+
+            const json = JSON.parse(text);
             console.log(`[API RESPONSE] ${method} ${url}:`, json);
 
             // Unwrap standardized { success, data } envelope

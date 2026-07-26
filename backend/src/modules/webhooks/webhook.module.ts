@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { IngestionModule } from '../Ingestion/ingestion.module';
 import { WebhookController } from './webhook.controller';
-import { TwilioWhatsAppNormalizer } from './normalizer/twilio-whatsapp.normalizer';
 import { SendGridEmailNormalizer } from './normalizer/email.normalizer';
 import { MetaWhatsAppNormalizer } from './normalizer/meta-whatsapp.normalizer';
 import { ChannelsModule } from '../channels/channels.module';
-
+import { MetaWebhookGuard } from './guards/meta-webhook.guard';
+import { SendGridSignatureGuard } from './guards/sendgrid-signature.guard';
 
 @Module({
   imports: [
@@ -14,9 +14,10 @@ import { ChannelsModule } from '../channels/channels.module';
   ],
   controllers: [WebhookController],
   providers: [
-    TwilioWhatsAppNormalizer,
     SendGridEmailNormalizer,
     MetaWhatsAppNormalizer,
+    MetaWebhookGuard,
+    SendGridSignatureGuard,
   ],
 })
 export class WebhookModule { }

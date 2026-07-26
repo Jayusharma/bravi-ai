@@ -10,14 +10,12 @@ import {
   Query,
   Req,
   UploadedFile,
-  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import multer = require('multer');
 import { ChatService } from './chat.service';
-import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 // Shared upload rules — same allowlist the enquiry-messaging uploads use
 import { ALLOWED_MIMES } from '../outbound/draft.service';
@@ -31,7 +29,6 @@ import { AddMembersDto, OpenDmDto } from './dto/members.dto';
 import { ReactDto } from './dto/react.dto';
 
 @Controller('chat')
-@UseGuards(CaslGuard)
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 

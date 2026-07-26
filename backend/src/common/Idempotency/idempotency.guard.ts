@@ -1,55 +1,65 @@
-import { BadRequestException, CanActivate, ConflictException, ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  CanActivate,
+  ConflictException,
+  ExecutionContext,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from 'src/database/prisma.service';
 
 @Injectable()
 export class IdempotencyGuard implements CanActivate {
-    constructor(private prisma:PrismaService){}
+  private readonly logger = new Logger(IdempotencyGuard.name);
 
-    async canActivate(context: ExecutionContext): Promise<boolean> {
-        const request = context.switchToHttp().getRequest();
-        const key = request.headers['x-idempotency-key'];
+  constructor(private prisma: PrismaService) {}
 
-    
-        if(!key){
-           
-            return true;
-        }
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest();
+    const key = request.headers['x-idempotency-key'];
 
-        const bodyhash = createHash('sha256').update(JSON.stringify(request.body)).digest('hex');
+    if (!key) {
+      return true;
+    }
 
-        const record = await this.prisma.idempotencyKey.findUnique({
-            where: { key }
-        });
-  
-        if(!record){
-            await this.prisma.idempotencyKey.create({
-                data: {
-                    key,
-                    requestHash: bodyhash,
-                    status: 'PROCESSING',
-                }
-            });
-            return true;
-        }
+    const bodyhash = createHash('sha256')
+      .update(JSON.stringify(request.body))
+      .digest('hex');
 
+    const record = await this.prisma.idempotencyKey.findUnique({
+      where: { key },
+    });
 
-        if (record.requestHash !== bodyhash) {
-            throw new BadRequestException(
-              'Idempotency key reused with different payload',
-            );
-          }
+    if (!record) {
+      await this.prisma.idempotencyKey.create({
+        data: {
+          key,
+          requestHash: bodyhash,
+          status: 'PROCESSING',
+        },
+      });
+      return true;
+    }
 
-          const age = Date.now() - record.createdAt.getTime();
-          if (record.status === 'PROCESSING' && age > 2 * 60 * 1000) {
-            return true;
-          }
+    if (record.requestHash !== bodyhash) {
+      this.logger.warn(`🔁 [IdempotencyGuard] Key reused with different payload: ${key}`);
+      throw new BadRequestException(
+        'Idempotency key reused with different payload',
+      );
+    }
 
-        if(record.status === 'COMPLETED'){
-            throw new ConflictException(record.response);
-        }
+    const age = Date.now() - record.createdAt.getTime();
+    if (record.status === 'PROCESSING' && age > 2 * 60 * 1000) {
+      return true;
+    }
 
+    if (record.status === 'COMPLETED') {
+      this.logger.log(`🔁 [IdempotencyGuard] Duplicate message already processed (key: ${key}). Returning cached ACK.`);
+      throw new ConflictException(record.response);
+    }
 
-     throw new ConflictException('Request already in progress');
-}
+    this.logger.warn(`🔁 [IdempotencyGuard] Request already in progress for key: ${key}`);
+    throw new ConflictException('Request already in progress');
+  }
 }

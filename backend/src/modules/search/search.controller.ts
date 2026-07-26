@@ -1,12 +1,10 @@
 // search.controller.ts — Unified search endpoint for contacts and messages.
 
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { CaslGuard } from '../casl/casl.guard';
+import { Controller, Get, Query } from '@nestjs/common';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { SearchService } from './search.service';
 
 @Controller('search')
-@UseGuards(CaslGuard)
 export class SearchController {
   constructor(private readonly searchService: SearchService) {}
 

@@ -41,6 +41,11 @@ export class UpdateUserDto {
 }
 
 export class ChangePasswordDto {
+  // Required for self-service password change; not required for an admin resetting someone else's.
+  @IsOptional()
+  @IsString()
+  currentPassword?: string;
+
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters' })
   newPassword: string;

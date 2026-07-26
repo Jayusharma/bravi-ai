@@ -23,7 +23,7 @@ export class ChannelRouterService {
   /** Routes a message to the correct adapter; falls back to mock in development when unconfigured */
   async send(channel: MessageChannel, params: SendParams): Promise<SendResult> {
     // Connection first — its provider decides WHICH adapter handles this send
-    // (Meta connection → Meta adapter; none → channel default, e.g. Twilio via env).
+    // (Meta connection → Meta adapter; none → channel default).
     const connection = await this.channelsService.findConnectionForChannel(channel);
 
     // The on/off toggle: a connected-but-disabled channel is a hard block, no dev mock either

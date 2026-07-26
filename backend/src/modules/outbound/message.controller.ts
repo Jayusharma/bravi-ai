@@ -10,7 +10,6 @@ import {
   Body,
   Req,
   Query,
-  UseGuards,
   HttpCode,
   HttpStatus,
   BadRequestException,
@@ -20,7 +19,6 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { IsUUID } from 'class-validator';
-import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { PrismaService } from 'src/database/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -33,7 +31,6 @@ class ForwardMessageDto {
 }
 
 @Controller('outbound')
-@UseGuards(CaslGuard)
 export class MessageController {
   private readonly logger = new Logger(MessageController.name);
 

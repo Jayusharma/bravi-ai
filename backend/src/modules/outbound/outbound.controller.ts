@@ -8,7 +8,6 @@ import {
   Param,
   Body,
   Req,
-  UseGuards,
   HttpCode,
   HttpStatus,
   BadRequestException,
@@ -17,7 +16,6 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { Public } from 'src/common/decorator/public.decorator';
 import { OutboundService } from './outbound.service';
@@ -27,10 +25,8 @@ import { PrismaService } from 'src/database/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SendMessageDto } from './dto/send-message.dto';
 import { DraftStatus } from '@prisma/client';
-import { validateRequest as twilioValidateRequest } from 'twilio';
 
 @Controller('outbound')
-@UseGuards(CaslGuard)
 export class OutboundController {
   private readonly logger = new Logger(OutboundController.name);
 
@@ -138,26 +134,6 @@ export class OutboundController {
       this.eventEmitter.emit('outbound.retry_queued', { messageId, enquiryId: msg.enquiryId });
     }
     return { queued: true };
-  }
-
-  // ── POST /outbound/webhooks/whatsapp/delivery — Twilio delivery callback ──
-
-  @Post('webhooks/whatsapp/delivery')
-  @Public()
-  @HttpCode(HttpStatus.OK)
-  async twilioDelivery(@Body() body: Record<string, string>, @Req() req: Request) {
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (authToken) {
-      const signature = req.headers['x-twilio-signature'] as string | undefined;
-      const url = `${process.env.BACKEND_PUBLIC_URL || ''}/api/v1/outbound/webhooks/whatsapp/delivery`;
-      const isValid = twilioValidateRequest(authToken, signature ?? '', url, body);
-      if (!isValid) {
-        this.logger.warn('🚫 Twilio webhook signature validation failed');
-        throw new ForbiddenException('Invalid Twilio signature');
-      }
-    }
-    await this.deliveryTracking.handleTwilioDelivery(body);
-    return { ok: true };
   }
 
   // ── POST /outbound/webhooks/email/delivery — SendGrid event callback ──

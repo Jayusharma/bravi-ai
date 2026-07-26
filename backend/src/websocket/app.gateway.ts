@@ -51,6 +51,7 @@ import { OutboundSendService } from '../modules/outbound/outbound-send.service';
 import { ChatService } from '../modules/chat/chat.service';
 import { MessageChannel } from '@prisma/client';
 import * as jwt from 'jsonwebtoken';
+import { requireEnv } from 'src/common/utils/require-env';
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -71,7 +72,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server: Server;
 
   private readonly logger = new Logger(AppGateway.name);
-  private readonly jwtSecret = process.env.JWT_SECERET || 'dev-secret';
+  private readonly jwtSecret = requireEnv('JWT_SECRET');
 
   constructor(
     private readonly prisma: PrismaService,

@@ -10,7 +10,7 @@ import type { ServiceResult } from '@/lib/error';
 // crosses this boundary — only `apiKeyMasked` (e.g. "••••9f2a").
 // ═══════════════════════════════════════════════════════════════════
 
-export type ChannelProvider = 'SENDGRID_EMAIL' | 'META_WHATSAPP' | 'TWILIO_WHATSAPP';
+export type ChannelProvider = 'SENDGRID_EMAIL' | 'META_WHATSAPP';
 export type ChannelType = 'EMAIL' | 'WHATSAPP' | 'SMS'; // mirrors Prisma MessageChannel
 export type ConnectionStatus = 'ACTIVE' | 'DISABLED';
 
@@ -38,10 +38,12 @@ export interface CreateChannelInput {
     // SendGrid (email)
     apiKey?: string;
     fromEmail?: string;
+    verificationKey?: string;
     // Meta WhatsApp (Cloud API)
     phoneNumberId?: string;
     accessToken?: string;
     verifyToken?: string;
+    appSecret?: string;
 }
 
 /** Body for PATCH /channels/:id — rename, or rotate the key/from-email. All optional. */

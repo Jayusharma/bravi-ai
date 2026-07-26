@@ -1,17 +1,18 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { Logger } from 'nestjs-pino';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { RedisIoAdapter } from './adapters/redis-io.adapter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true, bufferLogs: true });
 
-  // ─── Body Parsing ──────────────────────────────────────────────
-  // Twilio sends webhooks as application/x-www-form-urlencoded
-  app.use(require('express').urlencoded({ extended: true }));
+  // Switch Nest's own logger (and every `new Logger(name)` call site app-wide) to pino,
+  // as early as possible — bufferLogs above holds Nest's bootstrap logs until this runs.
+  app.useLogger(app.get(Logger));
 
   // ─── API Versioning ────────────────────────────────────────────
   app.setGlobalPrefix('api/v1');
@@ -39,8 +40,9 @@ async function bootstrap() {
     }),
   );
 
-  // ─── Global Filters & Interceptors ─────────────────────────────
-  app.useGlobalFilters(new GlobalExceptionFilter());
+  // ─── Global Interceptors ────────────────────────────────────────
+  // GlobalExceptionFilter is registered via APP_FILTER in app.module.ts (needs DI
+  // for ClsService, to attach requestId to error responses).
   app.useGlobalInterceptors(new ResponseInterceptor());
 
   // ─── Swagger / OpenAPI Documentation ──────────────────────────

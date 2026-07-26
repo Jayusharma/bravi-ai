@@ -11,7 +11,6 @@ import {
   Body,
   Req,
   Query,
-  UseGuards,
   HttpCode,
   HttpStatus,
   UseInterceptors,
@@ -21,7 +20,6 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import multer = require('multer');
-import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { DraftService, ALLOWED_MIMES } from './draft.service';
 import { CreateDraftDto } from './dto/create-draft.dto';
@@ -29,7 +27,6 @@ import { UpdateDraftDto } from './dto/update-draft.dto';
 import { MessageChannel } from '@prisma/client';
 
 @Controller('outbound')
-@UseGuards(CaslGuard)
 export class DraftController {
   constructor(private readonly draftService: DraftService) {}
 

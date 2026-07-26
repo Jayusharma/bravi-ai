@@ -27,7 +27,6 @@ function formatDate(iso: string | null): string {
 function providerLabel(provider: ChannelConnection['provider']): string {
     if (provider === 'SENDGRID_EMAIL') return 'Email — SendGrid';
     if (provider === 'META_WHATSAPP') return 'WhatsApp — Meta Cloud API';
-    if (provider === 'TWILIO_WHATSAPP') return 'WhatsApp — Twilio';
     return provider;
 }
 
@@ -36,7 +35,7 @@ export function ChannelsClient({ initialData }: ChannelsClientProps) {
     const [, startTransition] = useTransition();
 
     const [channels, setChannels] = useState<ChannelConnection[]>(initialData);
-    const [selectedProvider, setSelectedProvider] = useState<'SENDGRID_EMAIL' | 'META_WHATSAPP' | 'TWILIO_WHATSAPP' | null>(null);
+    const [selectedProvider, setSelectedProvider] = useState<'SENDGRID_EMAIL' | 'META_WHATSAPP' | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
 
     const hasEmail = channels.some((c) => c.channel === 'EMAIL' && c.status === 'ACTIVE');
@@ -122,38 +121,7 @@ export function ChannelsClient({ initialData }: ChannelsClientProps) {
                         </PermissionGate>
                     </div>
 
-                    {/* WhatsApp Card */}
-                    <div className="relative flex items-center justify-between overflow-hidden rounded-2xl border border-border/40 bg-card/65 p-5 backdrop-blur-md transition-all hover:border-border/80 hover:bg-card/80 shadow-sm group">
-                        <div className="flex items-start gap-4">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/50 p-2 border border-border/20">
-                                <img src="/whatsapp.png" alt="WhatsApp" className="h-8 w-8 object-contain" />
-                            </div>
-                            <div className="space-y-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h3 className="font-bold text-foreground">WhatsApp (Twilio)</h3>
-                                    <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                                        Simulator Sandbox
-                                    </span>
-                                </div>
-                                <p className="text-xs text-muted-foreground max-w-sm leading-relaxed">
-                                    Interact within WhatsApp 24h customer window and trigger pre-approved notification templates.
-                                </p>
-                            </div>
-                        </div>
-                        <PermissionGate action="create" subject="channelconnection">
-                            <button
-                                onClick={() => setSelectedProvider('TWILIO_WHATSAPP')}
-                                className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary transition-all hover:bg-primary hover:text-primary-foreground group-hover:scale-105 cursor-pointer shadow-sm"
-                                title="Launch WhatsApp Simulator"
-                            >
-                                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M12 5v14M5 12h14" />
-                                </svg>
-                            </button>
-                        </PermissionGate>
-                    </div>
-
-                    {/* WhatsApp Meta Cloud API Card — the REAL WhatsApp connection */}
+                    {/* WhatsApp Meta Cloud API Card */}
                     <div className="relative flex items-center justify-between overflow-hidden rounded-2xl border border-border/40 bg-card/65 p-5 backdrop-blur-md transition-all hover:border-border/80 hover:bg-card/80 shadow-sm group">
                         <div className="flex items-start gap-4">
                             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/50 p-2 border border-border/20">

@@ -1,545 +1,179 @@
-# ARCHITECTURE.md — Enquiry Hub
+# ARCHITECTURE.md — EnquiryHub
 
-> **DOC HIERARCHY:**
-> **ARCHITECTURE.md is law** (describes real code).
-> `spine.md` = data model & build order. `blueprint.md` = strategy.
-> On any conflict, ARCHITECTURE.md wins. Build against it.
-
-> Reference this file when building any new module. It defines every contract,
-> boundary, pattern, and decision. Building without reading this = wrong code.
-
----
-
-> [!CAUTION]
-> ## ⛔ Blocker Before Customer #1 — Redis Persistence
->
-> Pending follow-ups live **only** in BullMQ's delayed set (a Redis sorted-set).
-> The default Redis configuration runs **in-memory only with no persistence**.
-> A Redis restart (server reboot, OOM kill, deployment) **silently loses every
-> scheduled follow-up** — there is no Postgres record to recover from.
->
-> **Required before go-live:** enable AOF (`appendonly yes`) or RDB snapshots
-> in `redis.conf`, or use a managed Redis with persistence guaranteed (e.g.
-> Redis Cloud, Upstash with persistence, AWS ElastiCache with backup enabled).
->
-> Until this is done, every QUOTATION_SENT follow-up that was delayed by 24h
-> is invisible to both staff and the audit trail if Redis restarts.
+> **This file describes the code as it actually is** (verified against source in the Phase 0 audit,
+> `docs/audit/`). Where a behaviour is planned but not built, it is marked **[PLANNED]** with the block
+> that will build it. On any conflict between prose elsewhere in the repo and this file, this file wins.
+> This document replaced an earlier, largely aspirational architecture note (it described a rule-engine
+> pipeline, a routing `WebhookService`, an `automation.worker.ts`, and a `QUOTATION_SENT` follow-up
+> scheduler that do not exist). See `docs/audit/02-risk-register.md` for the gaps.
 
 ---
 
-## Data Flow — The Full Pipeline
+## What this is
+
+Single-tenant lead-qualification + multi-channel messaging CRM. One dedicated instance per client.
+Inbound WhatsApp (Twilio **and** Meta Cloud API) + Email (SendGrid) → contact resolution → AI
+qualification → Enquiry conversation thread → agent reply / 90-second AI auto-reply → delivery
+tracking. Plus internal staff chat, message templates, channel-connection management, and a DLQ.
+
+**Stack:** NestJS 11 · Prisma 7 + **pg driver adapter** · PostgreSQL · BullMQ + Redis · Socket.IO
+(Redis adapter) · CASL · Python FastAPI + Gemini (the "brain") · Next.js 16 + React 19 (Zustand +
+socket.io-client). Full inventory: `docs/audit/00-inventory.md`.
+
+---
+
+## Data flow — as built
 
 ```
 INBOUND
-──────────────────────────────────────────────────────────────
-Twilio/SendGrid webhook
-  → WebhookController (normalize raw payload)
-  → WebhookService (route by channel)
-  → IngestionService
-      ├── find-or-create Contact (by channel+identifier)
-      ├── find-or-create ContactChannel
-      ├── compute contentFingerprint (SHA-256 dedup)
-      └── create InboundMessage { status: PENDING }
-  → BullMQ: enqueue 'qualification' job
-  → QualificationProcessor
-      ├── Layer 1: RuleStrategy (blacklist/whitelist/regex/domain)
-      │     result: SPAM | REAL_ENQUIRY | continue
-      ├── Layer 2: AIStrategy (Gemini) — only if Layer 1 uncertain
-      │     extracts: intent, urgency, priority, contactName, budgetSignal
-      │     result: REAL_ENQUIRY | SPAM | NEEDS_REVIEW
-      └── create QualificationResult + update InboundMessage.status
-  → event: 'enquiry.qualified'
-  → EnquiryService
-      ├── find open Enquiry for this Contact (status NOT IN [CONVERTED, CLOSED_LOST])
-      ├── if exists: append ConversationMessage (INBOUND) + update lastCustomerReplyAt
-      └── if not: create Enquiry + first ConversationMessage
-  → MessagingGateway.emit('new_message') → frontend realtime
+─────────────────────────────────────────────────────────────────────
+Provider webhook (Twilio | SendGrid | Meta)                [⚠ UNVERIFIED — R1]
+  → WebhookController.handle*()          webhooks/webhook.controller.ts
+      ├── IdempotencyMiddleware synthesizes key from MessageSid/wamid/Message-ID
+      ├── channel on/off toggle check (ChannelConnection.status)
+      └── normalizer → IngestMessageDto
+  → IngestionService.ingest()            Ingestion/ingestion.service.ts
+      ├── ContactService.resolve(channel, from)  → find-or-create Contact + ContactChannel
+      ├── known contact + OPEN enquiry?  → PATH A: append ConversationMessage (no AI)
+      ├── recently CLOSED_LOST (≤30d)?   → PATH B: reopen enquiry (+ REOPENED timeline)
+      └── else                           → SLOW PATH: create InboundMessage {PENDING},
+                                            enqueue BullMQ 'qualification'
+  → QualificationProcessor → QualificationService.qualify()   [AI-ONLY — rule layers unbuilt, R13]
+      ├── QualificationAIClient → POST {AI}/qualify (Python → Gemini)
+      ├── write QualificationResult (tokens, cost, intent, confidence)
+      └── if REAL_ENQUIRY → emit 'enquiry.qualified'
+  → EnquiryService.handleQualified()     enquiry/enquiry.service.ts   (@OnEvent)
+      ├── race-guard: open enquiry exists? → append
+      └── else create Enquiry {NEW} + first ConversationMessage + CREATED timeline
+                                            → emit 'enquiry.created'
+  → AppEventHandler → AppGateway.emit(MESSAGE_NEW / NOTIFICATION / CONVERSATION_*)
+
+FIRST-TOUCH AUTOMATION
+─────────────────────────────────────────────────────────────────────
+'enquiry.created' → AiReplyScheduler  → BullMQ 'ai-reply' delayed 90s (jobId per enquiry)
+  → AiReplyProcessor (fires at 90s)
+      ├── re-validate: not closed, no outbound yet (human beat it → skip)
+      ├── AIService.getReply() → POST {AI}/reply (Python → Gemini)
+      └── if action=send & confidence≥threshold → EnquiryService.addAiReply()  → outbound pipeline
+    NOTE: ungrounded, no citations, no AgentRun. [Block 7 rebuilds on grounded rails]
 
 OUTBOUND
-──────────────────────────────────────────────────────────────
-Staff sends reply via UI
-  → EnquiryController.addMessage()
-  → EnquiryService
-      ├── resolve Contact primary channel
-      ├── create ConversationMessage { direction: OUTBOUND, status: PENDING }
-      ├── write EnquiryTimeline { type: MESSAGE_SENT }
-      └── emit('message.outbound', { messageId, channel, to, content })
-  → OutboundService @OnEvent('message.outbound')
-  → ChannelRouterService → WhatsAppAdapter | EmailAdapter
-  → update ConversationMessage { status: SENT, externalId }
-  → delivery webhook callback → DELIVERED → READ
+─────────────────────────────────────────────────────────────────────
+Socket outbound:send (primary)          websocket/app.gateway.ts
+  → OutboundSendService.send()          outbound/outbound-send.service.ts
+      ├── resolve channel/body (draft or direct), resolve recipient from ContactChannel
+      ├── EnquiryService.addOutboundMessage() → ConversationMessage {OUTBOUND, PENDING}
+      │        + MESSAGE_SENT timeline + emit 'message.outbound'
+      └── OutboundService.enqueue() → BullMQ OUTBOUND_QUEUE   [⚠ NO 24h WINDOW CHECK — R2]
+  → OutboundProcessor.process()          outbound/outbound.processor.ts
+      → ChannelRouterService.send() → AdapterFactory → adapter
+            provider META_WHATSAPP → MetaWhatsAppAdapter (Graph API, creds from connection)
+            else WHATSAPP           → WhatsAppAdapter (Twilio, env)
+            EMAIL                    → EmailAdapter (SendGrid)   [adapter IS wired]
+      ├── success → ConversationMessage {SENT, externalId}; emit 'outbound.sent'
+      ├── transient fail → throw → BullMQ retry (custom backoff 1s/4s/16s, 3 attempts)
+      └── exhausted → onJobFailed → {FAILED} + OutboundDeadLetter + emit 'outbound.failed'
 
-AUTOMATION
-──────────────────────────────────────────────────────────────
-EnquiryService (on status → QUOTATION_SENT)
-  → BullMQ: enqueue 'automation' job {
-        enquiryId,
-        scheduledAt: Date.now(),   ← REQUIRED in payload (see §4 contract)
-        delay: 24h
-    }
-  → automation.worker.ts (separate process)
-      ├── re-fetch enquiry (validate still QUOTATION_SENT)
-      ├── customer-reply guard:
-      │     if enquiry.lastCustomerReplyAt &&
-      │        enquiry.lastCustomerReplyAt > job.data.scheduledAt
-      │     → skip send, write EnquiryTimeline {
-      │           type: FOLLOWUP_SKIPPED,
-      │           createdBy: 'SYSTEM',
-      │           metadata: { reason: 'CUSTOMER_REPLIED' }
-      │       }
-      ├── idempotency check (EnquiryTimeline FOLLOWUP_SENT exists?)
-      ├── send follow-up via template
-      └── write EnquiryTimeline { type: FOLLOWUP_SENT, createdBy: 'SYSTEM' }
+DELIVERY RECEIPTS
+─────────────────────────────────────────────────────────────────────
+Twilio → POST /outbound/webhooks/whatsapp/delivery  [signature VERIFIED — outbound.controller.ts:148]
+SendGrid → POST /outbound/webhooks/email/delivery   [unverified]
+  → DeliveryTrackingService → OutboundService.updateDeliveryStatusByExternalId (rank-guarded)
+Meta delivery/read → arrives at /webhook/whatsapp/meta and is DROPPED  [NOT TRACKED — R8]
 ```
 
 ---
 
-## Module Boundaries — What Each Module Owns
+## Module boundaries — what each owns
 
-| Module | Owns | Never Does |
+| Module | Owns | Never does |
 |---|---|---|
-| `webhooks` | Normalize raw payload → IncomingMessageDto | Business logic, DB writes |
-| `Ingestion` | Contact resolution, InboundMessage creation, fingerprint | Qualification, sending |
-| `qualification` | Rule engine, AI call, QualificationResult | Create Enquiry, send messages |
-| `enquiry` | Enquiry CRUD, state machine, conversation thread | Call Twilio/SendGrid directly |
-| `outbound` | Send via adapters, update delivery status | Know about Enquiry state/rules |
-| `contact` | Contact + channel CRUD, merge logic | Qualification, messaging |
-| `automation` | BullMQ job execution (separate process) | HTTP, NestJS DI |
-| `messaging` | WebSocket gateway, realtime push | REST, business logic |
-| `casl` | Compute abilities from role+permissions | Auth, routing |
+| `webhooks` | Normalize provider payload → `IngestMessageDto`; toggle check | Business logic, sending |
+| `Ingestion` | Contact resolution, `InboundMessage`, fast/slow path routing | Qualification internals, sending |
+| `qualification` | AI classify, `QualificationResult`, emit `enquiry.qualified` | Create Enquiry, send |
+| `enquiry` | Enquiry CRUD, **FSM** (`enquiry.state.ts`), conversation thread, timeline | Call Twilio/SendGrid directly |
+| `outbound` | Adapters, routing, queue, delivery status, drafts, DLQ | Know Enquiry rules |
+| `channels` | `ChannelConnection` CRUD, toggle, **encrypted credentials** | Send/receive |
+| `contact` | Contact + ContactChannel CRUD, exact-match resolve | Qualification, messaging |
+| `automation` | 90s first-touch auto-reply (BullMQ delayed) | Import Nest into a worker file (there is none — R6) |
+| `websocket` | **All** `@SubscribeMessage` handlers (single gateway) | REST, business logic |
+| `events` | **All** `@OnEvent` listeners → socket emits (single file) | Domain writes |
+| `casl` | Compute abilities from role+permissions (DB-driven) | Routing, auth |
 | `permission` | Permission + RolePermission CRUD | Compute abilities |
-| `user` | User CRUD, password hashing | Auth tokens |
-| `auth` | Token generation, JWT strategy | User management |
+| `user` | User CRUD, bcrypt | Token issue |
+| `auth` | Login, JWT issue + strategy | User management |
+| `template`, `chat`, `search`, `storage`, `messaging` | See `docs/audit/00-inventory.md` | — |
+
+**Realtime convention (holds):** every `@SubscribeMessage` lives in `websocket/app.gateway.ts`; every
+`@OnEvent` lives in `events/app.event-handler.ts`. Domain listeners that stay in their service:
+`message.outbound` (OutboundService), `enquiry.qualified` (EnquiryService).
 
 ---
 
-## Schema Contracts — Critical Invariants
+## Schema contracts — real invariants
 
-### Contact Identity
-```
-Contact (person)
-  └── ContactChannel[] (how to reach them)
-        ├── WHATSAPP + "+919876543210"
-        └── EMAIL + "user@example.com"
+**Contact identity** — `Contact` (person) → `ContactChannel[]`; unique `(channel, identifier)`; resolve
+finds ContactChannel first, then Contact. Email lowercased; **phone is NOT E.164-normalized yet**, and
+there is **no cross-channel merge** (`merge-contact.dto.ts` is an unused DTO). Cross-channel identity =
+**[PLANNED Block 4]**.
 
-Rule: ONE Contact per unique (channel, identifier) pair
-Rule: isPrimary=true = preferred outbound channel
-Rule: When resolving inbound — find ContactChannel first, then Contact
-Rule: Merge two Contacts → reassign all channels, enquiries, messages to winner
-```
+**Enquiry threading** — one Contact → at most one open enquiry (`status NOT IN (CONVERTED,
+CLOSED_LOST)`); new message → append; else create. `version` = optimistic concurrency; `lastActivityAt`
+on every action; `lastCustomerReplyAt` on INBOUND; `firstResponseAt` once on first OUTBOUND.
 
-### Enquiry Threading
-```
-Rule: One Contact → max ONE open Enquiry at a time
-      open = status NOT IN (CONVERTED, CLOSED_LOST)
-Rule: New message from known contact → find open enquiry → append
-Rule: No open enquiry → create new Enquiry + first ConversationMessage
-Rule: Enquiry.version used for optimistic concurrency on status updates
-Rule: lastActivityAt updated on EVERY action (message, status change, note)
-Rule: lastCustomerReplyAt updated only on INBOUND messages
-Rule: firstResponseAt set only once, on first OUTBOUND message
-```
+**Enquiry FSM** — the source of truth is `enquiry/enquiry.state.ts` (`ENQUIRY_TRANSITIONS`).
+`statusChange()` validates the transition, checks `version`, and writes an `EnquiryTimeline` row.
+**Exception to watch:** the ingestion fast-path auto-transitions (`STALE→OPEN`, etc.) update status
+**without** a timeline event (R14) — the one place the "timeline alongside every status change" rule is
+violated. CLOSED_LOST → OPEN is an allowed reopen.
 
-### Enquiry State Machine
-```
-NEW ──→ OPEN ──→ IN_PROGRESS ──→ AWAITING_CUSTOMER ──→ QUOTATION_SENT
-                                                              │
-                                          ┌───────────────────┤
-                                          ▼                   ▼
-                                      FOLLOW_UP          CONVERTED
-                                          │
-                                          ▼
-                                      CLOSED_LOST
-                                      
-STALE: any status with no lastActivityAt update in N days (configured)
-REOPENED: CLOSED_LOST → OPEN (allowed, write REOPENED timeline event)
+**Qualification** — `QualificationResult` is 1:1 with `InboundMessage`. Today `finalLayer` is **always**
+`AI_CLASSIFIER`; the rule-engine layers (`RuleType`, `QualificationLayer`) are modeled but never run
+(R13). Token counts + `estimatedCostUsd` are written per classification.
 
-Rule: EVERY status change → write EnquiryTimeline { fromStatus, toStatus, createdBy }
-Rule: Use enquiry.state.ts for transition validation — never raw status update
-```
+**Delivery lifecycle** — `PENDING → SENT → DELIVERED → READ`, or `FAILED`. Rank-guarded so status never
+regresses (`outbound.service.ts:195`). `externalId` = provider message ID (indexed, **not unique**).
+FAILED messages are not auto-retried — manual retry only (`/outbound/messages/:id/retry`).
 
-### Qualification Pipeline Contracts
-```
-Rule: QualificationResult is 1:1 with InboundMessage (unique constraint)
-Rule: Layer order is always: Rule → AI → Manual. Never skip Rule layer.
-Rule: AI only called if Rule layer returns uncertain (no clear SPAM/REAL)
-Rule: Track aiInputTokens + aiOutputTokens + estimatedCostUsd on every AI call
-      (on QualificationResult for qualification calls; on AiUsageLog for all
-       other AI features — see §5 AI Reply Assist)
-Rule: hitCount + lastHitAt updated on QualificationRule when it fires
-Rule: contentFingerprint = SHA-256(channel + from + body) — dedup across channels
-```
-
-### ConversationMessage Delivery Lifecycle
-```
-PENDING → SENT (provider accepted) → DELIVERED (device received) → READ (opened)
-       → FAILED (provider rejected)
-
-Rule: externalId = provider's message ID (wamid_xxx for WhatsApp, Message-ID for email)
-Rule: Set deliveredAt on DELIVERED, readAt on READ
-Rule: FAILED messages must not be retried automatically — require manual action
-```
+**Credentials** — `ChannelConnection.credentials` is one AES-256-GCM blob (`common/crypto/credential-cipher.ts`),
+never returned to the client (masked). SendGrid stores `{apiKey}`; Meta stores `{accessToken, verifyToken}`
+— **no `appSecret`**, which Block 1 must add for inbound-Meta HMAC (R1).
 
 ---
 
-## Modules To Build Next
+## Non-negotiable rules (enforced or intended)
 
-### 1. Template Module (build first — everything else depends on it)
-
-**Schema (flat, no versioning for V1 — correct as-is):**
-```prisma
-model MessageTemplate {
-  id          String         @id @default(uuid())
-  name        String
-  channel     MessageChannel
-  subject     String?                    // email only
-  body        String                     // supports {{variableName}} placeholders
-  variables   String[]       @default([]) // declared variable names
-  category    String?                    // "followup" | "quotation" | "welcome" etc
-  isActive    Boolean        @default(true)
-  createdBy   String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-
-  @@index([channel, isActive])
-  @@index([category])
-}
-```
-
-> **V1 decision: MessageTemplate stays flat (no versioning).** Template versioning
-> (TemplateVersion, whatsappApprovalStatus, etc.) is a V2 concern referenced in
-> spine.md. Do not introduce version tables in V1 — the complexity doesn't pay off
-> until you have WhatsApp Business API template approval flows.
-
-**Service methods:**
-```typescript
-create(dto: CreateTemplateDto, userId: string): Promise<MessageTemplate>
-findAll(channel?: MessageChannel): Promise<MessageTemplate[]>
-findOne(id: string): Promise<MessageTemplate>
-update(id: string, dto: UpdateTemplateDto): Promise<MessageTemplate>
-delete(id: string): Promise<void>
-// Key method — renders template with actual values
-render(templateId: string, variables: Record<string, string>): Promise<{ subject?: string; body: string }>
-```
-
-**Render logic:**
-```typescript
-// Replace {{variableName}} with values, throw if required variable missing
-render(template: MessageTemplate, vars: Record<string, string>): string {
-  return template.body.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    if (!vars[key]) throw new BadRequestException(`Missing variable: ${key}`);
-    return vars[key];
-  });
-}
-```
-
-**CASL subjects to add:** `messageTemplate`
+- **Prisma pg adapter** — services use injected `PrismaService` (already pg-adapter). Any worker/script
+  must construct `new PrismaClient({ adapter: new PrismaPg(new Pool(...)) })`. Never bare `new PrismaClient()`.
+- **Outbound via events** — emit `message.outbound`; never call Twilio/SendGrid/Meta from a service.
+- **Auth** — global `JwtAuthGuard`; `@Public()` opts out. CASL is applied per-controller today and
+  **must** cover every protected route — two controllers currently slip it (R4); Block 1 makes CASL
+  global. `@CheckAbility({action, subject})` declares the rule.
+- **Enquiry status** — never write `status` without an `EnquiryTimeline` row and an `ENQUIRY_TRANSITIONS`
+  check.
+- **Contact is a person, not an address** — resolve ContactChannel → Contact before touching
+  InboundMessage/Enquiry.
+- **Realtime** — one gateway for handlers, one file for listeners.
 
 ---
 
-### 2. Bulk Messaging Module
+## Known-critical caveats (full list: `docs/audit/02-risk-register.md`)
 
-**Flow:**
-```
-POST /bulk-message
-  body: { templateId, contactIds[], variables: Record<string,string>, scheduledAt? }
+1. `POST /users` is `@Public()` with client-settable `role` → **unauthenticated ADMIN creation** (R0).
+2. Inbound webhooks + `POST /ingestion/message` verify **no signature** (R1); billing-DoS surface.
+3. `WhatsAppWindowService.isWindowOpen()` exists but is **never called** in the send path (R2).
+4. JWT sign secret `JWT_SECRET` ≠ verify secret `JWT_SECERET`; `'dev-secret'` fallback (R3).
+5. `npm run worker` → **non-existent** `automation.worker.ts`; workers run **in-process** (R6).
+6. No graceful shutdown (R7); no env validation (R9); no throttler/helmet (R10).
 
-BulkMessageService
-  ├── validate template exists + active
-  ├── validate all contacts have channel matching template.channel
-  ├── render template for each contact (contact-specific variables: contactName, etc)
-  ├── create BulkMessageJob record (track progress)
-  └── enqueue N BullMQ jobs { enquiryId, templateId, renderedBody, to }
-
-Queue: 'bulk-outbound'
-Worker: bulk-outbound.worker.ts (separate process)
-  ├── rate limit: max 10/second for WhatsApp, 100/second for email
-  ├── emit('message.outbound') for each → reuse existing outbound pipeline
-  └── update BulkMessageJob.sentCount, failedCount on completion
-```
-
-**Schema:**
-```prisma
-model BulkMessageJob {
-  id           String         @id @default(uuid())
-  templateId   String
-  channel      MessageChannel
-  totalCount   Int
-  sentCount    Int            @default(0)
-  failedCount  Int            @default(0)
-  status       String         // PENDING | RUNNING | COMPLETED | FAILED
-  createdBy    String
-  createdAt    DateTime       @default(now())
-  completedAt  DateTime?
-}
-```
+## Redis persistence caveat (still valid)
+Delayed BullMQ jobs (the 90s auto-reply timer, any future follow-ups) live only in Redis. If Redis has
+no AOF/RDB persistence, a restart silently drops them — there is no Postgres-of-record for in-flight
+timers. Enable persistence or use managed Redis before go-live.
 
 ---
 
-### 3. Automation Rules Engine
+## Build order
 
-**Design: trigger/action pairs stored in DB, evaluated by worker**
-
-```prisma
-model AutomationRule {
-  id          String   @id @default(uuid())
-  name        String
-  isActive    Boolean  @default(true)
-  trigger     Json     // { type: 'STATUS_CHANGED', toStatus: 'QUOTATION_SENT' }
-                       // { type: 'NO_REPLY_AFTER', hours: 24, fromStatus: 'AWAITING_CUSTOMER' }
-                       // { type: 'ENQUIRY_CREATED', intent: 'BULK_ORDER' }
-  action      Json     // { type: 'SEND_TEMPLATE', templateId: '...' }
-                       // { type: 'ASSIGN_TO', userId: '...' }
-                       // { type: 'SET_STATUS', status: 'FOLLOW_UP' }
-                       // { type: 'ADD_TAG', tag: 'urgent' }
-  createdBy   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([isActive])
-}
-```
-
-**Trigger evaluation (automation.worker.ts):**
-```typescript
-// On every enquiry state change event:
-// 1. Load all active AutomationRules
-// 2. Match trigger against event (type + conditions)
-// 3. Execute action
-// 4. Write EnquiryTimeline { type: AUTO_ASSIGNED | FOLLOWUP_SCHEDULED | etc }
-// 5. Idempotency: check timeline before executing — never fire same rule twice per enquiry
-```
-
----
-
-### 4. Follow-up Scheduler (extends automation worker)
-
-**Current state:** `automation.worker.ts` has a placeholder that checks `QUOTATION_SENT` status only.
-The existing guard is **insufficient**: an inbound reply updates `lastCustomerReplyAt` and
-appends a `ConversationMessage` but may NOT change status off `QUOTATION_SENT`
-(e.g. ingestion service only auto-transitions from `QUOTATION_SENT → IN_PROGRESS` on
-`getStatusTransition()`, which requires a write to go through `appendToExistingEnquiry`).
-The follow-up would fire even after the customer already replied.
-
-**Production contract:**
-
-**Enqueue (caller side):**
-```typescript
-// scheduledAt MUST be included in the job payload
-await automationQueue.add(
-  'followup',
-  { enquiryId, ruleId, scheduledAt: new Date().toISOString() },
-  { delay: hours * 3600000 },
-);
-```
-
-**Worker execution (automation.worker.ts):**
-```typescript
-// 1. Re-fetch enquiry (validate status still matches — CRITICAL, state may have changed)
-const enquiry = await prisma.enquiry.findUnique({ where: { id: enquiryId } });
-if (!enquiry || enquiry.status !== 'QUOTATION_SENT') return;
-
-// 2. Customer-reply guard — THE MISSING CHECK
-//    An inbound reply sets lastCustomerReplyAt but may not change status.
-//    If customer replied AFTER this job was scheduled, skip the follow-up.
-if (
-  enquiry.lastCustomerReplyAt &&
-  enquiry.lastCustomerReplyAt > new Date(job.data.scheduledAt)
-) {
-  await prisma.enquiryTimeline.create({
-    data: {
-      enquiryId,
-      type: 'FOLLOWUP_SKIPPED',
-      createdBy: 'SYSTEM',
-      metadata: { reason: 'CUSTOMER_REPLIED', ruleId },
-    },
-  });
-  return;
-}
-
-// 3. Idempotency check (EnquiryTimeline: FOLLOWUP_SENT for this ruleId)
-const alreadySent = await prisma.enquiryTimeline.findFirst({
-  where: { enquiryId, type: 'FOLLOWUP_SENT' },
-});
-if (alreadySent) return;
-
-// 4. Resolve contact primary channel
-// 5. Render template with contact variables
-// 6. emit('message.outbound') → reuse outbound pipeline
-// 7. Write audit
-await prisma.enquiryTimeline.create({
-  data: {
-    enquiryId,
-    type: 'FOLLOWUP_SENT',
-    createdBy: 'SYSTEM',
-    metadata: { ruleId },
-  },
-});
-```
-
-> **Note:** `FOLLOWUP_SKIPPED` is not yet in the `EnquiryEventType` enum in schema.prisma.
-> It must be added before this logic is implemented.
-
----
-
-### 5. AI Reply Assist
-
-**Endpoint:** `POST /enquiry/:id/ai-suggest-reply`
-
-**Service logic:**
-```typescript
-// 1. Fetch last N messages from ConversationMessage (N=10, most recent)
-// 2. Build context: contact name, enquiry intent, conversation history
-// 3. Gemini prompt:
-//    "You are a sales assistant. Context: [intent, contact name]
-//     Conversation: [last 10 messages]
-//     Write 3 reply options. Be professional, concise. JSON array."
-// 4. Return suggestions[] to frontend
-// 5. Track tokens/cost on AiUsageLog (NOT on QualificationResult — see model below)
-// Frontend: show suggestions above composer, one click to insert
-```
-
-**Token/cost tracking — AiUsageLog model (document now; do not create migration yet):**
-```prisma
-// Proposed model — add to schema when AI Reply Assist is built
-model AiUsageLog {
-  id               String   @id @default(uuid())
-  feature          String   // 'REPLY_ASSIST' | 'QUALIFICATION' | 'LEAD_SCORE' | etc
-  model            String   // e.g. 'gemini-1.5-flash', 'gemini-2.0-flash'
-  inputTokens      Int
-  outputTokens     Int
-  estimatedCostUsd Decimal  @db.Decimal(10, 6)
-  latencyMs        Int
-  wasUsed          Boolean  @default(false) // did the user accept the suggestion?
-
-  // Actor
-  userId           String?  // null for SYSTEM calls (e.g. qualification)
-  enquiryId        String?  // null for non-enquiry features
-
-  createdAt        DateTime @default(now())
-
-  @@index([feature, createdAt])
-  @@index([userId])
-  @@index([enquiryId])
-}
-```
-
-> **Existing `QualificationResult` keeps its own `aiInputTokens` / `aiOutputTokens` /
-> `estimatedCostUsd` columns** — those are 1:1 with qualification decisions and belong
-> on that model. `AiUsageLog` is for all OTHER AI features (reply assist, lead scoring,
-> etc.) where a 1:1 link to QualificationResult doesn't apply.
-
----
-
-### 6. Analytics Module
-
-**Queries needed (Prisma raw or aggregation):**
-```typescript
-// Conversion funnel
-enquiryCountByStatus(): Promise<Record<EnquiryStatus, number>>
-
-// Response time (SLA tracking)
-avgFirstResponseTime(from: Date, to: Date): Promise<number> // ms
-// = AVG(firstResponseAt - createdAt) WHERE firstResponseAt IS NOT NULL
-
-// Channel performance
-enquiriesByChannel(from: Date, to: Date): Promise<Record<MessageChannel, number>>
-
-// AI qualification accuracy
-qualificationAccuracy(): Promise<{ aiCorrect: number; aiOverridden: number }>
-// = count(wasOverridden=true) / count(sentToAI=true)
-
-// Agent performance
-responseTimeByUser(): Promise<Array<{ userId: string; avgMs: number; count: number }>>
-
-// Intent distribution
-enquiriesByIntent(): Promise<Record<EnquiryIntent, number>>
-```
-
-**All analytics endpoints:** ADMIN + MANAGER only (CASL check)
-
----
-
-## V2/V3 Seams — Add Now While Tables Are Empty
-
-These are **nullable columns to introduce now** on hot tables (`Enquiry`,
-`ConversationMessage`) so they are **never altered later under live data**.
-Document them here; do not run a migration until templates/automation are
-shipping (a single batched migration is cheaper than many small ones).
-
-### ConversationMessage
-
-```prisma
-// Add to ConversationMessage model:
-source MessageSource @default(HUMAN)
-
-enum MessageSource {
-  HUMAN       // typed by a staff member
-  AI_ASSISTED // staff used the AI reply suggestion
-  AUTOMATION  // sent by the automation worker (follow-up, bulk)
-  VOICE       // V3: AI voice call transcript segment
-}
-```
-
-### Enquiry
-
-```prisma
-// Add to Enquiry model (all nullable — no existing rows affected):
-leadSourceId    String?   // → LeadSource (attribution — which campaign/number)
-aiScore         Int?      // V2 lead scoring
-estimatedValue  Decimal?  // V2 deal-value estimation
-slaState        SlaState  @default(OK)  // V2 SLA tracking
-
-enum SlaState {
-  OK
-  AT_RISK
-  BREACHED
-}
-```
-
-### EnquiryTimeline
-
-`EnquiryTimeline.createdBy` already accepts `'SYSTEM'` | userId strings and covers
-actor type for V1. **No change needed here.** The `actorType` enum column (USER /
-SYSTEM / AI / VOICE) referenced in spine.md is a V2 addition — defer until automation
-events need to be distinguished analytically.
-
----
-
-## Production Checklist (before go-live)
-
-- [ ] **Redis persistence (AOF or RDB)** — see blocker callout at top of this file
-- [ ] Twilio webhook signature validation (`X-Twilio-Signature` header check)
-- [ ] `@nestjs/throttler` rate limiting on all public/webhook routes
-- [ ] Wire email adapter in `channel-router.service.ts` (currently commented out)
-- [ ] Implement `OutboundDraft` controller (schema exists, no API yet)
-- [ ] File upload flow for `MessageAttachment` (schema exists, no upload endpoint)
-- [ ] BullMQ dead letter queue for failed jobs
-- [ ] Structured logging (replace Logger with pino/winston + correlation IDs)
-- [ ] Health check endpoint (`/health` — check DB, Redis, queue connectivity)
-- [ ] Prisma connection pooling config (PgBouncer or pg Pool size tuning)
-- [ ] Environment-based config validation (Joi schema on startup)
-- [ ] CORS origin whitelist (currently probably wide open)
-- [ ] Add `FOLLOWUP_SKIPPED` to `EnquiryEventType` enum in schema.prisma
-
----
-
-## Frontend Patterns
-
-**API calls:** Always use `lib/api-client.ts` (typed Axios with auth interceptor). Never use raw fetch.
-
-**Endpoints:** Always add to `lib/endpoints.ts` first. Never hardcode URLs in components.
-
-**Permissions:** Use `<PermissionGate action="update" subject="enquiry">` to hide UI elements.
-Never hide UI with `user.role === 'ADMIN'` — always go through CASL.
-
-**Realtime:** Socket events from `lib/socket.ts`. Listen in component, clean up on unmount.
-```typescript
-useEffect(() => {
-  socket.on('new_message', handler);
-  return () => socket.off('new_message', handler);
-}, []);
-```
-
-**State:** Zustand for global (auth, user). Local useState for component UI state.
-Don't put server data in Zustand — fetch on demand.
+The forward plan is eleven blocks; see `docs/audit/03-plan.md` (format) and `docs/audit/04-decisions.md`
+(ADRs). Nothing ships before **Block 1 — Trust & observability**.

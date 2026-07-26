@@ -3,7 +3,6 @@ import { IngestionService } from "./ingestion.service";
 import { IngestMessageDto ,  validateIngestMessageDto } from './dto/incoming-message.dto';
 import { IdempotencyGuard } from 'src/common/Idempotency/idempotency.guard';
 import { IdempotencyInterceptor } from 'src/common/interceptors/idempotency.interceptor';
-import { Public } from 'src/common/decorator/public.decorator';
 
 @Controller('ingestion')
 export class IngestionController {
@@ -12,10 +11,11 @@ export class IngestionController {
   /**
    * POST /api/v1/ingestion/message
    * Ingest a raw message for qualification.
-   * Public endpoint (called by webhook handlers).
+   * Nothing in this codebase calls this over HTTP — webhook handlers call
+   * IngestionService.ingest() in-process. Kept for authenticated internal/manual use;
+   * requires a valid JWT like everything else now that it's no longer @Public().
    */
   @Post('message')
-  @Public()
   @UseGuards(IdempotencyGuard)
   @UseInterceptors(IdempotencyInterceptor)
   @HttpCode(HttpStatus.ACCEPTED)

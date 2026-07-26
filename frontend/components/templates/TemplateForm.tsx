@@ -374,7 +374,7 @@ export function TemplateForm({ template }: TemplateFormProps) {
                     {/* Submit for approval — built but disabled until Step 5 */}
                     {isWhatsApp ? (
                         <div className="flex items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-card/50 p-4">
-                            <Button variant="outline" disabled title="Available in Step 5 (Twilio approval)">
+                            <Button variant="outline" disabled title="Available in Step 5 (Meta approval)">
                                 Submit for approval
                             </Button>
                             <span className="text-xs text-muted-foreground">

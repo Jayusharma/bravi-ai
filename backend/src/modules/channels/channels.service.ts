@@ -8,8 +8,8 @@
 //
 // Methods that matter outside this module:
 //   findConnectionForChannel()  — the toggle check for outbound + the email webhook
-//   findConnectionForProvider() — the toggle check for the Meta webhook (channel alone
-//                                 can't tell Meta from Twilio once both exist)
+//   findConnectionForProvider() — the toggle check for the Meta webhook, looked up by
+//                                 provider rather than channel
 //   resolveCredentials()        — decrypted SendGrid creds for the outbound email adapter
 //   resolveMetaCredentials()    — decrypted Meta creds for the Meta webhook (and outbound later)
 
@@ -28,8 +28,10 @@ export type MaskedChannelConnection = Omit<ChannelConnection, 'credentials'> & {
 // Decrypted credential shapes, per provider.
 interface StoredCredentials {
   apiKey?: string; // SENDGRID_EMAIL
+  verificationKey?: string; // SENDGRID_EMAIL — Signed Event Webhook Public Verification Key
   accessToken?: string; // META_WHATSAPP
   verifyToken?: string; // META_WHATSAPP — answers Meta's GET webhook-verify handshake
+  appSecret?: string; // META_WHATSAPP — used for HMAC webhook payload signature verification
 }
 
 @Injectable()
@@ -45,7 +47,8 @@ export class ChannelsService {
       case ChannelProvider.SENDGRID_EMAIL:
         return MessageChannel.EMAIL;
       case ChannelProvider.META_WHATSAPP:
-      case ChannelProvider.TWILIO_WHATSAPP:
+        return MessageChannel.WHATSAPP;
+      default:
         return MessageChannel.WHATSAPP;
     }
   }
@@ -101,14 +104,17 @@ export class ChannelsService {
     let secret: string;
 
     switch (dto.provider) {
-      // Email: validate the API key against SendGrid, store { apiKey }
+      // Email: validate the API key against SendGrid, store { apiKey, verificationKey }
       case ChannelProvider.SENDGRID_EMAIL: {
         if (!dto.apiKey || !dto.fromEmail) {
           throw new BadRequestException('SendGrid needs an API key and a from-email.');
         }
         await this.validateSendGridKey(dto.apiKey);
         externalAccountId = dto.fromEmail;
-        credentialsJson = JSON.stringify({ apiKey: dto.apiKey });
+        credentialsJson = JSON.stringify({
+          apiKey: dto.apiKey,
+          verificationKey: dto.verificationKey,
+        });
         secret = dto.apiKey;
         break;
       }
@@ -123,7 +129,11 @@ export class ChannelsService {
         }
         await this.validateMetaCredentials(dto.phoneNumberId, dto.accessToken);
         externalAccountId = dto.phoneNumberId;
-        credentialsJson = JSON.stringify({ accessToken: dto.accessToken, verifyToken: dto.verifyToken });
+        credentialsJson = JSON.stringify({
+          accessToken: dto.accessToken,
+          verifyToken: dto.verifyToken,
+          appSecret: dto.appSecret,
+        });
         secret = dto.accessToken;
         break;
       }
@@ -227,10 +237,7 @@ export class ChannelsService {
     });
   }
 
-  /**
-   * Same lookup, but by provider. The Meta webhook uses this — once Meta AND Twilio
-   * WhatsApp connections can coexist, "the WHATSAPP connection" is ambiguous.
-   */
+  /** Same lookup, but by provider. The Meta webhook uses this. */
   async findConnectionForProvider(provider: ChannelProvider): Promise<ChannelConnection | null> {
     return this.prisma.channelConnection.findFirst({
       where: { provider },
@@ -239,28 +246,37 @@ export class ChannelsService {
   }
 
   /**
-   * Decrypted SendGrid creds for the outbound email adapter.
-   * Returns undefined for non-email rows — the router then lets the adapter use its own
-   * env defaults (WhatsApp outbound via connections lands in the next phase).
+   * Decrypted SendGrid creds for the outbound email adapter and inbound signature verification.
+   * Returns undefined for non-email rows.
    */
-  resolveCredentials(conn: ChannelConnection): { apiKey: string; fromEmail: string } | undefined {
+  resolveCredentials(conn: ChannelConnection): { apiKey: string; fromEmail: string; verificationKey?: string } | undefined {
     if (conn.provider !== ChannelProvider.SENDGRID_EMAIL) return undefined;
     const creds = this.parseCredentials(conn);
     if (!creds.apiKey) return undefined;
-    return { apiKey: creds.apiKey, fromEmail: conn.externalAccountId };
+    return {
+      apiKey: creds.apiKey,
+      fromEmail: conn.externalAccountId,
+      verificationKey: creds.verificationKey,
+    };
   }
 
-  /** Decrypted Meta creds — the Meta webhook needs verifyToken; outbound will need accessToken. */
+  resolveSendGridCredentials(conn: ChannelConnection): { apiKey: string; fromEmail: string; verificationKey?: string } | undefined {
+    return this.resolveCredentials(conn);
+  }
+
+  /** Decrypted Meta creds — the Meta webhook needs verifyToken & appSecret; outbound needs accessToken. */
   resolveMetaCredentials(conn: ChannelConnection): {
     accessToken: string;
     verifyToken: string;
     phoneNumberId: string;
+    appSecret?: string;
   } {
     const creds = this.parseCredentials(conn);
     return {
       accessToken: creds.accessToken ?? '',
       verifyToken: creds.verifyToken ?? '',
       phoneNumberId: conn.externalAccountId,
+      appSecret: creds.appSecret,
     };
   }
 

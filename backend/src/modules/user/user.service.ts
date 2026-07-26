@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
@@ -131,12 +131,41 @@ export class UserService {
     }
 
     /**
-     * Change a user's password.
+     * Admin-reset a user's password. No current-password check — the caller's
+     * authority (update:user) was already verified by the controller.
      */
     async changePassword(id: string, newPassword: string) {
         const user = await this.prisma.user.findUnique({ where: { id } });
         if (!user) {
             throw new NotFoundException('User not found');
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await this.prisma.user.update({
+            where: { id },
+            data: { password: hashedPassword },
+        });
+
+        return { message: 'Password updated successfully' };
+    }
+
+    /**
+     * Self-service password change — requires proving the current password first.
+     */
+    async changeOwnPassword(id: string, currentPassword: string | undefined, newPassword: string) {
+        if (!currentPassword) {
+            throw new BadRequestException('Current password is required');
+        }
+
+        const user = await this.prisma.user.findUnique({ where: { id } });
+        if (!user) {
+            throw new NotFoundException('User not found');
+        }
+
+        const isValid = await bcrypt.compare(currentPassword, user.password);
+        if (!isValid) {
+            throw new UnauthorizedException('Current password is incorrect');
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);

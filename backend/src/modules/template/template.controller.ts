@@ -8,12 +8,10 @@ import {
     Query,
     Body,
     Req,
-    UseGuards,
     HttpCode,
     HttpStatus,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { CaslGuard } from '../casl/casl.guard';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { MessageChannel, TemplateType, WaApprovalStatus } from '@prisma/client';
 import { TemplateService } from './template.service';
@@ -21,7 +19,6 @@ import { CreateTemplateDto } from './dto/create-template.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
 
 @Controller('templates')
-@UseGuards(CaslGuard)
 export class TemplateController {
     constructor(private readonly templateService: TemplateService) {}
 
