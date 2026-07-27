@@ -1,8 +1,7 @@
 // pino.config.ts — builds the nestjs-pino Params used by LoggerModule.forRootAsync().
 //
-// Development: `nest start --watch` recompiles on every save and floods the terminal with
-// compiler output, so request/app logs go to a local file (logs/app.log) instead of stdout —
-// that's the only place they're actually readable during development.
+// Development: logs go to BOTH the terminal (colorized, like before) AND a local file
+// (logs/app.log, plain — easier to grep/scroll back through than the watch-mode terminal).
 // Production: plain JSON to stdout, untouched — the hosting platform (CloudWatch, Railway,
 // Render, etc.) captures container stdout as the log source, no transport needed.
 
@@ -19,6 +18,19 @@ export function createPinoParams(config: ConfigService, cls: ClsService): Params
     level: isDev ? 'debug' : 'info',
     autoLogging: true,
     customProps: () => ({ requestId: cls.getId() }),
+    // Trim the req/res objects to what's actually useful — pino-http's defaults dump every
+    // header (including Authorization) into every line, which is both noisy and a credential
+    // leak into log files. responseTime is already added separately by pino-http itself.
+    serializers: {
+      req: (req: { method: string; url: string }) => ({ method: req.method, url: req.url }),
+      res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+    },
+    // Belt-and-suspenders: redact these paths anywhere they appear in a log line, not just
+    // in the auto request/response log (e.g. if a handler ever logs headers directly).
+    redact: {
+      paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+      censor: '[Redacted]',
+    },
   };
 
   if (!isDev) {
@@ -32,14 +44,29 @@ export function createPinoParams(config: ConfigService, cls: ClsService): Params
     pinoHttp: {
       ...pinoHttp,
       transport: {
-        target: 'pino-pretty',
-        options: {
-          destination: path.join(logsDir, 'app.log'),
-          mkdir: true,
-          colorize: false,
-          translateTime: 'yyyy-mm-dd HH:MM:ss',
-          singleLine: true,
-        },
+        targets: [
+          {
+            target: 'pino-pretty',
+            level: 'debug',
+            options: {
+              destination: 1, // stdout — same terminal output as before
+              colorize: true,
+              translateTime: 'yyyy-mm-dd HH:MM:ss',
+              singleLine: true,
+            },
+          },
+          {
+            target: 'pino-pretty',
+            level: 'debug',
+            options: {
+              destination: path.join(logsDir, 'app.log'),
+              mkdir: true,
+              colorize: false,
+              translateTime: 'yyyy-mm-dd HH:MM:ss',
+              singleLine: true,
+            },
+          },
+        ],
       },
     },
   };
