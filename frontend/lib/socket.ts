@@ -2,6 +2,7 @@
 
 import { io, Socket } from 'socket.io-client';
 import { SOCKET_EVENTS } from './socket-events';
+import { useAuthStore } from '@/stores/auth-store';
 
 let socket: Socket | null = null;
 let connectionPromise: Promise<Socket> | null = null;
@@ -32,7 +33,7 @@ async function createConnection(): Promise<Socket> {
     },
     transports: ['websocket', 'polling'],
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
   });
@@ -59,7 +60,7 @@ async function createConnection(): Promise<Socket> {
     console.error('🔒 WebSocket auth error:', data.message);
     sock.disconnect();
     socket = null;
-    window.location.href = '/auth/login';
+    useAuthStore.getState().clearSession();
   });
 
   socket = sock;

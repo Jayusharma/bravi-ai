@@ -1,151 +1,178 @@
 import {
-    ExceptionFilter,
-    Catch,
-    ArgumentsHost,
-    HttpException,
-    HttpStatus,
-    Injectable,
-    Logger,
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  Injectable,
+  Logger,
+  HttpException,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { ClsService } from 'nestjs-cls';
+import { Prisma } from '@prisma/client';
 
 /**
- * Global Exception Filter
+ * Global Exception Filter — catches everything an HTTP handler throws (or fails to
+ * catch) and turns it into one consistent response shape:
+ *   { success: false, error: { code, message, statusCode, requestId, details? },
+ *     timestamp, path }
  *
- * Catches ALL exceptions and returns a standardized error response format.
- * Maps Prisma errors to user-friendly messages.
+ * Branch order matters: HttpException and Prisma's known-error class both extend
+ * Error, so they're checked BEFORE the generic Error branch, most-specific first.
  */
 @Injectable()
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
-    private readonly logger = new Logger('ExceptionFilter');
+  private readonly logger = new Logger('ExceptionFilter');
 
-    constructor(private readonly cls: ClsService) {}
+  constructor(private readonly cls: ClsService) {}
 
-    catch(exception: unknown, host: ArgumentsHost) {
-        const ctx = host.switchToHttp();
-        const response = ctx.getResponse<Response>();
-        const request = ctx.getRequest<Request>();
-        const requestId = this.cls.getId();
+  // ── Branch 1: Nest's own exceptions ──────────────────────────────────────
+  // NotFoundException, BadRequestException, ForbiddenException, etc. — all
+  // deliberately thrown by our own code, already carrying a real status + message.
+  private classifyHttpException(exception: HttpException) {
+    const status = exception.getStatus();
+    const response = exception.getResponse();
 
-        let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
-        let message = 'Internal server error';
-        let errorCode = 'INTERNAL_ERROR';
-        let details: any = undefined;
+    // rare: `new HttpException('plain string', code)` thrown directly
+    if (typeof response === 'string') {
+      return {
+        status,
+        code: exception.constructor.name,
+        message: response,
+        details: undefined,
+      };
+    }
 
-        // ─── Handle NestJS HttpException ─────────────────────────────
-        if (exception instanceof HttpException) {
-            statusCode = exception.getStatus();
-            const exceptionResponse = exception.getResponse();
+    const body = response as { message?: string | string[] };
 
-            if (typeof exceptionResponse === 'string') {
-                message = exceptionResponse;
-            } else if (typeof exceptionResponse === 'object') {
-                const resp = exceptionResponse as any;
-                message = resp.message || exception.message;
-                errorCode = resp.error || this.getErrorCode(statusCode);
-                details = resp.details;
+    // class-validator failed multiple fields at once — keep them as separate items,
+    // never flatten into one string, so the frontend can show one error per field
+    if (Array.isArray(body.message)) {
+      return {
+        status,
+        code: 'VALIDATION_ERROR',
+        message: 'Validation failed',
+        details: body.message,
+      };
+    }
 
-                // class-validator returns message as array
-                if (Array.isArray(message)) {
-                    details = message;
-                    message = 'Validation failed';
-                    errorCode = 'VALIDATION_ERROR';
-                }
-            }
-            this.logger.warn(
-                `[${requestId}] ${request.method} ${request.url} → ${statusCode} ${errorCode}: ${Array.isArray(message) ? message.join('; ') : message}`,
-            );
-        }
-        // ─── Handle Prisma errors ────────────────────────────────────
-        else if (this.isPrismaError(exception)) {
-            const prismaResult = this.handlePrismaError(exception);
-            statusCode = prismaResult.statusCode;
-            message = prismaResult.message;
-            errorCode = prismaResult.errorCode;
-            this.logger.error(
-                `[${requestId}] ${request.method} ${request.url} → ${statusCode} ${errorCode} (Prisma: ${(exception as any)?.code})`,
-                (exception as Error)?.stack,
-            );
-        }
-        // ─── Handle unknown errors ───────────────────────────────────
-        // The client only ever gets the generic "Internal server error" message above —
-        // the real exception.message (which can contain file paths, SQL fragments, or
-        // other internals) is logged server-side only, never put in the response body.
-        else if (exception instanceof Error) {
-            this.logger.error(
-                `[${requestId}] ${request.method} ${request.url} → 500 Unhandled: ${exception.message}`,
-                exception.stack,
-            );
-        } else {
-            this.logger.error(`[${requestId}] ${request.method} ${request.url} → 500 Unhandled non-Error exception: ${JSON.stringify(exception)}`);
-        }
+    return {
+      status,
+      code: exception.constructor.name,
+      message: body.message ?? 'An error occurred',
+      details: undefined,
+    };
+  }
 
-        const errorResponse = {
-            success: false,
-            error: {
-                code: errorCode,
-                message,
-                statusCode,
-                requestId,
-                ...(details && { details }),
-            },
-            timestamp: new Date().toISOString(),
-            path: request.url,
+  // ── Branch 2: Prisma's known database errors ─────────────────────────────
+  // Nobody wrote an `if` for these — Prisma itself refused the operation because
+  // it broke a database rule (unique constraint, missing row, bad foreign key).
+  private classifyPrismaException(exception: Prisma.PrismaClientKnownRequestError) {
+    switch (exception.code) {
+      case 'P2002': {
+        const field = (exception.meta?.target as string[])?.[0] ?? 'field';
+        return {
+          status: 409,
+          code: 'DUPLICATE_ENTRY',
+          message: `A record with this ${field} already exists`,
+          details: undefined,
         };
-
-        response.status(statusCode).json(errorResponse);
-    }
-
-    private getErrorCode(statusCode: number): string {
-        const codes: Record<number, string> = {
-            400: 'BAD_REQUEST',
-            401: 'UNAUTHORIZED',
-            403: 'FORBIDDEN',
-            404: 'NOT_FOUND',
-            409: 'CONFLICT',
-            422: 'UNPROCESSABLE_ENTITY',
-            429: 'TOO_MANY_REQUESTS',
-            500: 'INTERNAL_ERROR',
+      }
+      case 'P2025':
+        return {
+          status: 404,
+          code: 'RECORD_NOT_FOUND',
+          message: 'Record not found',
+          details: undefined,
         };
-        return codes[statusCode] || 'UNKNOWN_ERROR';
+      case 'P2003':
+        return {
+          status: 400,
+          code: 'INVALID_REFERENCE',
+          message: 'Related record does not exist',
+          details: undefined,
+        };
+      default:
+        // known-error class, but a code we haven't specifically mapped — stay generic,
+        // never pass exception.message through, it can contain raw SQL/table names
+        return {
+          status: 500,
+          code: 'DATABASE_ERROR',
+          message: 'A database error occurred',
+          details: undefined,
+        };
+    }
+  }
+
+  // ── Branch 3: genuine unexpected errors ──────────────────────────────────
+  // A real bug (null we forgot to guard, a library throwing its own error), or a
+  // plain `throw new Error(...)` used where a real HttpException should've been
+  // thrown instead. Full stack goes to the log only — never to the client.
+  private classifyGenericError(exception: Error) {
+    return {
+      status: 500,
+      code: 'INTERNAL_ERROR',
+      message: 'Something went wrong. Please try again.',
+      details: undefined,
+      _stackForLogging: exception.stack,
+    };
+  }
+
+  // ── Main entry point — Nest routes every unhandled throw here ───────────
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+    const requestId = this.cls.getId();
+
+    let result: {
+      status: number;
+      code: string;
+      message: string;
+      details?: unknown;
+      _stackForLogging?: string;
+    };
+
+    if (exception instanceof HttpException) {
+      result = this.classifyHttpException(exception);
+    } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      result = this.classifyPrismaException(exception);
+    } else if (exception instanceof Error) {
+      result = this.classifyGenericError(exception);
+    } else {
+      // thrown a raw string/object, not even an Error instance — genuinely rare
+      result = {
+        status: 500,
+        code: 'UNKNOWN_ERROR',
+        message: 'Something went wrong. Please try again.',
+      };
     }
 
-    private isPrismaError(exception: any): boolean {
-        return exception?.constructor?.name?.startsWith('Prisma') || exception?.code?.startsWith?.('P');
+    // ── Log every branch — this was the bug before: only raw Error logged anything ──
+    const logContext = { requestId, path: request.url, method: request.method };
+
+    if (result.status >= 500) {
+      this.logger.error(
+        { ...logContext, stack: result._stackForLogging },
+        result.message,
+      );
+    } else {
+      this.logger.warn(logContext, result.message);
     }
 
-    private handlePrismaError(exception: any): {
-        statusCode: number;
-        message: string;
-        errorCode: string;
-    } {
-        switch (exception.code) {
-            case 'P2002':
-                return {
-                    statusCode: HttpStatus.CONFLICT,
-                    message: `A record with this ${exception.meta?.target?.join(', ') || 'field'} already exists`,
-                    errorCode: 'DUPLICATE_ENTRY',
-                };
-            case 'P2025':
-                return {
-                    statusCode: HttpStatus.NOT_FOUND,
-                    message: 'Record not found',
-                    errorCode: 'NOT_FOUND',
-                };
-            case 'P2003':
-                return {
-                    statusCode: HttpStatus.BAD_REQUEST,
-                    message: 'Related record not found — invalid reference',
-                    errorCode: 'FOREIGN_KEY_ERROR',
-                };
-            default:
-                return {
-                    statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-                    message: 'Database error',
-                    errorCode: 'DATABASE_ERROR',
-                };
-        }
-    }
+    // ── One consistent response shape, every branch, every time ─────────────
+    response.status(result.status).json({
+      success: false,
+      error: {
+        code: result.code,
+        message: result.message,
+        statusCode: result.status,
+        requestId,
+        details: result.details,
+        // _stackForLogging deliberately excluded — logging only, never leaves the server
+      },
+      timestamp: new Date().toISOString(),
+      path: request.url,
+    });
+  }
 }

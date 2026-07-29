@@ -14,10 +14,12 @@ import { EnquiryService } from '../enquiry/enquiry.service';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { AddChannelDto } from './dto/add-channel.dto';
+import { PrismaService } from '@/database/prisma.service';
 
 @Controller('contact')
 export class ContactController {
     constructor(
+        private prisma: PrismaService,
         private contactService: ContactService,
         private enquiryService: EnquiryService,
     ) { }
@@ -97,4 +99,6 @@ export class ContactController {
     getEnquiriesByContact(@Param('contactId') contactId: string) {
         return this.enquiryService.getEnquiriesByContact(contactId);
     }
-}
+
+    
+}
