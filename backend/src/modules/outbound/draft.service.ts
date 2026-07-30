@@ -241,7 +241,9 @@ export class DraftService {
     // Delete storage file only when no MessageAttachment references it
     for (const a of candidates) {
       if (!referencedKeys.has(a.storageKey)) {
-        this.storage.deleteFile(a.storageKey).catch(() => {});
+        this.storage.deleteFile(a.storageKey).catch((err: Error) => {
+          this.logger.warn(`Failed to delete orphaned file ${a.storageKey}: ${err.message}`);
+        });
       }
     }
 

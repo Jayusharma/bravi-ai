@@ -58,7 +58,7 @@ export class OutboundController {
     });
 
     if (!draft) throw new NotFoundException(`Draft ${draftId} not found`);
-    if (draft.createdBy !== userId) throw new BadRequestException('Cannot send another user\'s draft');
+    if (draft.createdBy !== userId) throw new ForbiddenException('Cannot send another user\'s draft');
     if (draft.status !== DraftStatus.ACTIVE) throw new BadRequestException('Draft is not in ACTIVE state');
 
     const hasAttachments = await this.prisma.draftAttachment.count({ where: { draftId } }) > 0;
@@ -117,6 +117,8 @@ export class OutboundController {
         sentByUser: { select: { id: true, displayName: true, userName: true } },
       },
     });
+
+    if (!enrichedMessage) throw new NotFoundException(`Message ${message.id} not found after send`);
 
     this.logger.log(`📤 Draft ${draftId} sent as message ${message.id}`);
     return enrichedMessage;

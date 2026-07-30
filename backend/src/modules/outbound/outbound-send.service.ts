@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -57,7 +58,7 @@ export class OutboundSendService {
         include: { attachments: true },
       });
       if (!draft) throw new NotFoundException(`Draft ${draftId} not found`);
-      if (draft.createdBy !== userId) throw new BadRequestException('Cannot send another user\'s draft');
+      if (draft.createdBy !== userId) throw new ForbiddenException('Cannot send another user\'s draft');
       if (draft.status !== DraftStatus.ACTIVE) throw new BadRequestException('Draft is not in ACTIVE state');
 
       channel = draft.channel;

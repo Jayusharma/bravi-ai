@@ -43,7 +43,7 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Logger, Optional } from '@nestjs/common';
+import { HttpException, Logger, Optional } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from 'src/database/prisma.service';
 import { ROOMS, SOCKET_EVENTS } from 'src/common/constants/socket-events';
@@ -108,13 +108,17 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         if (user) {
           client.data.userName = user.displayName || user.userName;
         }
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        this.logger.warn(`Failed to load display name for user ${payload.sub}: ${err.message}`);
+      });
 
       this.prisma.userPresence.upsert({
         where: { userId: payload.sub },
         create: { userId: payload.sub, isOnline: true },
         update: { isOnline: true, lastSeenAt: new Date() },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        this.logger.warn(`Failed to mark user ${payload.sub} online: ${err.message}`);
+      });
 
       this.server.emit(SOCKET_EVENTS.PRESENCE_ONLINE, { userId: payload.sub });
     } catch (err: any) {
@@ -131,7 +135,9 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         where: { userId: client.data.userId },
         create: { userId: client.data.userId, isOnline: false },
         update: { isOnline: false, lastSeenAt: new Date() },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        this.logger.warn(`Failed to mark user ${client.data.userId} offline: ${err.message}`);
+      });
       this.server.emit(SOCKET_EVENTS.PRESENCE_OFFLINE, { userId: client.data.userId });
     }
   }
@@ -265,7 +271,12 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: string },
   ) {
     if (!client.data?.userId || !data?.conversationId || !this.chatService) return;
-    await this.chatService.markDelivered(data.conversationId, client.data.userId);
+    try {
+      await this.chatService.markDelivered(data.conversationId, client.data.userId);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`chat:delivered failed for user ${client.data.userId}: ${message}`);
+    }
   }
 
   /** Recipient is viewing the room → advance their read (and delivered) watermark. */
@@ -275,7 +286,12 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: string },
   ) {
     if (!client.data?.userId || !data?.conversationId || !this.chatService) return;
-    await this.chatService.markRead(data.conversationId, client.data.userId);
+    try {
+      await this.chatService.markRead(data.conversationId, client.data.userId);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`chat:read failed for user ${client.data.userId}: ${message}`);
+    }
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────
@@ -362,10 +378,15 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     } catch (err: any) {
       this.logger.error(`outbound:send failed for user ${client.data.userId}: ${err.message}`);
+      // HttpException (BadRequestException, ForbiddenException, etc.) is deliberately client-facing
+      // — those messages are safe to show as-is. Anything else is unexpected internals; the client
+      // gets a generic message, the real one stays in the log above (mirrors GlobalExceptionFilter's
+      // HTTP-side behavior for this same distinction).
+      const clientMessage = err instanceof HttpException ? err.message : 'Send failed. Please try again.';
       return {
         success: false,
         tempId: data.tempId,
-        error: err.message ?? 'Send failed',
+        error: clientMessage,
       };
     }
   }

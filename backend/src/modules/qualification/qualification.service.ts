@@ -86,7 +86,8 @@ export class QualificationService {
           data: {
             displayName: aiResult.extractedData.contactName,
           },
-        }).catch(() => {
+        }).catch((err: Error) => {
+          this.logger.warn(`Failed to update contact ${message.contactId} display name: ${err.message}`);
         });
       }
 

@@ -19,6 +19,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { IsUUID } from 'class-validator';
+import { UserRole } from '@prisma/client';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { PrismaService } from 'src/database/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -142,7 +143,7 @@ export class MessageController {
     const userId = req.user!.userId;
     const msg = await this.prisma.conversationMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Message not found');
-    if (msg.sentByUserId !== userId && req.user!.role !== 'ADMIN') {
+    if (msg.sentByUserId !== userId && req.user!.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Cannot delete another user\'s message');
     }
     await this.prisma.conversationMessage.update({ where: { id: messageId }, data: { isDeleted: true } });

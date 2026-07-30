@@ -714,8 +714,8 @@ export class ChatService {
     await this.assertActiveMember(roomId, userId);
     const msg = await this.prisma.chatMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Message not found');
-    if (msg.senderId !== userId) throw new Error('Cannot edit another user\'s message');
-    if (msg.isDeleted) throw new Error('Cannot edit a deleted message');
+    if (msg.senderId !== userId) throw new ForbiddenException('Cannot edit another user\'s message');
+    if (msg.isDeleted) throw new BadRequestException('Cannot edit a deleted message');
 
     const updated = await this.prisma.chatMessage.update({
       where: { id: messageId },
@@ -737,7 +737,7 @@ export class ChatService {
     await this.assertActiveMember(roomId, userId);
     const msg = await this.prisma.chatMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('Message not found');
-    if (msg.senderId !== userId) throw new Error('Cannot delete another user\'s message for everyone');
+    if (msg.senderId !== userId) throw new ForbiddenException('Cannot delete another user\'s message for everyone');
 
     const updated = await this.prisma.chatMessage.update({
       where: { id: messageId },
