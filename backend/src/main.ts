@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/nestjs';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
@@ -6,6 +7,18 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { RedisIoAdapter } from './adapters/redis-io.adapter';
+
+// This ONLY configures the Sentry client (where events go, under what environment tag).
+// It does not install any error handler, middleware, or auto-instrumentation by itself —
+// nothing gets sent to Sentry until something explicitly calls Sentry.captureException().
+// The only place that happens in this backend is GlobalExceptionFilter's 5xx branch
+// (common/filters/global-exception.filter.ts) — deliberately, so there's exactly one
+// call site to reason about instead of errors surfacing from scattered auto-instrumentation.
+// No DSN (e.g. local dev) → Sentry silently no-ops; nothing crashes, nothing sends.
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+});
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true, bufferLogs: true });

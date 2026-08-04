@@ -2,11 +2,10 @@ import { ReactNode } from 'react';
 import { getCurrentUser } from '@/services/auth';
 import { AuthHydrator } from '@/components/auth';
 import { SidebarClient } from '@/components/common';
-import { SocketProvider } from '@/contexts/SocketContext';
 import { redirect } from 'next/navigation';
 
 // Server component: authenticates the user, then hands off to client-side providers.
-// AuthHydrator runs before SocketProvider so Zustand is hydrated before any child reads from the store.
+// AuthHydrator runs before any client components read from the store.
 export async function DashboardLayout({ children }: { children: ReactNode }) {
     const user = await getCurrentUser();
     if (!user) {
@@ -17,7 +16,7 @@ export async function DashboardLayout({ children }: { children: ReactNode }) {
 
     return (
         <>
-            {/* Hydrate Zustand auth store — must be outside SocketProvider so SidebarClient can read it */}
+            {/* Hydrate Zustand auth store */}
             <AuthHydrator
                 user={{
                     id: user.id,
@@ -29,12 +28,9 @@ export async function DashboardLayout({ children }: { children: ReactNode }) {
                 permissions={permissions}
             />
 
-            {/* SocketProvider owns the single WS connection for the entire dashboard session */}
-            <SocketProvider>
-                <SidebarClient>
-                    {children}
-                </SidebarClient>
-            </SocketProvider>
+            <SidebarClient>
+                {children}
+            </SidebarClient>
         </>
     );
 }

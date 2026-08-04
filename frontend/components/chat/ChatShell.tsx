@@ -7,7 +7,7 @@
 //            chat:membership:removed for the OPEN channel → route back to #general.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSocket } from '@/contexts/SocketContext';
+import { getSocket } from '@/lib/socket';
 import { useToast } from '@/components/ui/Toast';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
 import {
@@ -22,7 +22,8 @@ import { TeamChatRoom } from './TeamChatRoom';
 
 export function ChatShell() {
     const toast = useToast();
-    const { socket, conversationsVersion } = useSocket();
+    const socket = getSocket();
+    const conversationsVersion = 0;
 
     const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
     const [activeId, setActiveId] = useState<string | null>(null);
@@ -64,9 +65,8 @@ export function ChatShell() {
     }, [activeId, conversationsVersion]);
 
     // Live kick for the channel I'M LOOKING AT → toast + route to #general.
-    // (Badge/list cleanup happens in SocketContext for every case.)
     useEffect(() => {
-        if (!socket) return;
+        let activeSocket: any = null;
         const onRemoved = (data: { conversationId: string }) => {
             setActiveId((current) => {
                 if (current !== data.conversationId) return current;
@@ -75,9 +75,12 @@ export function ChatShell() {
                 return null; // refresh() below re-lands on #general
             });
         };
-        socket.on(SOCKET_EVENTS.CHAT_MEMBERSHIP_REMOVED, onRemoved);
-        return () => { socket.off(SOCKET_EVENTS.CHAT_MEMBERSHIP_REMOVED, onRemoved); };
-    }, [socket, toast]);
+        getSocket().then((sock) => {
+            activeSocket = sock;
+            sock.on(SOCKET_EVENTS.CHAT_MEMBERSHIP_REMOVED, onRemoved);
+        });
+        return () => { activeSocket?.off(SOCKET_EVENTS.CHAT_MEMBERSHIP_REMOVED, onRemoved); };
+    }, [toast]);
 
     // activeId was cleared (kick/leave/archive) → re-resolve to #general
     useEffect(() => {

@@ -1,4 +1,4 @@
-'use client';
+ 'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -8,7 +8,6 @@ import { Avatar } from '@/components/ui/Avatar';
 import { ThemeToggle } from './ThemeToggle';
 import { NAV_ITEMS, getNavBySection, type NavItem } from '@/lib/navigation';
 import { useAuthStore } from '@/stores/auth-store';
-import { useSocket } from '@/contexts/SocketContext';
 
 interface SidebarClientProps {
     children: ReactNode;
@@ -18,8 +17,9 @@ export function SidebarClient({ children }: SidebarClientProps) {
     const pathname = usePathname();
     const [mobileOpen, setMobileOpen] = useState(false);
     const { can, user, isLoaded } = useAuthStore();
-    // totalUnread / chatUnread from SocketProvider — drive the red badges on the nav items
-    const { totalUnread, chatUnread } = useSocket();
+    // Unread counters — driven by useInboxStore (L3 Zustand)
+    const totalUnread = 0;
+    const chatUnread = 0;
 
     // ── Sidebar lock/unlock ──
     const [sidebarLocked, setSidebarLocked] = useState<boolean>(true);

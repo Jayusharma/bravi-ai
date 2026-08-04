@@ -19,7 +19,8 @@
       "Bash(xargs grep -l \"notification\\\\|pushNotification\\\\|toast\")",
       "Bash(npx tsc *)",
       "Bash(Sort-Object)",
-      "mcp__claude_ai_Postman__getWorkspaces"
+      "mcp__claude_ai_Postman__getWorkspaces",
+      "WebFetch(domain:docs.sentry.io)"
     ]
   }
 }

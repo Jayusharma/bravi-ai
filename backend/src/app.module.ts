@@ -23,6 +23,7 @@ import { CaslModule } from './modules/casl/casl.module';
 import { CaslGuard } from './modules/casl/casl.guard';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bullmq';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ContactModule } from './modules/contact/contact.module';
 import { OutboundModule } from './modules/outbound/outbound.module';
 import { PermissionModule } from './modules/permission/permission.module';
@@ -35,6 +36,7 @@ import { ChatModule } from './modules/chat/chat.module';
 import { AIModule } from './ai/ai.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { ChannelsModule } from './modules/channels/channels.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -105,6 +107,7 @@ import { ChannelsModule } from './modules/channels/channels.module';
     AIModule,
     AutomationModule,
     ChannelsModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [

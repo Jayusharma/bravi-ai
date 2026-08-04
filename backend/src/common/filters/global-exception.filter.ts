@@ -9,6 +9,7 @@ import {
 import { Response, Request } from 'express';
 import { ClsService } from 'nestjs-cls';
 import { Prisma } from '@prisma/client';
+import * as Sentry from '@sentry/nestjs';
 
 /**
  * Global Exception Filter — catches everything an HTTP handler throws (or fails to
@@ -156,6 +157,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         { ...logContext, stack: result._stackForLogging },
         result.message,
       );
+      // Only 5xx goes to Sentry — 4xx are expected client-caused outcomes (bad input,
+      // missing record, wrong permissions), not bugs worth an alert. `exception` (not
+      // `result`) is passed so Sentry gets the real error object and its real stack.
+      Sentry.captureException(exception, {
+        tags: { requestId },
+        contexts: { request: logContext },
+      });
     } else {
       this.logger.warn(logContext, result.message);
     }

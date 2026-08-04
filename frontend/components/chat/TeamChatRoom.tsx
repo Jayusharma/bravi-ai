@@ -6,7 +6,6 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChatComposer } from './ChatComposer';
-import { useSocket } from '@/contexts/SocketContext';
 import {
   getChatRoomMeta,
   getChatMessages,
@@ -29,7 +28,6 @@ import {
 import { useAuthStore } from '@/stores/auth-store';
 import { getSocket, joinChatRoom, leaveChatRoom } from '@/lib/socket';
 import { SOCKET_EVENTS } from '@/lib/socket-events';
-import { DeliveryTicks } from '@/components/messaging/chat/DeliveryTicks';
 import { SearchSidebar } from './SearchSidebar';
 import { ReactionBar, QUICK_EMOJIS } from './ReactionBar';
 import { ChannelFilesTab } from './ChannelFilesTab';
@@ -50,6 +48,14 @@ function tickStatus(msg: ChatMessage, receipts: ChatReceipts): string {
   return 'SENT';
 }
 
+function DeliveryTicks({ status, className }: { status: string; className?: string }) {
+  if (status === 'FAILED') return <span className={className} style={{ color: '#ef4444' }}>✕</span>;
+  if (status === 'PENDING') return <span className={className}>🕒</span>;
+  if (status === 'READ') return <span className={className} style={{ color: '#6366f1' }}>✓✓</span>;
+  if (status === 'DELIVERED') return <span className={className}>✓✓</span>;
+  return <span className={className}>✓</span>;
+}
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -64,7 +70,6 @@ interface TeamChatRoomProps {
 export function TeamChatRoom({ conversationId, onOpenDetails }: TeamChatRoomProps) {
   const currentUser = useAuthStore((s) => s.user);
   const currentUserId = currentUser?.id ?? null;
-  const { setActiveChatConversation } = useSocket();
 
   const [room, setRoom] = useState<ChatRoom | null>(null);
   const [activeTab, setActiveTab] = useState<RoomTab>('messages');
@@ -207,12 +212,6 @@ export function TeamChatRoom({ conversationId, onOpenDetails }: TeamChatRoomProp
     })();
     return () => { active = false; };
   }, [conversationId]);
-
-  // Viewing this conversation zeroes ITS badge and suppresses further increments.
-  useEffect(() => {
-    setActiveChatConversation(conversationId);
-    return () => setActiveChatConversation(null);
-  }, [conversationId, setActiveChatConversation]);
 
   // First unread message (from the boundary captured at load) → where the divider goes.
   const firstUnreadId = useMemo(() => {

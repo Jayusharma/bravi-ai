@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nextjs';
 import { getAuthToken } from './Auth';
 
 const API_URL = (process.env.NEST_API_URL || '').trim();
@@ -35,6 +36,7 @@ export class ApiError extends Error {
         public type: ApiErrorType,
         public details?: string[],   // Validation errors array
         public url?: string,         // Which URL failed
+        public requestId?: string,   // Correlates to the backend's logs/app.log line for this request
     ) {
         super(message);
         this.name = 'ApiError';
@@ -87,6 +89,11 @@ function logSuccess(method: string, url: string, status: number, durationMs: num
     );
 }
 
+// The ONE place a failed request gets reported to Sentry — both branches below funnel
+// through here (4xx/5xx responses AND network failures both construct an ApiError and
+// call this), so this is the single call site, not one scattered per request type.
+// Tags with the backend's requestId when the response body carried one, so a Sentry
+// event can be matched to the exact line in the backend's logs/app.log for that request.
 function logError(method: string, url: string, error: ApiError | Error, durationMs: number) {
     if (error instanceof ApiError) {
         console.error(
@@ -95,10 +102,14 @@ function logError(method: string, url: string, error: ApiError | Error, duration
         if (error.details?.length) {
             console.error(`\x1b[31m[API ✗]\x1b[0m   Details: ${error.details.join(', ')}`);
         }
+        Sentry.captureException(error, {
+            tags: error.requestId ? { requestId: error.requestId } : undefined,
+        });
     } else {
         console.error(
             `\x1b[31m[API ✗]\x1b[0m ${method} ${url} → [NETWORK_ERROR] ${error.message} (${durationMs}ms)`,
         );
+        Sentry.captureException(error);
     }
 }
 
@@ -183,6 +194,7 @@ export async function apiClient<T = unknown>(
                 const errorType = classifyError(res.status);
                 let message = `Request failed with status ${res.status}`;
                 let details: string[] | undefined;
+                let requestId: string | undefined;
 
                 try {
                     const errorBody = await res.json();
@@ -196,15 +208,16 @@ export async function apiClient<T = unknown>(
                             message = errorBody.message;
                         }
                     }
-                    // Our custom envelope: { success: false, error: { message } }
+                    // Our custom envelope: { success: false, error: { message, requestId } }
                     else if (errorBody?.error?.message) {
                         message = errorBody.error.message;
                     }
+                    requestId = errorBody?.error?.requestId;
                 } catch {
                     // Could not parse error body — use default message
                 }
 
-                const apiError = new ApiError(message, res.status, errorType, details, url);
+                const apiError = new ApiError(message, res.status, errorType, details, url, requestId);
                 logError(method, url, apiError, durationMs);
                 throw apiError;
             }

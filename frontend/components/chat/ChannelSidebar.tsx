@@ -6,7 +6,6 @@
 
 import { useState } from 'react';
 import { PermissionGate } from '@/components/auth';
-import { useSocket } from '@/contexts/SocketContext';
 import { useToast } from '@/components/ui/Toast';
 import { openDm, type ChatConversationSummary } from '@/services/chat/chat.service';
 import { useAuthStore } from '@/stores/auth-store';
@@ -31,7 +30,7 @@ function previewText(c: ChatConversationSummary): string {
 export function ChannelSidebar({ conversations, activeId, generalId, onSelect, onRefresh }: ChannelSidebarProps) {
     const toast = useToast();
     const currentUserId = useAuthStore((s) => s.user?.id ?? null);
-    const { chatUnreadByConversation } = useSocket();
+    const chatUnreadByConversation: Record<string, number> = {};
     const [showCreate, setShowCreate] = useState(false);
     const [showDmPicker, setShowDmPicker] = useState(false);
 
