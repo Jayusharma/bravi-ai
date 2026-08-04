@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { type Response } from 'express';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Public } from 'src/common/decorator/public.decorator';
 import { IngestionService } from '@/modules/Ingestion/ingestion.service';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -27,6 +28,8 @@ import { MetaWebhookGuard } from './guards/meta-webhook.guard';
 import { SendGridSignatureGuard } from './guards/sendgrid-signature.guard';
 
 @Public()
+@UseGuards(ThrottlerGuard)
+@Throttle({ default: { limit: 100, ttl: 60000 } })
 @Controller('webhook')
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);

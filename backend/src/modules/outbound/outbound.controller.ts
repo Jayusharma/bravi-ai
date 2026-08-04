@@ -14,7 +14,9 @@ import {
   ForbiddenException,
   NotFoundException,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { Public } from 'src/common/decorator/public.decorator';
@@ -142,6 +144,8 @@ export class OutboundController {
 
   @Post('webhooks/email/delivery')
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async sendgridDelivery(@Body() events: Array<Record<string, any>>) {
     await this.deliveryTracking.handleSendGridDelivery(events);

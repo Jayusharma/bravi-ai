@@ -87,6 +87,13 @@ import { HealthModule } from './modules/health/health.module';
       inject: [ConfigService],
     }),
 
+    // ── Rate limiting — config only, NOT a global guard (see AuthModule/WebhookModule/
+    //    OutboundModule for where ThrottlerGuard is actually applied). Public routes only,
+    //    by explicit design: an authenticated abuser is a CASL/audit problem, not a
+    //    rate-limit one. This default (10/min) only matters if a route opts in with
+    //    @UseGuards(ThrottlerGuard) and doesn't override it with its own @Throttle().
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 10 }]),
+
     PrismaModule,
     AuthModule,
     UserModule,

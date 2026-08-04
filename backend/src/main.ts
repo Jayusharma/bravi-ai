@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/nestjs';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import helmet from 'helmet';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -26,6 +27,12 @@ async function bootstrap() {
   // Switch Nest's own logger (and every `new Logger(name)` call site app-wide) to pino,
   // as early as possible — bufferLogs above holds Nest's bootstrap logs until this runs.
   app.useLogger(app.get(Logger));
+
+  // ─── Security headers ──────────────────────────────────────────
+  // Sets response headers only (X-Content-Type-Options, X-Frame-Options, etc.) — no
+  // request counting, no risk of blocking a legitimate caller. Safe on every route,
+  // unlike rate limiting which is deliberately scoped to public routes only.
+  app.use(helmet());
 
   // ─── API Versioning ────────────────────────────────────────────
   app.setGlobalPrefix('api/v1');

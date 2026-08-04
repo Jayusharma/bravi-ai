@@ -210,8 +210,9 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
     }),
 }));
 
-// ── Decision Logic Stubs ──
-
+/**
+ * 30-second Outbox Sweeper — flips stuck SENDING messages to FAILED.
+ */
 export function sweepStuckOutboxMessages(): void {
   const { outbox, markOutboxFailed } = useInboxStore.getState();
   const now = Date.now();
