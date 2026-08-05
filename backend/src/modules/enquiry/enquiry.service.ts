@@ -999,6 +999,7 @@ export class EnquiryService {
           direction: 'INBOUND',
           from: message.from,
           content: message.body,
+          deliveryStatus: 'DELIVERED',
         },
       });
 
@@ -1041,6 +1042,7 @@ export class EnquiryService {
             direction: 'INBOUND',
             from: message.from,
             content: message.body,
+            deliveryStatus: 'DELIVERED',
           },
         },
         timeline: {

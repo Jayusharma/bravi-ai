@@ -9,14 +9,23 @@ import { ThemeToggle } from './ThemeToggle';
 import { NAV_ITEMS, getNavBySection, type NavItem } from '@/lib/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 
+import { useQueryClient } from '@tanstack/react-query';
+import { ensureListeners } from '@/lib/socketListeners';
+
 interface SidebarClientProps {
     children: ReactNode;
 }
 
 export function SidebarClient({ children }: SidebarClientProps) {
+    const queryClient = useQueryClient();
     const pathname = usePathname();
     const [mobileOpen, setMobileOpen] = useState(false);
     const { can, user, isLoaded } = useAuthStore();
+    
+    // ⚡ Boot global Socket.IO listeners once across entire app
+    useEffect(() => {
+        ensureListeners(queryClient);
+    }, [queryClient]);
     // Unread counters — driven by useInboxStore (L3 Zustand)
     const totalUnread = 0;
     const chatUnread = 0;

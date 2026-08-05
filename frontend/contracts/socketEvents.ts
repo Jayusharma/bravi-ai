@@ -18,11 +18,13 @@ export type MessageDirection = z.infer<typeof MessageDirectionSchema>;
 
 export const MessageStatusSchema = z.enum([
   'SENDING',
+  'PENDING',
   'SENT',
   'DELIVERED',
   'READ',
   'FAILED',
   'BOUNCED',
+  'RECEIVED',
 ]);
 export type MessageStatus = z.infer<typeof MessageStatusSchema>;
 
@@ -143,20 +145,37 @@ export type ChannelStateEvent = z.infer<typeof ChannelStateEventSchema>;
 // ── Validation Helpers (STUBBED FOR DECISION LOGIC) ──
 
 /**
- * Validates and normalizes raw socket payload into a clean Message or null if malformed.
+ * Validates and normalizes raw message payload into a clean Message or fallback.
  */
-export function parseSocketMessage(raw: unknown): Message | null {
-  const result = MessageSchema.safeParse(raw);
+export function parseSocketMessage(raw: unknown): Message {
+  const r = raw as Record<string, any>;
   
+  const normalized = {
+    id: r.id || `temp-${Date.now()}`,
+    seq: typeof r.seq === 'number' ? r.seq : 0,
+    clientMessageId: r.clientMessageId || null,
+    contactId: r.contactId || '',
+    enquiryId: r.enquiryId || '',
+    channel: (r.channel || 'WHATSAPP') as Channel,
+    channelConnectionId: r.channelConnectionId || '',
+    direction: (r.direction || 'INBOUND') as any,
+    body: r.body || r.content || '',
+    status: (r.status || r.deliveryStatus || 'SENT') as any,
+    attachments: Array.isArray(r.attachments) ? r.attachments : [],
+    createdAt: r.createdAt || new Date().toISOString(),
+    authorId: r.authorId || r.sentByUserId || null,
+    channelMeta: r.channelMeta || null,
+  };
+
+  const result = MessageSchema.safeParse(normalized);
   if (!result.success) {
     console.warn(
-      '⚠️ [Socket Event Dropped] Malformed Message payload received:',
+      '⚠️ [Message Parser Warning] Normalizing message fallback:',
       result.error.format(),
       raw
     );
-    return null;
+    return normalized as Message;
   }
-  
   return result.data;
 }
 /**

@@ -132,6 +132,7 @@ export class IngestionService {
           to: dto.to,
           subject: dto.subject,
           content: dto.body,
+          deliveryStatus: 'DELIVERED',
         },
       });
 
@@ -209,6 +210,7 @@ export class IngestionService {
           to: dto.to,
           subject: dto.subject,
           content: dto.body,
+          deliveryStatus: 'DELIVERED',
         },
       });
 

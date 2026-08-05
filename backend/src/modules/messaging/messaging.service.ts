@@ -245,6 +245,15 @@ export class ConversationService {
         assignedTo: {
           select: { id: true, displayName: true, userName: true },
         },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            sentByUser: {
+              select: { id: true, displayName: true, userName: true },
+            },
+            attachments: true,
+          },
+        },
         _count: { select: { messages: true } },
       },
     });
@@ -267,7 +276,7 @@ export class ConversationService {
         messageCount: enq._count.messages,
         createdAt: enq.createdAt,
         lastActivityAt: enq.lastActivityAt,
-        messages: [],
+        messages: enq.messages,
       })),
     };
   }

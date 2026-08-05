@@ -45,6 +45,12 @@
   pointer-events: none;
 }
 
+/* Inbox runs edge-to-edge with no top padding, so the corner glow above
+   lands directly on the sidebar/chat panel instead of behind empty space. */
+.dashboard-content:has(.inbox-shell)::before {
+  display: none;
+}
+
 .shell-panel {
   border: 1px solid hsl(var(--border) / 0.75);
   background: hsl(var(--card) / 0.72);

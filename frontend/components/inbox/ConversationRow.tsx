@@ -80,7 +80,7 @@ export function ConversationRow({
           }`}
           title={conversation.lastMessageChannel}
         >
-          {conversation.lastMessageChannel === 'WHATSAPP' ? 'W' : 'E'}
+        {conversation.lastMessageChannel === 'WHATSAPP' ? 'W' : 'E'}
         </span>
       </div>
 

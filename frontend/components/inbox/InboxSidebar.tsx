@@ -75,12 +75,13 @@ export function InboxSidebar({ conversations, activeChannel, isLoading = false }
       {/* Header & Title */}
       <div className="flex h-16 items-center justify-between px-4 border-b border-border/60">
         <div className="flex items-center gap-2.5">
-          <div
-            className={`flex h-8 w-8 items-center justify-center rounded-xl text-sm font-bold text-white shadow-sm ${
-              activeChannel === 'WHATSAPP' ? 'bg-emerald-500' : 'bg-blue-600'
-            }`}
-          >
-            {activeChannel === 'WHATSAPP' ? '💬' : '✉️'}
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={activeChannel === 'WHATSAPP' ? '/whatsapp.png' : '/gmail.png'}
+              alt={activeChannel === 'WHATSAPP' ? 'WhatsApp' : 'Email'}
+              className="h-5 w-5 object-contain"
+            />
           </div>
           <div>
             <h2 className="text-base font-bold tracking-tight text-foreground leading-none">

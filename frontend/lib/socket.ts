@@ -24,6 +24,9 @@ const globalForSocket = globalThis as unknown as { __ehSocket?: Socket };
 let socket: Socket | null = globalForSocket.__ehSocket ?? null;
 let connectionPromise: Promise<Socket> | null = null;
 
+// Tracks if socket has successfully connected at least once during app session
+let hasConnectedOnce = false;
+
 // Registry of active joined rooms with reference counting
 const roomRefs = new Map<string, number>();
 
@@ -69,10 +72,24 @@ async function fetchToken(): Promise<string> {
  * hasn't joined yet, causing replayed messages to be silently dropped!
  */
 export function handleSocketReconnect(sock: Socket): void {
-  // TODO: Emits room rejoins FIRST, then emits 'sync:since' with sequence cursors from Zustand store.
-  // Spec ref: Section 9 (Protocol steps 1-5) & Section 15 Edge case #10
-  // Watch out: Order is load-bearing! Re-join rooms BEFORE emitting sync:since.
-  throw new Error('not implemented');
+  console.log('🔄 [Socket] Reconnect recovery — re-joining', roomRefs.size, 'rooms');
+
+  // Step 1: Re-join all active rooms FIRST
+  for (const [room] of roomRefs) {
+    const [ns, id] = room.split(':');
+    if (ns === 'contact') {
+      sock.emit(SOCKET_EVENTS.CONTACT_JOIN, { contactId: id });
+    } else if (ns === 'chat') {
+      sock.emit(SOCKET_EVENTS.CHAT_JOIN, { conversationId: id });
+    }
+  }
+
+  // Step 2: Emit sync:since with last known sequence cursors from Zustand
+  const lastSeqByContact = useInboxStore.getState().lastSeqByContact;
+  if (Object.keys(lastSeqByContact).length > 0) {
+    sock.emit('sync:since', { cursors: lastSeqByContact });
+    console.log('🔄 [Socket] Emitted sync:since with cursors:', lastSeqByContact);
+  }
 }
 
 /**
@@ -93,8 +110,8 @@ async function createConnection(): Promise<Socket> {
       try {
         const freshToken = await fetchToken();
         cb({ token: freshToken });
-      } catch (err) {
-        console.error('Failed to fetch WS auth token:', err);
+      } catch (err: any) {
+        console.error('Failed to fetch WS auth token:', err?.message || err);
         cb({ token: '' });
       }
     },
@@ -109,13 +126,12 @@ async function createConnection(): Promise<Socket> {
   sock.on('connect', () => {
     console.log('🔌 WebSocket connected:', sock.id);
     useInboxStore.getState().setConnectionStatus('connected');
-    
-    // Re-join active room references on reconnect
-    for (const [room] of roomRefs) {
-      const [ns, id] = room.split(':');
-      if (ns === 'contact') sock.emit(SOCKET_EVENTS.CONTACT_JOIN, { contactId: id });
-      else if (ns === 'chat') sock.emit(SOCKET_EVENTS.CHAT_JOIN, { conversationId: id });
+
+    if (hasConnectedOnce) {
+      // Reconnection path: Re-joins active rooms + emits sync:since cursors
+      handleSocketReconnect(sock);
     }
+    hasConnectedOnce = true;
   });
 
   // Reconnect attempt events live on sock.io (Manager), NOT sock!
@@ -142,15 +158,17 @@ async function createConnection(): Promise<Socket> {
     handleAuthFailure(data.message);
   });
 
-  socket = sock;
-  if (process.env.NODE_ENV !== 'production') {
-    globalForSocket.__ehSocket = sock;
-  }
-
   return new Promise((resolve, reject) => {
-    sock.once('connect', () => resolve(sock));
+    sock.once('connect', () => {
+      socket = sock;
+      if (process.env.NODE_ENV !== 'production') {
+        globalForSocket.__ehSocket = sock;
+      }
+      resolve(sock);
+    });
     sock.once('connect_error', (err) => {
       console.error('🔌 WebSocket initial connection failed:', err.message);
+      sock.close();
       reject(err);
     });
   });
@@ -189,8 +207,11 @@ export async function joinContactRoom(contactId: string): Promise<void> {
 export async function leaveContactRoom(contactId: string): Promise<void> {
   const key = `contact:${contactId}`;
   const isLast = releaseRoom(key);
-  if (isLast && socket?.connected) {
-    socket.emit(SOCKET_EVENTS.CONTACT_LEAVE, { contactId });
+  if (isLast) {
+    const sock = await getSocket();
+    if (sock.connected) {
+      sock.emit(SOCKET_EVENTS.CONTACT_LEAVE, { contactId });
+    }
   }
 }
 
@@ -212,8 +233,11 @@ export async function joinChatRoom(conversationId: string): Promise<void> {
 export async function leaveChatRoom(conversationId: string): Promise<void> {
   const key = `chat:${conversationId}`;
   const isLast = releaseRoom(key);
-  if (isLast && socket?.connected) {
-    socket.emit(SOCKET_EVENTS.CHAT_LEAVE, { conversationId });
+  if (isLast) {
+    const sock = await getSocket();
+    if (sock.connected) {
+      sock.emit(SOCKET_EVENTS.CHAT_LEAVE, { conversationId });
+    }
   }
 }
 
@@ -222,6 +246,7 @@ export async function leaveChatRoom(conversationId: string): Promise<void> {
  */
 export function disconnectSocket(): void {
   roomRefs.clear();
+  hasConnectedOnce = false;
   if (socket) {
     socket.disconnect();
     socket = null;

@@ -55,3 +55,41 @@ export function bumpConversation(
     queryClient.setQueryData<Conversation[]>(key, nextList);
   });
 }
+
+/**
+ * Upserts a live socket message directly into the contact's infinite query message thread cache.
+ */
+export function upsertMessage(
+  queryClient: QueryClient,
+  contactId: string,
+  incoming: Message
+): void {
+  const key = qk.messages(contactId);
+
+  queryClient.setQueryData<InfiniteMessagesData>(key, (old) => {
+    if (!old || !old.pages || old.pages.length === 0) return old;
+
+    const pages = [...old.pages];
+    const head = [...pages[0]];
+
+    // 1. Optimistic reconciliation (replace temp clientMessageId if exists)
+    if (incoming.clientMessageId) {
+      const matchIdx = head.findIndex((m) => m.clientMessageId === incoming.clientMessageId);
+      if (matchIdx !== -1) {
+        head[matchIdx] = incoming;
+        pages[0] = head;
+        return { ...old, pages };
+      }
+    }
+
+    // 2. Dedupe by server id (reconnect replay guard)
+    if (head.some((m) => m.id === incoming.id)) {
+      return old;
+    }
+
+    // 3. Append to head page
+    head.unshift(incoming);
+    pages[0] = head;
+    return { ...old, pages };
+  });
+}

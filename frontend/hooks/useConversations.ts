@@ -74,8 +74,13 @@ export function useMessages(contactId: string | null) {
     queryFn: async ({ pageParam }) => {
       if (!contactId) return [];
       const threadData = await getConversationThread(contactId);
+      console.log("came inside the use message ")
       const rawMessages = threadData?.enquiries?.flatMap((e) => e.messages) || [];
-      return rawMessages.map(parseSocketMessage).filter(Boolean) as Message[];
+      console.log("rawMessages", threadData)
+      const final = rawMessages.map(parseSocketMessage).filter(Boolean) as Message[];
+      console.log("final data is ", final )
+      return final
+
     },
     getNextPageParam: (lastPage) => {
       if (!lastPage || lastPage.length === 0) return null;
