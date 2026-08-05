@@ -215,8 +215,8 @@ export function SidebarClient({ children }: SidebarClientProps) {
                     </div>
 
                     <div className="z-10 flex items-center gap-1">
-                        {/* Unread badge — shown for the Messages nav item when there are unread conversations */}
-                        {item.href === '/messaging' && totalUnread > 0 ? (
+                        {/* Unread badge — shown for the Inbox nav item when there are unread conversations */}
+                        {item.href === '/inbox' && totalUnread > 0 ? (
                             <span className="nav-unread-badge">{totalUnread > 99 ? '99+' : totalUnread}</span>
                         ) : null}
                         {/* Unread badge — Team Chat */}
@@ -372,32 +372,6 @@ export function SidebarClient({ children }: SidebarClientProps) {
                     className="dashboard-topbar sticky top-0 z-30 border-b border-border/70 px-4 md:px-8"
                     style={{ position: 'relative' }}
                 >
-                    {/* Topbar short arrow button perfectly centered on the bottom border line */}
-                    <button
-                        onClick={toggleTopbarLock}
-                        className="topbar-arrow-btn flex h-[22px] w-[40px] items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                        style={{
-                            position: 'absolute',
-                            bottom: '-11px', // Vertically centers the 22px high button on the bottom border
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            zIndex: 1000,
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                            cursor: 'pointer',
-                            padding: 0
-                        }}
-                        title={topbarLocked ? 'Collapse header' : 'Lock header'}
-                    >
-                        {topbarLocked ? (
-                            <svg className="h-3 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 15l8-6 8 6" />
-                            </svg>
-                        ) : (
-                            <svg className="h-3 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 9l8 6 8-6" />
-                            </svg>
-                        )}
-                    </button>
                     <div className="flex h-20 items-center gap-4 relative">
                         <button
                             className="rounded-2xl border border-border/70 bg-card/70 p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
@@ -465,12 +439,18 @@ export function SidebarClient({ children }: SidebarClientProps) {
                     </div>
                 </header>
 
-                <main className="dashboard-content flex-1 overflow-y-auto">
-                    <div className="relative p-4 md:p-8">
-                        <div className="mx-auto max-w-7xl">
+                <main className="dashboard-content flex-1 overflow-hidden">
+                    {pathname.startsWith('/inbox') ? (
+                        <div className="h-full w-full">
                             {children}
                         </div>
-                    </div>
+                    ) : (
+                        <div className="relative p-4 md:p-8">
+                            <div className="mx-auto max-w-7xl">
+                                {children}
+                            </div>
+                        </div>
+                    )}
                 </main>
             </div>
 

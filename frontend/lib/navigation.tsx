@@ -59,8 +59,8 @@ export const NAV_ITEMS: NavItem[] = [
         permission: { action: 'read', subject: 'contact' },
     },
     {
-        href: '/messaging',
-        label: 'Messages',
+        href: '/inbox',
+        label: 'Inbox',
         section: 'platform',
         icon: icon(
             <>
@@ -68,6 +68,10 @@ export const NAV_ITEMS: NavItem[] = [
             </>,
         ),
         permission: { action: 'read', subject: 'enquiry' },
+        children: [
+            { href: '/inbox/whatsapp', label: 'WhatsApp', permission: { action: 'read', subject: 'enquiry' } },
+            { href: '/inbox/email', label: 'Email', permission: { action: 'read', subject: 'enquiry' } },
+        ],
     },
     {
         href: '/chat',

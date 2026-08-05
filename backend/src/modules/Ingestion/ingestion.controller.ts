@@ -1,9 +1,11 @@
 import { Controller, Post, Body, Headers , UseGuards , UseInterceptors , HttpCode , HttpStatus  } from '@nestjs/common';
+import { Public } from 'src/common/decorator/public.decorator';
 import { IngestionService } from "./ingestion.service";
 import { IngestMessageDto ,  validateIngestMessageDto } from './dto/incoming-message.dto';
 import { IdempotencyGuard } from 'src/common/Idempotency/idempotency.guard';
 import { IdempotencyInterceptor } from 'src/common/interceptors/idempotency.interceptor';
 
+@Public()
 @Controller('ingestion')
 export class IngestionController {
   constructor(private ingestionService: IngestionService) {}

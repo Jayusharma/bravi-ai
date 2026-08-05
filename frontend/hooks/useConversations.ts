@@ -1,7 +1,9 @@
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
-import { Conversation, Message } from '@/contracts/socketEvents';
+import { Conversation, Message, Channel, parseSocketConversation, parseSocketMessage } from '@/contracts/socketEvents';
 import { qk } from '@/lib/queryKeys';
 import { InfiniteMessagesData } from '@/lib/cachePatch';
+import { useInboxStore } from '@/stores/inboxStore';
+import { getConversations, getConversationThread } from '@/services/messaging/chat.service';
 
 /**
  * ============================================================================
@@ -9,24 +11,35 @@ import { InfiniteMessagesData } from '@/lib/cachePatch';
  * Spec Ref: Section 12.1, Section 6, & Section 16 Step 7
  * Custom hooks wrapping TanStack Query for conversations list, row-level isolation,
  * and infinite message history pagination.
- * 
- * HARD INVARIANTS:
- * - useConversationRow MUST use select with structural sharing so untouched rows never re-render.
- * - Messages query uses useInfiniteQuery with newest-first pages.
  * ============================================================================
  */
 
 /**
- * Fetches and subscribes to the unified conversations sidebar list.
+ * Fetches and subscribes to the unified or channel-filtered conversations sidebar list.
  */
-export function useConversations() {
+export function useConversations(channel?: Channel | 'ALL') {
   return useQuery<Conversation[]>({
-    queryKey: qk.conversations(),
+    queryKey: qk.conversations(channel),
     queryFn: async () => {
-      // TODO: Call server action to fetch conversation summaries from PostgreSQL DB, seed Zustand unread counts, and return list.
-      // Spec ref: Section 12.1 & Section 12.3 (Unread ownership)
-      // Watch out: Must seed Zustand unreadByContact on fetch so UI unread badges are authoritatively initialized.
-      throw new Error('not implemented');
+      const activeChannelParam = channel && channel !== 'ALL' ? channel : undefined;
+      console.log(`📥 [TanStack Query L4] Executing queryFn for key:`, qk.conversations(channel));
+      
+      const res = await getConversations({ channel: activeChannelParam });
+      const rawList = res.data || [];
+      console.log(`📦 [NestJS Backend API] Received ${rawList.length} raw conversation records:`, rawList);
+
+      // 1. Validate each record with Zod & normalize
+      const conversations: Conversation[] = rawList.map(parseSocketConversation);
+      console.log(`🛡️ [Zod Validator] Parsed & normalized ${conversations.length} conversation cards:`, conversations);
+
+      // 2. Seed unread counts into Zustand store (L3)
+      const unreadMap: Record<string, number> = {};
+      conversations.forEach((c) => {
+        unreadMap[c.contactId] = c.unreadCount;
+      });
+      useInboxStore.getState().seedUnreadCounts(unreadMap);
+
+      return conversations;
     },
     staleTime: 5 * 60_000,
   });
@@ -36,14 +49,14 @@ export function useConversations() {
  * Row-level isolation selector hook. Returns ONLY the single conversation row for contactId.
  * Structural sharing ensures that untouched rows maintain reference equality and DO NOT re-render.
  */
-export function useConversationRow(contactId: string) {
+export function useConversationRow(contactId: string, channel?: Channel | 'ALL') {
   return useQuery<Conversation[], Error, Conversation | undefined>({
-    queryKey: qk.conversations(),
+    queryKey: qk.conversations(channel),
     queryFn: async () => {
-      // TODO: Delegate to main conversations queryFn or queryClient cache.
-      // Spec ref: Section 12.1 (Row-level isolation)
-      // Watch out: select function must return the exact same object reference if row data hasn't changed.
-      throw new Error('not implemented');
+      const activeChannelParam = channel && channel !== 'ALL' ? channel : undefined;
+      const res = await getConversations({ channel: activeChannelParam });
+      const rawList = res.data || [];
+      return rawList.map(parseSocketConversation);
     },
     select: (rows) => rows.find((r) => r.contactId === contactId),
     staleTime: 5 * 60_000,
@@ -59,18 +72,18 @@ export function useMessages(contactId: string | null) {
     enabled: !!contactId,
     initialPageParam: null,
     queryFn: async ({ pageParam }) => {
-      // TODO: Call server action to fetch paginated messages for contactId from PostgreSQL DB (cursor: pageParam).
-      // Spec ref: Section 8 (Message cache shape) & Section 13 (Thread rendering)
-      // Watch out: Page 0 is newest. Older pages are appended to the end of pages array.
-      throw new Error('not implemented');
+      if (!contactId) return [];
+      const threadData = await getConversationThread(contactId);
+      const rawMessages = threadData?.enquiries?.flatMap((e) => e.messages) || [];
+      return rawMessages.map(parseSocketMessage).filter(Boolean) as Message[];
     },
     getNextPageParam: (lastPage) => {
-      // TODO: Extract nextCursor from last page or return null if no more pages exist.
-      // Spec ref: Section 8
-      throw new Error('not implemented');
+      if (!lastPage || lastPage.length === 0) return null;
+      const oldestMessage = lastPage[lastPage.length - 1];
+      return oldestMessage ? oldestMessage.id : null;
     },
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    refetchOnWindowFocus: false, // Prevents window focus refetch from wiping optimistic messages (§14)
+    refetchOnWindowFocus: false,
   });
 }

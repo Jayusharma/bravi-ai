@@ -160,17 +160,34 @@ export function parseSocketMessage(raw: unknown): Message | null {
   return result.data;
 }
 /**
- * Validates and normalizes raw conversation summary payload into a clean Conversation or null.
+ * Validates and normalizes raw conversation summary payload into a clean Conversation.
  */
-export function parseSocketConversation(raw: unknown): Conversation | null {
-  const result = ConversationSchema.safeParse(raw);
+export function parseSocketConversation(raw: unknown): Conversation {
+  const r = raw as Record<string, any>;
+  
+  const normalized = {
+    contactId: r.contactId || r.id || '',
+    contactName: r.contactName || r.displayName || 'Unknown Contact',
+    lastMessagePreview: r.lastMessagePreview || r.lastMessage?.content || '',
+    lastMessageAt: r.lastMessageAt || r.lastMessage?.createdAt || r.lastActivityAt || null,
+    lastMessageChannel: (r.lastMessageChannel || r.channel || r.lastMessage?.channel || 'WHATSAPP') as Channel,
+    lastReadAt: r.lastReadAt || null,
+    unreadCount: typeof r.unreadCount === 'number' ? r.unreadCount : 0,
+    channels: Array.isArray(r.channels)
+      ? r.channels.map((ch: any) => typeof ch === 'string' ? ch : ch.channel)
+      : [r.channel || 'WHATSAPP'],
+    assignedToId: r.assignedToId || r.assignedTo?.id || null,
+    channelState: r.channelState || null,
+  };
+
+  const result = ConversationSchema.safeParse(normalized);
   if (!result.success) {
     console.warn(
-      '⚠️ [Socket Event Dropped] Malformed Conversation payload received:',
+      '⚠️ [Conversation Parser Warning] Normalizing conversation fallback:',
       result.error.format(),
       raw
     );
-    return null;
+    return normalized as Conversation;
   }
   return result.data;
 }

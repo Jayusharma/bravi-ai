@@ -14,8 +14,11 @@ import { Channel } from '@/contracts/socketEvents';
  */
 
 export const qk = {
-  /** Unified conversations sidebar list */
-  conversations: () => ['conversations'] as const,
+  /** Unified or channel-filtered conversations sidebar list */
+  conversations: (channel?: Channel | 'ALL') =>
+    channel && channel !== 'ALL'
+      ? (['conversations', channel] as const)
+      : (['conversations'] as const),
 
   /** Messages infinite query thread for a specific contact */
   messages: (contactId: string) => ['messages', contactId] as const,

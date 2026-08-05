@@ -39,9 +39,8 @@ export interface OutboxEntry {
 }
 
 export interface InboxStoreState {
-  // Navigation & View Filtering
+  // Navigation
   activeContactId: string | null;
-  channelFilter: Channel | 'ALL';
 
   // Network & Sequence Cursors
   connectionStatus: 'connected' | 'reconnecting' | 'offline';
@@ -63,7 +62,6 @@ export interface InboxStoreState {
 
   // Actions
   setActiveContactId: (id: string | null) => void;
-  setChannelFilter: (filter: Channel | 'ALL') => void;
   setConnectionStatus: (status: 'connected' | 'reconnecting' | 'offline') => void;
   updateLastSeq: (contactId: string, seq: number) => void;
 
@@ -85,7 +83,6 @@ export interface InboxStoreState {
 
 export const useInboxStore = create<InboxStoreState>((set, get) => ({
   activeContactId: null,
-  channelFilter: 'ALL',
 
   connectionStatus: 'connected',
   lastSeqByContact: {},
@@ -100,9 +97,8 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
 
   draftByContact: {},
 
-  // Navigation & Filtering
+  // Navigation
   setActiveContactId: (id) => set({ activeContactId: id }),
-  setChannelFilter: (filter) => set({ channelFilter: filter }),
 
   // Network & Cursors
   setConnectionStatus: (status) => set({ connectionStatus: status }),
@@ -120,6 +116,7 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       const current = state.unreadByContact[contactId] || 0;
       const nextMap = { ...state.unreadByContact, [contactId]: current + 1 };
       const nextTotal = Object.values(nextMap).reduce((sum, n) => sum + n, 0);
+      console.log(`🧠 [Zustand L3] incrementUnread('${contactId}') -> count: ${current + 1}, totalUnread: ${nextTotal}`);
       return { unreadByContact: nextMap, totalUnread: nextTotal };
     }),
 
@@ -129,12 +126,14 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
       const nextMap = { ...state.unreadByContact };
       delete nextMap[contactId];
       const nextTotal = Object.values(nextMap).reduce((sum, n) => sum + n, 0);
+      console.log(`🧠 [Zustand L3] clearUnread('${contactId}') -> cleared badge, totalUnread: ${nextTotal}`);
       return { unreadByContact: nextMap, totalUnread: nextTotal };
     }),
 
   seedUnreadCounts: (counts) =>
     set(() => {
       const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+      console.log(`🧠 [Zustand L3] seedUnreadCounts() -> seeded counts:`, counts, `totalUnread: ${total}`);
       return { unreadByContact: counts, totalUnread: total };
     }),
 
