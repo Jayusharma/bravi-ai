@@ -197,6 +197,38 @@ export class ContactService {
     };
   }
 
+  // Real dashboard metrics for the contacts list header — no fabricated numbers
+  async getStats() {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+    const [total, thisMonthCount, lastMonthCount, engaged, unassigned] = await Promise.all([
+      this.prisma.contact.count(),
+      this.prisma.contact.count({ where: { createdAt: { gte: startOfMonth } } }),
+      this.prisma.contact.count({
+        where: { createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } },
+      }),
+      this.prisma.contact.count({
+        where: { enquiries: { some: { status: { notIn: ['CONVERTED', 'CLOSED_LOST'] } } } },
+      }),
+      this.prisma.contact.count({
+        where: {
+          enquiries: {
+            some: { assignedToId: null, status: { notIn: ['CONVERTED', 'CLOSED_LOST'] } },
+          },
+        },
+      }),
+    ]);
+
+    const newThisMonthTrend = lastMonthCount > 0
+      ? Math.round(((thisMonthCount - lastMonthCount) / lastMonthCount) * 100)
+      : thisMonthCount > 0 ? 100 : 0;
+
+    return { total, newThisMonth: thisMonthCount, engaged, unassigned, newThisMonthTrend };
+  }
+
   // Retrieves details of a contact by ID, including channels and active enquiry status
   async findById(id: string) {
     const contact = await this.prisma.contact.findUnique({

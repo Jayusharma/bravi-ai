@@ -448,7 +448,7 @@ export function SidebarClient({ children }: SidebarClientProps) {
                     </div>
                 </header>
 
-                <main className="dashboard-content flex-1 overflow-hidden">
+                <main className={`dashboard-content flex-1 ${pathname.startsWith('/inbox') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'}`}>
                     {pathname.startsWith('/inbox') ? (
                         <div className="h-full w-full">
                             {children}

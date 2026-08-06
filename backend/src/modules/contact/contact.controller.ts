@@ -44,6 +44,14 @@ export class ContactController {
         return this.contactService.createContact(dto);
     }
 
+    // Real header metrics for the contacts list — must be declared before ':id' below,
+    // otherwise NestJS matches 'stats' as an :id param
+    @Get('stats')
+    @CheckAbility({ action: 'read', subject: 'contact' })
+    getStats() {
+        return this.contactService.getStats();
+    }
+
     // Get a single contact with channel and active enquiry details
     @Get(':id')
     @CheckAbility({ action: 'read', subject: 'contact' })

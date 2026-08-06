@@ -12,16 +12,21 @@ import {
   getContactEnquiries,
   type ContactDetail,
   type ContactChannel,
+  type ContactListItem,
+  type ContactEnquiry,
 } from '@/services/contact';
 import { useToast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
+import { Avatar } from '@/components/ui/Avatar';
 import styles from '@/styles/contacts.module.css';
 
 interface ContactDetailPanelProps {
   contactId: string | null;
+  /** The already-known row from the list, rendered immediately while the full fetch resolves in the background. */
+  initialData?: ContactListItem | null;
   isOpen: boolean;
   onClose: () => void;
   onUpdate: () => void;
@@ -44,6 +49,7 @@ const CHANNEL_ICONS: Record<string, string> = {
 
 export function ContactDetailPanel({
   contactId,
+  initialData,
   isOpen,
   onClose,
   onUpdate,
@@ -65,43 +71,62 @@ export function ContactDetailPanel({
   const [addingChannel, setAddingChannel] = useState(false);
 
   // Enquiries list
-  const [enquiries, setEnquiries] = useState<any[]>([]);
+  const [enquiries, setEnquiries] = useState<ContactEnquiry[]>([]);
   const [loadingEnquiries, setLoadingEnquiries] = useState(false);
 
   // Deletion confirm
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Fetch the full details when panel is open and contact ID is supplied
-  const fetchDetails = async () => {
+  // Fetches the full profile. When `showLoading` is false (we already have the row's data
+  // from the list), this refreshes silently in the background instead of blanking the panel.
+  const fetchDetails = async (showLoading: boolean) => {
     if (!contactId) return;
+    if (showLoading) setLoading(true);
     try {
-      setLoading(true);
       const res = await getContactDetails(contactId);
       setContact(res);
       setDisplayName(res.displayName);
       setOrganization(res.organization || '');
       setNotes(res.notes || '');
+    } catch (err: any) {
+      toast.error('Error Loading Contact', err.message || 'Something went wrong.');
+      if (showLoading) onClose();
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
 
-      // Load enquiries
+  // Independent lifecycle from the profile fetch — its own loading state, its own failure mode
+  const fetchEnquiries = async () => {
+    if (!contactId) return;
+    try {
       setLoadingEnquiries(true);
       const data = await getContactEnquiries(contactId);
       setEnquiries(Array.isArray(data) ? data : []);
-    } catch (err: any) {
-      toast.error('Error Loading Contact', err.message || 'Something went wrong.');
-      onClose();
+    } catch (err) {
+      console.error('Failed to load contact enquiries:', err);
     } finally {
-      setLoading(false);
       setLoadingEnquiries(false);
     }
   };
 
   useEffect(() => {
     if (isOpen && contactId) {
-      fetchDetails();
+      const hasInitialData = !!initialData && initialData.id === contactId;
+      if (hasInitialData) {
+        setContact(initialData!);
+        setDisplayName(initialData!.displayName);
+        setOrganization(initialData!.organization || '');
+        setNotes(initialData!.notes || '');
+      }
+      fetchDetails(!hasInitialData);
+      fetchEnquiries();
       setConfirmDelete(false);
     } else {
       setContact(null);
+      setEnquiries([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, contactId]);
 
   if (!isOpen || !contact) return null;
@@ -143,7 +168,7 @@ export function ContactDetailPanel({
       });
       toast.success('Channel Added', 'New channel added successfully.');
       setNewIdentifier('');
-      fetchDetails();
+      fetchDetails(false);
       onUpdate();
     } catch (err: any) {
       toast.error('Error Adding Channel', err.message || 'Failed to add channel.');
@@ -157,7 +182,7 @@ export function ContactDetailPanel({
     try {
       await deleteContactChannel(contact.id, channelId);
       toast.success('Channel Removed', 'Channel deleted successfully.');
-      fetchDetails();
+      fetchDetails(false);
       onUpdate();
     } catch (err: any) {
       toast.error('Error Deleting Channel', err.message || 'Failed to delete channel.');
@@ -169,7 +194,7 @@ export function ContactDetailPanel({
     try {
       await setContactChannelPrimary(contact.id, channelId);
       toast.success('Primary Set', 'Primary contact channel updated.');
-      fetchDetails();
+      fetchDetails(false);
       onUpdate();
     } catch (err: any) {
       toast.error('Error Setting Primary', err.message || 'Failed to update primary channel.');
@@ -199,7 +224,7 @@ export function ContactDetailPanel({
           <h2 className="text-lg font-bold tracking-tight">Contact Profile</h2>
           <button
             onClick={onClose}
-            className="rounded-xl border border-border bg-card p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="rounded-md border border-border bg-card p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -216,9 +241,7 @@ export function ContactDetailPanel({
             <>
               {/* Profile Card */}
               <div className={styles.profileCard}>
-                <div className={styles.profileAvatar}>
-                  {displayName.charAt(0).toUpperCase()}
-                </div>
+                <Avatar fallback={displayName || 'Unknown'} size="lg" />
                 <div className={styles.profileMeta}>
                   <h3 className="text-foreground">{displayName || 'Unknown Name'}</h3>
                   <p>{organization || 'No Organization'}</p>
@@ -395,7 +418,7 @@ export function ContactDetailPanel({
                     </span>
                   )}
                   {confirmDelete ? (
-                    <div className="flex flex-col gap-2 p-3 bg-destructive/10 rounded-2xl border border-destructive/20 animate-fade-in">
+                    <div className="flex flex-col gap-2 p-3 bg-destructive/10 rounded-lg border border-destructive/20 animate-fade-in">
                       <p className="text-xs font-semibold text-destructive">
                         Are you sure? This will delete the contact and all associated closed enquiries.
                       </p>

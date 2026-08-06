@@ -29,6 +29,7 @@ export const API = {
     // ── Contact ──
     CONTACT: {
         LIST: '/contact',
+        STATS: '/contact/stats',
         CREATE: '/contact',
         DETAIL: (id: string) => `/contact/${id}`,
         UPDATE: (id: string) => `/contact/${id}`,

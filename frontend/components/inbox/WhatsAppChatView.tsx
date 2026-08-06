@@ -3,14 +3,8 @@
 import React, { useState } from 'react';
 import { Avatar } from '@/components/ui/Avatar';
 import { useMessages } from '@/hooks/useConversations';
-
-/**
- * ============================================================================
- * WHATSAPP CHAT VIEW COMPONENT
- * Matches Image 1 WhatsApp Enterprise CRM Mockup design pixel-for-pixel.
- * Connected directly to useMessages(contactId) hook for live DB history.
- * ============================================================================
- */
+import { useContactRoom } from '@/lib/socket';
+import { Message } from '@/contracts/socketEvents';
 
 export interface WhatsAppChatViewProps {
   contactId?: string | null;
@@ -18,6 +12,9 @@ export interface WhatsAppChatViewProps {
 
 export function WhatsAppChatView({ contactId }: WhatsAppChatViewProps) {
   const [messageText, setMessageText] = useState('');
+
+  // ⚡ JOIN WEBSOCKET ROOM FOR THIS CONTACT (Subscribes client to live events)
+  useContactRoom(contactId || null);
 
   // ⚡ 1. FETCH MESSAGES FROM BACKEND VIA TANSTACK QUERY
   const { data, isLoading, isError } = useMessages(contactId || null);
@@ -102,7 +99,7 @@ export function WhatsAppChatView({ contactId }: WhatsAppChatViewProps) {
           </div>
         ) : (
           /* ⚡ 3. MAP OVER REAL MESSAGES FROM DATABASE */
-          messages.map((msg) => {
+          messages.map((msg: Message) => {
             const isInbound = msg.direction === 'INBOUND';
             return (
               <div

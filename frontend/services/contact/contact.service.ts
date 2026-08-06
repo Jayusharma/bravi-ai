@@ -39,8 +39,27 @@ export interface ContactListResponse {
   };
 }
 
-export interface ContactDetail extends ContactListItem {
-  hasActiveEnquiry: boolean;
+export interface ContactDetail extends ContactListItem {}
+
+export interface ContactStats {
+  total: number;
+  newThisMonth: number;
+  engaged: number;
+  unassigned: number;
+  newThisMonthTrend: number;
+}
+
+export interface ContactEnquiry {
+  id: string;
+  status: string;
+  intent: string | null;
+  priority: number | null;
+  urgency: number | null;
+}
+
+// Fetches real header metrics for the contacts list (no client-side fabrication)
+export async function getContactStats(): Promise<ContactStats> {
+  return apiClient<ContactStats>(API.CONTACT.STATS);
 }
 
 // Fetches a paginated list of contacts with optional search query
@@ -133,8 +152,8 @@ export async function setContactChannelPrimary(id: string, channelId: string): P
 }
 
 // Fetches all enquiries associated with a contact
-export async function getContactEnquiries(contactId: string): Promise<any[]> {
-  return apiClient<any[]>(API.CONTACT.ENQUIRIES(contactId));
+export async function getContactEnquiries(contactId: string): Promise<ContactEnquiry[]> {
+  return apiClient<ContactEnquiry[]>(API.CONTACT.ENQUIRIES(contactId));
 }
 
 // Deletes multiple contacts in a bulk operation

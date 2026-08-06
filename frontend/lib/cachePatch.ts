@@ -1,14 +1,9 @@
-import { QueryClient } from '@tanstack/react-query';
-import { Message, Conversation } from '@/contracts/socketEvents';
-import { qk } from './queryKeys';
+// lib/cachePatch.ts
 
-/**
- * ============================================================================
- * STEP 6: CONVERSATION SIDEBAR CACHE PATCH HELPERS (Layer 4)
- * Spec Ref: Section 12.2 (Bump-to-top)
- * Contains ONLY the sidebar conversation card update & re-ordering helper.
- * ============================================================================
- */
+import { QueryClient } from '@tanstack/react-query';
+import { Conversation, Message, Channel, ConversationUpdatedPayload, parseSocketConversation , ConversationNewPayload ,conversationFromNewPayload  } from '@/contracts/socketEvents';
+import { qk } from './queryKeys';
+import { useInboxStore } from '@/stores/inboxStore';
 
 export interface InfiniteMessagesData {
   pages: Message[][];
@@ -16,80 +11,99 @@ export interface InfiniteMessagesData {
 }
 
 /**
- * Bumps or inserts a conversation card in the sidebar conversations list query cache.
- * When a new message arrives, moves the conversation card to position 0 (top of list).
+ * ============================================================================
+ * CACHE PATCH HELPERS — ordered by build sequence, same convention as the
+ * schema file. 🟢 = live and wired. 🔵 = stub, not called by anything yet.
+ * ============================================================================
  */
-export function bumpConversation(
+
+
+// ============================================================================
+// 🟢 LIVE — sidebar bump + unread on CONVERSATION_UPDATED
+// Assumes backend now sends `lastMessageChannel` on this payload (the change
+// we just agreed on). Do not wire this in until that field is actually there
+// — otherwise `payload.lastMessageChannel` is undefined and qk.conversations()
+// gets called with an invalid key.
+// ============================================================================
+
+export function applyConversationUpdate(
   queryClient: QueryClient,
-  msg: Message
+  payload: ConversationUpdatedPayload
 ): void {
-  const channels = ['ALL', 'WHATSAPP', 'EMAIL'] as const;
+  const key = qk.conversations(payload.lastMessageChannel);
+  const oldList = queryClient.getQueryData<Conversation[]>(key);
+  if (!oldList) return; // this channel's sidebar was never fetched this session — nothing to patch
 
-  channels.forEach((ch) => {
-    const key = qk.conversations(ch);
-    const oldList = queryClient.getQueryData<Conversation[]>(key);
-    if (!oldList) return;
+  const idx = oldList.findIndex((c) => c.contactId === payload.contactId);
+  if (idx === -1) return; // contact not in this cached list
 
-    const idx = oldList.findIndex((c) => c.contactId === msg.contactId);
+  const updated: Conversation = {
+    ...oldList[idx],
+    lastMessagePreview: payload.lastMessagePreview,
+    lastMessageAt: payload.lastActivityAt,
+  };
 
-    // If brand-new contact identity not in cache, invalidate list to force fresh fetch
-    if (idx === -1) {
-      queryClient.invalidateQueries({ queryKey: key });
-      return;
-    }
+  queryClient.setQueryData<Conversation[]>(key, [
+    updated,
+    ...oldList.filter((c) => c.contactId !== payload.contactId),
+  ]);
 
-    const nextList = [...oldList];
-    const target = nextList[idx];
+  const { activeContactId, incrementUnread } = useInboxStore.getState();
+  const isViewing = activeContactId === payload.contactId && document.visibilityState === 'visible';
 
-    const updatedRow: Conversation = {
-      ...target,
-      lastMessagePreview: msg.body || (msg.channelMeta?.subject as string) || 'Attachment',
-      lastMessageAt: msg.createdAt,
-      lastMessageChannel: msg.channel,
-    };
-
-    // Move updated conversation card to TOP of list (Bump-to-top)
-    nextList.splice(idx, 1);
-    nextList.unshift(updatedRow);
-
-    queryClient.setQueryData<Conversation[]>(key, nextList);
-  });
+  if (!isViewing && payload.unreadDelta > 0) {
+    incrementUnread(payload.contactId, payload.unreadDelta);
+  }
 }
 
-/**
- * Upserts a live socket message directly into the contact's infinite query message thread cache.
- */
+
+// ============================================================================
+// CONVERSATION_NEW (brand-new contact card inserted into sidebar)
+// ============================================================================
+
+export function insertNewConversation(
+  queryClient: QueryClient,
+  payload: ConversationNewPayload
+): void {
+  const key = qk.conversations(payload.channel || 'WHATSAPP');
+  const oldList = queryClient.getQueryData<Conversation[]>(key);
+  if (!oldList) return; // this channel's sidebar was never fetched this session
+
+  if (oldList.some((c) => c.contactId === payload.contactId)) return; // already present, don't duplicate
+
+  const newRow = conversationFromNewPayload(payload);
+  queryClient.setQueryData<Conversation[]>(key, [newRow, ...oldList]);
+
+  const { activeContactId, incrementUnread } = useInboxStore.getState();
+  const isViewing = activeContactId === payload.contactId && document.visibilityState === 'visible';
+
+  if (!isViewing) {
+    incrementUnread(payload.contactId, 1);
+  }
+}
+
+
+// ============================================================================
+// 🔵 STUB — MESSAGE_NEW → upsert into an open thread's message cache
+// Needs useContactRoom actually mounted in ChatView first — this function is
+// meaningless to build against until room-join exists, since MESSAGE_NEW
+// won't reach the client at all otherwise.
+// ============================================================================
+
 export function upsertMessage(
   queryClient: QueryClient,
   contactId: string,
   incoming: Message
 ): void {
-  const key = qk.messages(contactId);
-
-  queryClient.setQueryData<InfiniteMessagesData>(key, (old) => {
-    if (!old || !old.pages || old.pages.length === 0) return old;
-
-    const pages = [...old.pages];
-    const head = [...pages[0]];
-
-    // 1. Optimistic reconciliation (replace temp clientMessageId if exists)
-    if (incoming.clientMessageId) {
-      const matchIdx = head.findIndex((m) => m.clientMessageId === incoming.clientMessageId);
-      if (matchIdx !== -1) {
-        head[matchIdx] = incoming;
-        pages[0] = head;
-        return { ...old, pages };
-      }
-    }
-
-    // 2. Dedupe by server id (reconnect replay guard)
-    if (head.some((m) => m.id === incoming.id)) {
-      return old;
-    }
-
-    // 3. Append to head page
-    head.unshift(incoming);
-    pages[0] = head;
-    return { ...old, pages };
-  });
+  // TODO:
+  // 1. read the InfiniteMessagesData at qk.messages(contactId)
+  // 2. if no cache entry, return old (thread never opened, nothing to patch)
+  // 3. if incoming.clientMessageId matches an existing message in pages[0],
+  //    replace it (this is our own optimistic message being confirmed)
+  // 4. else if incoming.id already exists in pages[0], return old (dedup —
+  //    reconnect replay or duplicate delivery)
+  // 5. else unshift into pages[0]
+  // Watch out: sort pages[0] by seq (or createdAt, since seq isn't sent yet)
+  // after insert — socket delivery order isn't guaranteed.
+  throw new Error('not implemented');
 }

@@ -318,7 +318,7 @@ export class AppEventHandler {
           messages: {
             orderBy: { createdAt: 'desc' },
             take: 1,
-            select: { content: true, direction: true },
+            select: { content: true, direction: true, channel: true },
           },
         },
       });
@@ -328,6 +328,7 @@ export class AppEventHandler {
         enquiryId:          enquiry.id,
         contactId:          enquiry.contactId,
         lastMessagePreview: latest ? latest.content.substring(0, 80) : '',
+        lastMessageChannel: latest?.channel,
         lastActivityAt:     enquiry.lastActivityAt.toISOString(),
         status:             enquiry.status,
         unreadDelta,
@@ -356,9 +357,15 @@ export class AppEventHandler {
               },
             },
           },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { content: true },
+          },
         },
       });
       if (!enquiry) return;
+      const latestMsg = enquiry.messages[0]?.content ?? null;
       this.gateway.server.emit(SOCKET_EVENTS.CONVERSATION_NEW, {
         contactId:      enquiry.contact.id,
         contactName:    enquiry.contact.displayName,
@@ -368,8 +375,8 @@ export class AppEventHandler {
         enquiryId:      enquiry.id,
         enquiryStatus:  enquiry.status,
         assignedTo:     null,
-        messageCount:   0,
-        lastMessage:    null,
+        messageCount:   enquiry.messages.length,
+        lastMessage:    latestMsg,
         lastActivityAt: enquiry.lastActivityAt.toISOString(),
         draft:          null,
       });

@@ -1,21 +1,23 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { getContacts, deleteContact, deleteContactsBulk, type ContactListItem } from '@/services/contact';
+import {
+  getContacts,
+  getContactStats,
+  deleteContact,
+  deleteContactsBulk,
+  type ContactListItem,
+  type ContactStats,
+} from '@/services/contact';
 import { CreateContactModal } from '@/components/contacts/CreateContactModal';
 import { ContactDetailPanel } from '@/components/contacts/ContactDetailPanel';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Avatar } from '@/components/ui/Avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import styles from '@/styles/contacts.module.css';
-
-const CHANNEL_BADGES: Record<string, string> = {
-  WHATSAPP: '💬 WhatsApp',
-  EMAIL: '📧 Email',
-  SMS: '📱 SMS',
-};
 
 function renderChannelBadge(channel: string) {
   if (channel === 'WHATSAPP') {
@@ -59,6 +61,7 @@ export default function ContactsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   // Filters & Tabs state
   const [showFilters, setShowFilters] = useState(false);
@@ -75,14 +78,8 @@ export default function ContactsPage() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // Stats / Metrics mock data based on seeded counts
-  const [stats, setStats] = useState({
-    total: 0,
-    newThisMonth: 12,
-    engaged: 0,
-    unassigned: 8,
-    blocked: 0,
-  });
+  // Header metrics — fetched separately from GET /contact/stats, real backend counts only
+  const [stats, setStats] = useState<ContactStats | null>(null);
 
   // Close dropdown action menu if clicked outside
   useEffect(() => {
@@ -96,10 +93,15 @@ export default function ContactsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Guards against a slow, stale request clobbering a newer one's results
+  const requestSeqRef = useRef(0);
+
   // Fetch paginated contact list with applied filters
   const fetchContacts = async (currPage: number, currLimit: number, query: string, ch: string, st: string, tab: string) => {
+    const requestId = ++requestSeqRef.current;
     try {
       setLoading(true);
+      setLoadError(false);
       // Determine final status filter based on active subnav tab or dropdown filters
       let statusParam = st;
       if (tab !== 'ALL') {
@@ -114,26 +116,33 @@ export default function ContactsPage() {
         status: statusParam !== 'ALL' ? statusParam : undefined,
       });
 
+      if (requestId !== requestSeqRef.current) return; // a newer request already landed
+
       setContacts(res.data);
       setTotal(res.pagination.total);
       setTotalPages(res.pagination.totalPages);
-
-      // Compute statistics based on list metrics
-      const activeCount = res.data.filter(c => c.hasActiveEnquiry).length;
-      setStats({
-        total: res.pagination.total,
-        newThisMonth: Math.floor(res.pagination.total * 0.15) + 3,
-        engaged: Math.floor(res.pagination.total * 0.45) + 5,
-        unassigned: Math.floor(res.pagination.total * 0.1) + 2,
-        blocked: Math.floor(res.pagination.total * 0.05),
-      });
-
     } catch (err) {
+      if (requestId !== requestSeqRef.current) return;
       console.error('Failed to load contacts:', err);
+      setLoadError(true);
+      toast.error('Failed to Load Contacts', 'Check your connection and try again.');
     } finally {
-      setLoading(false);
+      if (requestId === requestSeqRef.current) setLoading(false);
     }
   };
+
+  // Fetch real header metrics — separate from the paginated list, refreshed after mutations
+  const fetchStats = async () => {
+    try {
+      setStats(await getContactStats());
+    } catch (err) {
+      console.error('Failed to load contact stats:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
 
   useEffect(() => {
     fetchContacts(page, limit, search, filterChannel, filterStatus, activeTab);
@@ -171,6 +180,7 @@ export default function ContactsPage() {
       await deleteContact(contactId);
       toast.success('Deleted', 'Contact deleted successfully.');
       fetchContacts(page, limit, search, filterChannel, filterStatus, activeTab);
+      fetchStats();
     } catch (err: any) {
       toast.error('Deletion Blocked', err.message || 'Active enquiry exists.');
     }
@@ -206,6 +216,7 @@ export default function ContactsPage() {
       setSelectedIds([]);
       setPage(1);
       fetchContacts(1, limit, search, filterChannel, filterStatus, activeTab);
+      fetchStats();
     } catch (err: any) {
       toast.error('Bulk Delete Error', err.message || 'Some contacts have active enquiries.');
     } finally {
@@ -215,12 +226,14 @@ export default function ContactsPage() {
 
   const handleContactUpdated = () => {
     fetchContacts(page, limit, search, filterChannel, filterStatus, activeTab);
+    fetchStats();
   };
 
   const handleContactDeleted = () => {
     setSelectedContactId(null);
     setIsDrawerOpen(false);
     fetchContacts(page, limit, search, filterChannel, filterStatus, activeTab);
+    fetchStats();
   };
 
   const formatDate = (dateStr: string) => {
@@ -256,61 +269,32 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* Metrics Grid */}
+      {/* Metrics row — real backend counts, no fabricated data */}
       <div className={styles.metricsGrid}>
         <div className={styles.metricCard}>
-          <div className={styles.metricHeader}>
-            <span>Total Contacts</span>
-            <div className={styles.metricIcon}>👤</div>
-          </div>
-          <span className={styles.metricValue}>{stats.total}</span>
-          <div className={`${styles.metricTrend} ${styles.trendUp}`}>
-            <span>↑ 18.6%</span> <span className="text-muted-foreground font-normal">vs last month</span>
-          </div>
+          <span className={styles.metricLabel}>Total Contacts</span>
+          <span className={styles.metricValue}>{stats ? stats.total : '—'}</span>
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricHeader}>
-            <span>New This Month</span>
-            <div className={styles.metricIcon} style={{ color: '#10b981', background: 'rgba(16,185,129,0.08)' }}>📈</div>
-          </div>
-          <span className={styles.metricValue}>{stats.newThisMonth}</span>
-          <div className={`${styles.metricTrend} ${styles.trendUp}`}>
-            <span>↑ 12.4%</span> <span className="text-muted-foreground font-normal">vs last month</span>
-          </div>
+          <span className={styles.metricLabel}>New This Month</span>
+          <span className={styles.metricValue}>{stats ? stats.newThisMonth : '—'}</span>
+          {stats && stats.newThisMonthTrend !== 0 && (
+            <div className={`${styles.metricTrend} ${stats.newThisMonthTrend > 0 ? styles.trendUp : styles.trendDown}`}>
+              <span>{stats.newThisMonthTrend > 0 ? '↑' : '↓'} {Math.abs(stats.newThisMonthTrend)}%</span>
+              <span className="text-muted-foreground font-normal">vs last month</span>
+            </div>
+          )}
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricHeader}>
-            <span>Engaged</span>
-            <div className={styles.metricIcon} style={{ color: '#3b82f6', background: 'rgba(59,130,246,0.08)' }}>💬</div>
-          </div>
-          <span className={styles.metricValue}>{stats.engaged}</span>
-          <div className={`${styles.metricTrend} ${styles.trendUp}`}>
-            <span>↑ 8.7%</span> <span className="text-muted-foreground font-normal">vs last month</span>
-          </div>
+          <span className={styles.metricLabel}>Engaged</span>
+          <span className={styles.metricValue}>{stats ? stats.engaged : '—'}</span>
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricHeader}>
-            <span>Unassigned</span>
-            <div className={styles.metricIcon} style={{ color: '#f59e0b', background: 'rgba(245,158,11,0.08)' }}>⏳</div>
-          </div>
-          <span className={styles.metricValue}>{stats.unassigned}</span>
-          <div className={`${styles.metricTrend} ${styles.trendDown}`}>
-            <span>↓ 4.3%</span> <span className="text-muted-foreground font-normal">vs last month</span>
-          </div>
-        </div>
-
-        <div className={styles.metricCard}>
-          <div className={styles.metricHeader}>
-            <span>Blocked</span>
-            <div className={styles.metricIcon} style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}>🚫</div>
-          </div>
-          <span className={styles.metricValue}>{stats.blocked}</span>
-          <div className={`${styles.metricTrend} ${styles.trendDown}`}>
-            <span>↓ 2.1%</span> <span className="text-muted-foreground font-normal">vs last month</span>
-          </div>
+          <span className={styles.metricLabel}>Unassigned</span>
+          <span className={styles.metricValue}>{stats ? stats.unassigned : '—'}</span>
         </div>
       </div>
 
@@ -337,7 +321,12 @@ export default function ContactsPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="h-9 px-4 text-xs font-semibold" onClick={() => alert('Exporting contacts...')}>
+          <Button
+            variant="outline"
+            className="h-9 px-4 text-xs font-semibold opacity-50 cursor-not-allowed"
+            disabled
+            title="Export — coming soon"
+          >
             Export
           </Button>
         </div>
@@ -439,14 +428,37 @@ export default function ContactsPage() {
           <TableBody>
             {loading && contacts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-16 text-sm text-muted-foreground">
                   Loading contacts...
+                </TableCell>
+              </TableRow>
+            ) : loadError ? (
+              <TableRow>
+                <TableCell colSpan={8} className="py-16">
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <span className="text-sm font-medium text-foreground">Couldn't load contacts</span>
+                    <span className="text-xs text-muted-foreground">Check your connection and try again.</span>
+                    <Button
+                      variant="outline"
+                      className="h-8 px-3 text-xs"
+                      onClick={() => fetchContacts(page, limit, search, filterChannel, filterStatus, activeTab)}
+                    >
+                      Retry
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground italic">
-                  No contacts found.
+                <TableCell colSpan={8} className="py-16">
+                  <div className="flex flex-col items-center gap-1.5 text-center">
+                    <span className="text-sm font-medium text-foreground">No contacts found</span>
+                    <span className="text-xs text-muted-foreground">
+                      {search || filterChannel !== 'ALL' || filterStatus !== 'ALL' || activeTab !== 'ALL'
+                        ? 'Try adjusting your search or filters.'
+                        : 'Add your first contact to get started.'}
+                    </span>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
@@ -470,9 +482,7 @@ export default function ContactsPage() {
                     </TableCell>
                     <TableCell className="font-semibold text-foreground">
                       <div className="flex items-center gap-3">
-                        <div className={styles.avatar}>
-                          {contact.displayName.charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar fallback={contact.displayName || 'Unknown'} size="sm" />
                         <span>{contact.displayName}</span>
                       </div>
                     </TableCell>
@@ -510,9 +520,6 @@ export default function ContactsPage() {
                           <div className={styles.dropdownMenu}>
                             <button className={styles.dropdownItem} onClick={() => handleRowClick(contact.id)}>
                               View Profile
-                            </button>
-                            <button className={styles.dropdownItem} onClick={() => handleRowClick(contact.id)}>
-                              Edit Profile
                             </button>
                             <button
                               className={`${styles.dropdownItem} ${styles.dropdownItemDestructive} ${contact.hasActiveEnquiry ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -603,12 +610,13 @@ export default function ContactsPage() {
       <CreateContactModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={() => fetchContacts(page, limit, search, filterChannel, filterStatus, activeTab)}
+        onSuccess={() => { fetchContacts(page, limit, search, filterChannel, filterStatus, activeTab); fetchStats(); }}
       />
 
       {/* Sliding detail panel */}
       <ContactDetailPanel
         contactId={selectedContactId}
+        initialData={contacts.find((c) => c.id === selectedContactId) ?? null}
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         onUpdate={handleContactUpdated}

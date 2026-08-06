@@ -65,7 +65,7 @@ export interface InboxStoreState {
   setConnectionStatus: (status: 'connected' | 'reconnecting' | 'offline') => void;
   updateLastSeq: (contactId: string, seq: number) => void;
 
-  incrementUnread: (contactId: string) => void;
+  incrementUnread: (contactId: string, delta?: number) => void;
   clearUnread: (contactId: string) => void;
   seedUnreadCounts: (counts: Record<string, number>) => void;
 
@@ -111,12 +111,12 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
     })),
 
   // Unread Watermark Actions
-  incrementUnread: (contactId) =>
+  incrementUnread: (contactId: string, delta = 1) =>
     set((state) => {
       const current = state.unreadByContact[contactId] || 0;
-      const nextMap = { ...state.unreadByContact, [contactId]: current + 1 };
+      const nextMap = { ...state.unreadByContact, [contactId]: current + delta };
       const nextTotal = Object.values(nextMap).reduce((sum, n) => sum + n, 0);
-      console.log(`🧠 [Zustand L3] incrementUnread('${contactId}') -> count: ${current + 1}, totalUnread: ${nextTotal}`);
+      console.log(`🧠 [Zustand L3] incrementUnread('${contactId}') -> count: ${current + delta}, totalUnread: ${nextTotal}`);
       return { unreadByContact: nextMap, totalUnread: nextTotal };
     }),
 

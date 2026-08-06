@@ -57,13 +57,13 @@ export function CreateContactModal({ isOpen, onClose, onSuccess }: CreateContact
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-border bg-card shadow-2xl p-6 animate-scale-up">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-card shadow-lg p-6 animate-scale-up">
         <div className="flex justify-between items-center pb-4 mb-4 border-b border-border">
           <h3 className="text-lg font-semibold tracking-tight text-foreground">Add New Contact</h3>
           <button
             onClick={onClose}
-            className="rounded-xl border border-border bg-card p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="rounded-md border border-border bg-card p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -134,7 +134,7 @@ export function CreateContactModal({ isOpen, onClose, onSuccess }: CreateContact
               Notes
             </label>
             <textarea
-              className="w-full min-h-[80px] bg-background border border-border rounded-2xl p-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition"
+              className="w-full min-h-[80px] bg-background border border-border rounded-lg p-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition"
               placeholder="Add contact notes, context, or requirements here..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
