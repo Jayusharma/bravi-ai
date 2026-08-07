@@ -124,7 +124,7 @@ export class AppEventHandler {
       messageId: payload.message?.id,
     });
 
-    await this.broadcastConversationDelta(payload.enquiryId, 'NEW_INBOUND', 1);
+    await this.broadcastConversationDelta(payload.contactId, 'NEW_INBOUND');
   }
 
   /** Slow path: new enquiry created after qualification — insert full card into all sidebars */
@@ -139,7 +139,7 @@ export class AppEventHandler {
       messageId: `enq-${payload.enquiryId}`,
     });
 
-    await this.broadcastConversationNew(payload.enquiryId);
+    await this.broadcastConversationNew(payload.contactId, payload.enquiryId);
   }
 
   /** Outbound message created via REST (e.g. forward) — push full message to the target contact room + sidebar delta */
@@ -178,7 +178,7 @@ export class AppEventHandler {
         message,
       });
 
-    await this.broadcastConversationDelta(payload.enquiryId, 'OUTBOUND_SENT', 0);
+    await this.broadcastConversationDelta(payload.contactId, 'OUTBOUND_SENT');
   }
 
   // ─── OUTBOUND DELIVERY STATUS ────────────────────────────────────────────
@@ -191,7 +191,7 @@ export class AppEventHandler {
     this.gateway.server
       .to(ROOMS.contact(contactId))
       .emit(SOCKET_EVENTS.OUTBOUND_SENT, { messageId: payload.messageId, enquiryId: payload.enquiryId, sentAt: payload.sentAt });
-    await this.broadcastConversationDelta(payload.enquiryId, 'OUTBOUND_SENT', 0);
+    await this.broadcastConversationDelta(contactId, 'OUTBOUND_SENT');
   }
 
   /** All retry attempts exhausted — emit failure to contact room */
@@ -264,7 +264,7 @@ export class AppEventHandler {
     this.gateway.server
       .to(ROOMS.contact(contactId))
       .emit(SOCKET_EVENTS.MESSAGE_DELETED, payload);
-    await this.broadcastConversationDelta(payload.enquiryId, 'MESSAGE_DELETED', 0);
+    await this.broadcastConversationDelta(contactId, 'MESSAGE_DELETED');
   }
 
   /** Message content edited — update in UI */
@@ -299,90 +299,75 @@ export class AppEventHandler {
   }
 
   /**
-   * Fetches one enquiry row and emits a sidebar patch to all connected agents.
+   * Emits a sidebar patch (last-message preview + read state) to all connected agents.
    * Clients patch their local card and debounce re-sort — no full list refetch.
+   * Keyed by contactId, not enquiryId: the card represents the CONTACT's thread, which
+   * can span multiple enquiries — see getContactSummary(), the single source of truth
+   * for this data (replaces this function's old per-enquiry inline fetch).
    */
   private async broadcastConversationDelta(
-    enquiryId: string,
+    contactId: string,
     updatedField: 'NEW_INBOUND' | 'OUTBOUND_SENT' | 'MESSAGE_DELETED',
-    unreadDelta: number,
   ) {
     try {
-      const enquiry = await this.prisma.enquiry.findUnique({
-        where: { id: enquiryId },
-        select: {
-          id: true,
-          contactId: true,
-          status: true,
-          lastActivityAt: true,
-          messages: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { content: true, direction: true, channel: true },
-          },
-        },
-      });
-      if (!enquiry) return;
-      const latest = enquiry.messages[0];
+      const summary = await this.conversationService.getContactSummary(contactId);
+      if (!summary) return;
       this.gateway.server.emit(SOCKET_EVENTS.CONVERSATION_UPDATED, {
-        enquiryId:          enquiry.id,
-        contactId:          enquiry.contactId,
-        lastMessagePreview: latest ? latest.content.substring(0, 80) : '',
-        lastMessageChannel: latest?.channel,
-        lastActivityAt:     enquiry.lastActivityAt.toISOString(),
-        status:             enquiry.status,
-        unreadDelta,
+        contactId,
+        ...summary,
         updatedField,
       });
+      await this.broadcastUnreadSummary();
     } catch (err: any) {
-      this.logger.error(`Failed to broadcast conversation delta for ${enquiryId}: ${err.message}`);
+      this.logger.error(`Failed to broadcast conversation delta for contact ${contactId}: ${err.message}`);
     }
   }
 
   /**
-   * Emits a full ConversationPreview card for a brand-new enquiry so all sidebars insert it at the top.
-   * Only called on first enquiry creation — not for subsequent messages.
+   * Emits a full ConversationPreview card for a brand-new contact conversation so all
+   * sidebars insert it at the top. Only called on first enquiry creation for a contact —
+   * not for subsequent messages. Message/read state comes from getContactSummary();
+   * enquiryId is passed straight through from the event that triggered this (the enquiry
+   * that was just created — unambiguous, unlike broadcastConversationDelta where a
+   * contact's "current" enquiry can't be inferred from a bare message event).
    */
-  private async broadcastConversationNew(enquiryId: string) {
+  private async broadcastConversationNew(contactId: string, enquiryId: string) {
     try {
-      const enquiry = await this.prisma.enquiry.findUnique({
-        where: { id: enquiryId },
-        include: {
-          contact: {
-            include: {
-              channels: {
-                select: { channel: true, identifier: true, isPrimary: true },
-                orderBy: { isPrimary: 'desc' },
-                take: 1,
-              },
+      const [contact, summary] = await Promise.all([
+        this.prisma.contact.findUnique({
+          where: { id: contactId },
+          select: {
+            displayName: true,
+            organization: true,
+            channels: {
+              select: { channel: true, identifier: true, isPrimary: true },
+              orderBy: { isPrimary: 'desc' },
+              take: 1,
             },
           },
-          messages: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { content: true },
-          },
-        },
-      });
-      if (!enquiry) return;
-      const latestMsg = enquiry.messages[0]?.content ?? null;
+        }),
+        this.conversationService.getContactSummary(contactId),
+      ]);
+      if (!contact || !summary) return;
       this.gateway.server.emit(SOCKET_EVENTS.CONVERSATION_NEW, {
-        contactId:      enquiry.contact.id,
-        contactName:    enquiry.contact.displayName,
-        organization:   enquiry.contact.organization,
-        channel:        enquiry.contact.channels[0]?.channel ?? null,
-        identifier:     enquiry.contact.channels[0]?.identifier ?? null,
-        enquiryId:      enquiry.id,
-        enquiryStatus:  enquiry.status,
-        assignedTo:     null,
-        messageCount:   enquiry.messages.length,
-        lastMessage:    latestMsg,
-        lastActivityAt: enquiry.lastActivityAt.toISOString(),
-        draft:          null,
+        contactId,
+        contactName:  contact.displayName,
+        organization: contact.organization,
+        channel:      contact.channels[0]?.channel ?? null,
+        identifier:   contact.channels[0]?.identifier ?? null,
+        enquiryId,
+        ...summary,
       });
+      await this.broadcastUnreadSummary();
     } catch (err: any) {
-      this.logger.error(`Failed to broadcast new conversation for ${enquiryId}: ${err.message}`);
+      this.logger.error(`Failed to broadcast new conversation for contact ${contactId}: ${err.message}`);
     }
+  }
+
+  /** Recomputes and globally broadcasts the per-channel unread-contact-count summary. */
+  private async broadcastUnreadSummary(): Promise<void> {
+    const summary = await this.conversationService.getUnreadSummary();
+    this.gateway.server.emit(SOCKET_EVENTS.UNREAD_SUMMARY, summary);
   }
 
   // ─── INTERNAL TEAM CHAT ACTIONS ──────────────────────────────────────────

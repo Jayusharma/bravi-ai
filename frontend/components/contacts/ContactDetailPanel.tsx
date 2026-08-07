@@ -11,7 +11,6 @@ import {
   setContactChannelPrimary,
   getContactEnquiries,
   type ContactDetail,
-  type ContactChannel,
   type ContactListItem,
   type ContactEnquiry,
 } from '@/services/contact';

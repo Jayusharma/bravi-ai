@@ -82,6 +82,11 @@ model Contact {
   firstSeenAt DateTime @default(now()) // When we first heard from them
   lastSeenAt  DateTime @default(now()) // Updated on every new message
 
+  // Inbox thread state — the seq generator AND the thread watermark (one field),
+  // atomically incremented in the same transaction as each ConversationMessage insert.
+  lastMessageSeq Int @default(0)
+  lastReadSeq    Int @default(0) // team read watermark
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -89,6 +94,7 @@ model Contact {
   channels        ContactChannel[] // All known phone/email/etc
   enquiries       Enquiry[] // All conversations with this person
   inboundMessages InboundMessage[] // All raw messages from this person
+  messages        ConversationMessage[] // All messages across all of this contact's enquiries — the inbox thread
 
   @@index([displayName])
   @@index([lastSeenAt])
@@ -355,11 +361,14 @@ model QualificationResult {
 }
 
 // ============================================================================
-// ENQUIRIES — Conversations with qualified contacts
-// WHY: An Enquiry is a CONVERSATION THREAD, not a single message.
-//      One Contact can have one open Enquiry at a time.
-//      When the same person sends another message, it APPENDS to the open Enquiry.
-//      New Enquiry only created if previous is CONVERTED or CLOSED_LOST.
+// ENQUIRIES — Business/analytics unit (status, assignment, conversion, funnel).
+// WHY: The INBOX thread is keyed by Contact (see ConversationMessage.contactId) —
+//      one continuous thread per person, all of their enquiries interleaved.
+//      Enquiry itself still enforces one open (non-CONVERTED/CLOSED_LOST) Enquiry
+//      per Contact at a time: a new inbound message APPENDS to the open Enquiry;
+//      a new Enquiry is only created once the previous one is CONVERTED or
+//      CLOSED_LOST. This rule is about business state, not conversation grouping —
+//      a Contact's message history can and does span multiple Enquiries over time.
 // ============================================================================
 
 enum EnquiryType {
@@ -405,7 +414,6 @@ model Enquiry {
   lastCustomerReplyAt DateTime? // When customer last messaged
   firstResponseAt     DateTime? // When staff first replied
   lastActivityAt      DateTime  @default(now()) // Any activity (message, status change)
-  lastReadAt          DateTime? // team read watermark
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -469,6 +477,13 @@ model ConversationMessage {
   enquiryId String
   enquiry   Enquiry @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
 
+  // ── Inbox thread identity — the inbox renders ONE thread per Contact,
+  //    interleaving messages from all of that contact's enquiries. ──
+  contactId       String
+  contact         Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  seq             Int // per-contact sequence number — see Contact.lastMessageSeq
+  clientMessageId String? @unique // idempotency key for client-originated sends
+
   channel   MessageChannel // Which channel this msg was sent/received on
   direction MessageDirection // INBOUND or OUTBOUND
 
@@ -512,11 +527,12 @@ model ConversationMessage {
 
   attachments MessageAttachment[]
   reactions   MessageReaction[]
-  readBy      ConversationMessageRead[]
 
   createdAt DateTime @default(now())
 
-  @@index([enquiryId, createdAt])
+  @@unique([contactId, seq])
+  @@index([contactId, seq(sort: Desc)])
+  @@index([enquiryId, createdAt]) // Enquiry's own analytics still need this
   @@index([externalId])
   @@index([createdAt])
   @@index([queueJobId])
@@ -698,18 +714,6 @@ model MessageReaction {
   @@index([messageId])
 }
 
-model ConversationMessageRead {
-  id        String   @id @default(uuid())
-  messageId String
-  userId    String
-  readAt    DateTime @default(now())
-
-  message ConversationMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
-
-  @@unique([messageId, userId])
-  @@index([messageId])
-}
-
 model UserPresence {
   userId     String   @id
   isOnline   Boolean  @default(false)
@@ -729,15 +733,6 @@ model ContactPreference {
   @@id([userId, contactId])
   @@index([userId, isPinned])
   @@index([userId, isArchived])
-}
-
-model ConversationRead {
-  userId     String
-  enquiryId  String
-  lastReadAt DateTime @default(now())
-
-  @@id([userId, enquiryId])
-  @@index([userId])
 }
 
 // ============================================================================
@@ -825,12 +820,12 @@ model MessageTemplate {
   rejectionReason String?
   sampleValues    Json? // { "1": "Rahul", "2": "2BHK Sector 74" } — Meta requires
 
-  isActive  Boolean  @default(true)
-  usedCount Int      @default(0)
+  isActive         Boolean  @default(true)
+  usedCount        Int      @default(0)
   internalCategory String?
-  createdBy String // userId who created it
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdBy        String // userId who created it
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   variables TemplateVariable[]
 

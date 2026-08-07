@@ -2,7 +2,6 @@ import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { Conversation, Message, Channel, parseSocketConversation, parseSocketMessage } from '@/contracts/socketEvents';
 import { qk } from '@/lib/queryKeys';
 import { InfiniteMessagesData } from '@/lib/cachePatch';
-import { useInboxStore } from '@/stores/inboxStore';
 import { getConversations, getConversationThread } from '@/services/messaging/chat.service';
 
 /**
@@ -28,16 +27,9 @@ export function useConversations(channel?: Channel | 'ALL') {
       const rawList = res.data || [];
       console.log(`📦 [NestJS Backend API] Received ${rawList.length} raw conversation records:`, rawList);
 
-      // 1. Validate each record with Zod & normalize
+      // Validate each record with Zod & normalize
       const conversations: Conversation[] = rawList.map(parseSocketConversation);
       console.log(`🛡️ [Zod Validator] Parsed & normalized ${conversations.length} conversation cards:`, conversations);
-
-      // 2. Seed unread counts into Zustand store (L3)
-      const unreadMap: Record<string, number> = {};
-      conversations.forEach((c) => {
-        unreadMap[c.contactId] = c.unreadCount;
-      });
-      useInboxStore.getState().seedUnreadCounts(unreadMap);
 
       return conversations;
     },
@@ -75,9 +67,14 @@ export function useMessages(contactId: string | null) {
       if (!contactId) return [];
       const threadData = await getConversationThread(contactId);
       console.log("came inside the use message ")
+      // Backend returns enquiries newest-first, each enquiry's own messages ascending —
+      // flatMap alone concatenates those per-enquiry blocks, not a global chronological
+      // stream. seq is authoritative and unique per contact now, so a single global sort
+      // fixes it regardless of how many enquiries the thread spans.
       const rawMessages = threadData?.enquiries?.flatMap((e) => e.messages) || [];
       console.log("rawMessages", threadData)
-      const final = rawMessages.map(parseSocketMessage).filter(Boolean) as Message[];
+      const final = (rawMessages.map(parseSocketMessage).filter(Boolean) as Message[])
+        .sort((a, b) => a.seq - b.seq);
       console.log("final data is ", final )
       return final
 

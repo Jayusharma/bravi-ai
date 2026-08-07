@@ -1,9 +1,8 @@
 // lib/cachePatch.ts
 
 import { QueryClient } from '@tanstack/react-query';
-import { Conversation, Message, Channel, ConversationUpdatedPayload, parseSocketConversation , ConversationNewPayload ,conversationFromNewPayload  } from '@/contracts/socketEvents';
+import { Conversation, Message, Channel, ConversationUpdatedPayload, parseSocketConversation , ConversationNewPayload ,conversationFromNewPayload, ReadUpdatedEvent } from '@/contracts/socketEvents';
 import { qk } from './queryKeys';
-import { useInboxStore } from '@/stores/inboxStore';
 
 export interface InfiniteMessagesData {
   pages: Message[][];
@@ -19,11 +18,10 @@ export interface InfiniteMessagesData {
 
 
 // ============================================================================
-// 🟢 LIVE — sidebar bump + unread on CONVERSATION_UPDATED
-// Assumes backend now sends `lastMessageChannel` on this payload (the change
-// we just agreed on). Do not wire this in until that field is actually there
-// — otherwise `payload.lastMessageChannel` is undefined and qk.conversations()
-// gets called with an invalid key.
+// 🟢 LIVE — sidebar bump on CONVERSATION_UPDATED
+// Patches the cached row with the contact's latest message + seq state. No
+// separate unread bookkeeping here — the badge is derived at render time from
+// lastMessageSeq - lastReadSeq on the row this function just patched.
 // ============================================================================
 
 export function applyConversationUpdate(
@@ -40,25 +38,27 @@ export function applyConversationUpdate(
   const updated: Conversation = {
     ...oldList[idx],
     lastMessagePreview: payload.lastMessagePreview,
-    lastMessageAt: payload.lastActivityAt,
+    lastMessageAt: payload.lastMessageAt,
+    lastMessageSeq: payload.lastMessageSeq,
+    lastReadSeq: payload.lastReadSeq,
   };
 
   queryClient.setQueryData<Conversation[]>(key, [
     updated,
     ...oldList.filter((c) => c.contactId !== payload.contactId),
   ]);
-
-  const { activeContactId, incrementUnread } = useInboxStore.getState();
-  const isViewing = activeContactId === payload.contactId && document.visibilityState === 'visible';
-
-  if (!isViewing && payload.unreadDelta > 0) {
-    incrementUnread(payload.contactId, payload.unreadDelta);
-  }
 }
 
 
 // ============================================================================
-// CONVERSATION_NEW (brand-new contact card inserted into sidebar)
+// CONVERSATION_NEW — new contact conversation, OR an existing contact's new
+// enquiry (backend fires this event on every enquiry.created, not just for
+// contacts we've never seen — see the trigger-bug note in the verification
+// report). Patch-or-insert: if the row already exists, patch it exactly like
+// applyConversationUpdate does instead of silently dropping the update; only
+// insert a new row when the contact genuinely isn't in the cache yet. This
+// makes the function correct regardless of which case the event means —
+// it no longer needs to know.
 // ============================================================================
 
 export function insertNewConversation(
@@ -69,17 +69,53 @@ export function insertNewConversation(
   const oldList = queryClient.getQueryData<Conversation[]>(key);
   if (!oldList) return; // this channel's sidebar was never fetched this session
 
-  if (oldList.some((c) => c.contactId === payload.contactId)) return; // already present, don't duplicate
+  const idx = oldList.findIndex((c) => c.contactId === payload.contactId);
+
+  if (idx !== -1) {
+    // Existing contact, new enquiry — patch the row and bump it to the top,
+    // same fields applyConversationUpdate patches.
+    const updated: Conversation = {
+      ...oldList[idx],
+      lastMessagePreview: payload.lastMessagePreview,
+      lastMessageAt: payload.lastMessageAt,
+      lastMessageSeq: payload.lastMessageSeq,
+      lastReadSeq: payload.lastReadSeq,
+    };
+    queryClient.setQueryData<Conversation[]>(key, [
+      updated,
+      ...oldList.filter((c) => c.contactId !== payload.contactId),
+    ]);
+    return;
+  }
 
   const newRow = conversationFromNewPayload(payload);
   queryClient.setQueryData<Conversation[]>(key, [newRow, ...oldList]);
+}
 
-  const { activeContactId, incrementUnread } = useInboxStore.getState();
-  const isViewing = activeContactId === payload.contactId && document.visibilityState === 'visible';
 
-  if (!isViewing) {
-    incrementUnread(payload.contactId, 1);
-  }
+// ============================================================================
+// 🟢 LIVE — read:updated syncs lastReadSeq across every open tab of this user.
+// Patches every cached conversations list variant (unified + per-channel keys
+// can all hold the same contact's row simultaneously) — no reorder, a read
+// doesn't change recency. The unread badge on the row recomputes itself at
+// render time from the patched lastReadSeq.
+// ============================================================================
+
+export function applyReadUpdate(
+  queryClient: QueryClient,
+  payload: ReadUpdatedEvent
+): void {
+  queryClient.setQueriesData<Conversation[]>(
+    { predicate: (query) => query.queryKey[0] === 'conversations' },
+    (oldList) => {
+      if (!oldList) return oldList;
+      const idx = oldList.findIndex((c) => c.contactId === payload.contactId);
+      if (idx === -1) return oldList;
+      const next = [...oldList];
+      next[idx] = { ...next[idx], lastReadSeq: payload.lastReadSeq };
+      return next;
+    },
+  );
 }
 
 
@@ -103,7 +139,6 @@ export function upsertMessage(
   // 4. else if incoming.id already exists in pages[0], return old (dedup —
   //    reconnect replay or duplicate delivery)
   // 5. else unshift into pages[0]
-  // Watch out: sort pages[0] by seq (or createdAt, since seq isn't sent yet)
-  // after insert — socket delivery order isn't guaranteed.
+  // Watch out: sort pages[0] by seq after insert — socket delivery order isn't guaranteed.
   throw new Error('not implemented');
 }

@@ -6,6 +6,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ContactService } from '../contact/contact.service';
 import { InboundMessage } from '@prisma/client';
+import { nextContactSeq } from 'src/common/utils/conversation-seq.util';
 
 // ── How many days after CLOSED_LOST before we create
 //    a new enquiry vs reopen the old one ──
@@ -121,11 +122,17 @@ export class IngestionService {
       },
     });
 
-    // 2. Create ConversationMessage (what the chat view shows)
-    const conversationMessage =
-      await this.prisma.conversationMessage.create({
+    // 2. Create ConversationMessage (what the chat view shows) + 3. status transition,
+    //    atomically: the seq increment and the message insert must live or die together.
+    const statusUpdate = this.getStatusTransition(enquiry.status);
+
+    const conversationMessage = await this.prisma.$transaction(async (tx) => {
+      const seq = await nextContactSeq(tx, contactId);
+      const message = await tx.conversationMessage.create({
         data: {
           enquiryId: enquiry.id,
+          contactId,
+          seq,
           channel: dto.channel,
           direction: 'INBOUND',
           from: dto.from,
@@ -136,16 +143,16 @@ export class IngestionService {
         },
       });
 
-    // 3. Smart status transition + update tracking
-    const statusUpdate = this.getStatusTransition(enquiry.status);
+      await tx.enquiry.update({
+        where: { id: enquiry.id },
+        data: {
+          lastCustomerReplyAt: new Date(),
+          lastActivityAt: new Date(),
+          ...statusUpdate,
+        },
+      });
 
-    await this.prisma.enquiry.update({
-      where: { id: enquiry.id },
-      data: {
-        lastCustomerReplyAt: new Date(),
-        lastActivityAt: new Date(),
-        ...statusUpdate,
-      },
+      return message;
     });
 
     // 4. Emit for WebSocket (uses ConversationMessage ID, not InboundMessage ID)
@@ -155,6 +162,9 @@ export class IngestionService {
       message: {
         id: conversationMessage.id,
         enquiryId: enquiry.id,
+        contactId: conversationMessage.contactId,
+        seq: conversationMessage.seq,
+        clientMessageId: conversationMessage.clientMessageId,
         channel: dto.channel,
         direction: 'INBOUND',
         from: dto.from,
@@ -200,10 +210,13 @@ export class IngestionService {
       },
     });
 
-    const conversationMessage =
-      await this.prisma.conversationMessage.create({
+    const conversationMessage = await this.prisma.$transaction(async (tx) => {
+      const seq = await nextContactSeq(tx, contactId);
+      const message = await tx.conversationMessage.create({
         data: {
           enquiryId: closedEnquiry.id,
+          contactId,
+          seq,
           channel: dto.channel,
           direction: 'INBOUND',
           from: dto.from,
@@ -214,27 +227,30 @@ export class IngestionService {
         },
       });
 
-    // Reopen the enquiry + add timeline entry
-    await this.prisma.enquiry.update({
-      where: { id: closedEnquiry.id },
-      data: {
-        status: 'OPEN',
-        lastActivityAt: new Date(),
-        lastCustomerReplyAt: new Date(),
-        version: { increment: 1 },
-        timeline: {
-          create: {
-            type: 'REOPENED',
-            fromStatus: 'CLOSED_LOST',
-            toStatus: 'OPEN',
-            createdBy: 'SYSTEM',
-            metadata: {
-              reason: `Customer messaged again within ${REOPEN_WINDOW_DAYS}-day window`,
-              daysSinceClosed,
+      // Reopen the enquiry + add timeline entry
+      await tx.enquiry.update({
+        where: { id: closedEnquiry.id },
+        data: {
+          status: 'OPEN',
+          lastActivityAt: new Date(),
+          lastCustomerReplyAt: new Date(),
+          version: { increment: 1 },
+          timeline: {
+            create: {
+              type: 'REOPENED',
+              fromStatus: 'CLOSED_LOST',
+              toStatus: 'OPEN',
+              createdBy: 'SYSTEM',
+              metadata: {
+                reason: `Customer messaged again within ${REOPEN_WINDOW_DAYS}-day window`,
+                daysSinceClosed,
+              },
             },
           },
         },
-      },
+      });
+
+      return message;
     });
 
     // Emit for WebSocket
@@ -244,6 +260,9 @@ export class IngestionService {
       message: {
         id: conversationMessage.id,
         enquiryId: closedEnquiry.id,
+        contactId: conversationMessage.contactId,
+        seq: conversationMessage.seq,
+        clientMessageId: conversationMessage.clientMessageId,
         channel: dto.channel,
         direction: 'INBOUND',
         from: dto.from,

@@ -35,6 +35,17 @@ export class ConversationController {
   }
 
 
+  /**
+   * GET /conversations/unread-summary
+   * Global nav badge — count of DISTINCT contacts with unread messages, per channel.
+   * Placed before :contactId-param routes (static route first).
+   */
+  @Get('unread-summary')
+  @CheckAbility({ action: 'read', subject: 'contact' })
+  getUnreadSummary() {
+    return this.conversationService.getUnreadSummary();
+  }
+
   @Get(':contactId/thread')
   @CheckAbility({action: 'read' , subject: 'messages'})
   getThread(@Param('contactId') contactId: string) {

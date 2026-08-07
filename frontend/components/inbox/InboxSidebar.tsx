@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Conversation, Channel } from '@/contracts/socketEvents';
 import { useInboxStore } from '@/stores/inboxStore';
+import { markContactRead } from '@/lib/socket';
+import { useUnreadSummary } from '@/hooks/useUnreadSummary';
 import { WhatsAppConversationRow } from './WhatsAppConversationRow';
 import { EmailConversationRow } from './EmailConversationRow';
 
@@ -29,9 +31,10 @@ export function filterConversations(
     const matchesChannel =
       c.channels.includes(channelFilter) || c.lastMessageChannel === channelFilter;
 
-    // 2. Sub-filter (All / Unread)
+    // 2. Sub-filter (All / Unread) — live filter over already-loaded, already-synced
+    // server data (lastMessageSeq/lastReadSeq), not a stored/incremented counter.
     const matchesSubFilter =
-      subFilter === 'unread' ? c.unreadCount > 0 : true;
+      subFilter === 'unread' ? c.lastMessageSeq > c.lastReadSeq : true;
 
     // 3. Search Query Filter (Contact Name or Preview Text)
     const query = searchQuery.trim().toLowerCase();
@@ -52,12 +55,15 @@ export function InboxSidebar({ conversations, activeChannel, isLoading = false }
   // 🎯 ZUSTAND STATE & ACTIONS:
   const activeContactId = useInboxStore((state) => state.activeContactId);
   const setActiveContactId = useInboxStore((state) => state.setActiveContactId);
-  const clearUnread = useInboxStore((state) => state.clearUnread);
 
   const handleRowClick = (contactId: string) => {
     console.log(`👆 [UI Event] Selected Contact: ${contactId}`);
     setActiveContactId(contactId);
-    clearUnread(contactId);
+    // Badge clears itself once read:updated patches lastReadSeq onto this row —
+    // no local clear here. That would reintroduce client-computed unread state.
+    markContactRead(contactId).catch((err) => {
+      console.error('Failed to mark contact read:', err);
+    });
   };
 
   // Filter conversations live based on search & active channel tab from URL
@@ -68,7 +74,12 @@ export function InboxSidebar({ conversations, activeChannel, isLoading = false }
     activeSubFilter
   );
 
-  const totalUnreadCount = conversations.reduce((acc, c) => acc + (c.unreadCount > 0 ? 1 : 0), 0);
+  // Same single source of truth as SidebarClient's global nav badge — this pill shows
+  // "how many contacts are unread on THIS channel," which is exactly what the global
+  // summary already breaks out per channel. Not derived from `conversations` — that list
+  // is paginated (30 per page), so a local count would undercount past the first page.
+  const { data: unreadSummary } = useUnreadSummary();
+  const totalUnreadCount = unreadSummary?.[activeChannel] ?? 0;
 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col border-r border-border bg-background">

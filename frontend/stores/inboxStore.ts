@@ -7,8 +7,10 @@ import { SendMessageInput } from '@/channels/types';
  * STEP 5: ZUSTAND INBOX STORE (Layer 3)
  * Spec Ref: Section 7 & Section 2 (L3)
  * Browser-only truth (Zustand). Holds tab-local state: active contact, connection status,
- * unread watermarks, outbox retry queue, typing indicators, and drafts.
- * 
+ * outbox retry queue, typing indicators, and drafts. Unread badges are NOT stored here —
+ * they're derived straight off the cached Conversation row (lastMessageSeq - lastReadSeq),
+ * which TanStack Query already has. No separate client-side unread watermark exists.
+ *
  * HARD INVARIANTS:
  * - Wiped on refresh. If it can be re-fetched from DB -> put in L4 (TanStack Query).
  * - Component selectors MUST return primitive values or use shallow comparison.
@@ -46,10 +48,6 @@ export interface InboxStoreState {
   connectionStatus: 'connected' | 'reconnecting' | 'offline';
   lastSeqByContact: Record<string, number>;
 
-  // Unread Watermarks (Local UI copy, seeded from server)
-  unreadByContact: Record<string, number>;
-  totalUnread: number;
-
   // Outbox Retry Queue (Keyed by clientMessageId)
   outbox: Record<string, OutboxEntry>;
 
@@ -64,10 +62,6 @@ export interface InboxStoreState {
   setActiveContactId: (id: string | null) => void;
   setConnectionStatus: (status: 'connected' | 'reconnecting' | 'offline') => void;
   updateLastSeq: (contactId: string, seq: number) => void;
-
-  incrementUnread: (contactId: string, delta?: number) => void;
-  clearUnread: (contactId: string) => void;
-  seedUnreadCounts: (counts: Record<string, number>) => void;
 
   setOutboxEntry: (clientMessageId: string, entry: OutboxEntry) => void;
   removeOutboxEntry: (clientMessageId: string) => void;
@@ -86,9 +80,6 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
 
   connectionStatus: 'connected',
   lastSeqByContact: {},
-
-  unreadByContact: {},
-  totalUnread: 0,
 
   outbox: {},
 
@@ -109,33 +100,6 @@ export const useInboxStore = create<InboxStoreState>((set, get) => ({
         [contactId]: Math.max(state.lastSeqByContact[contactId] || 0, seq),
       },
     })),
-
-  // Unread Watermark Actions
-  incrementUnread: (contactId: string, delta = 1) =>
-    set((state) => {
-      const current = state.unreadByContact[contactId] || 0;
-      const nextMap = { ...state.unreadByContact, [contactId]: current + delta };
-      const nextTotal = Object.values(nextMap).reduce((sum, n) => sum + n, 0);
-      console.log(`🧠 [Zustand L3] incrementUnread('${contactId}') -> count: ${current + delta}, totalUnread: ${nextTotal}`);
-      return { unreadByContact: nextMap, totalUnread: nextTotal };
-    }),
-
-  clearUnread: (contactId) =>
-    set((state) => {
-      if (!state.unreadByContact[contactId]) return state;
-      const nextMap = { ...state.unreadByContact };
-      delete nextMap[contactId];
-      const nextTotal = Object.values(nextMap).reduce((sum, n) => sum + n, 0);
-      console.log(`🧠 [Zustand L3] clearUnread('${contactId}') -> cleared badge, totalUnread: ${nextTotal}`);
-      return { unreadByContact: nextMap, totalUnread: nextTotal };
-    }),
-
-  seedUnreadCounts: (counts) =>
-    set(() => {
-      const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-      console.log(`🧠 [Zustand L3] seedUnreadCounts() -> seeded counts:`, counts, `totalUnread: ${total}`);
-      return { unreadByContact: counts, totalUnread: total };
-    }),
 
   // Outbox Queue Actions
   setOutboxEntry: (clientMessageId, entry) =>

@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { Conversation } from '@/contracts/socketEvents';
-import { useInboxStore } from '@/stores/inboxStore';
 import { Avatar } from '@/components/ui/Avatar';
 
 /**
@@ -48,11 +47,9 @@ export function ConversationRow({
   isActive,
   onSelect,
 }: ConversationRowProps) {
-  // 🎯 ATOMIC SELECTOR: Subscribe ONLY to this contact's unread count in Zustand!
-  // Prevents re-rendering this card when unread count for ANOTHER contact changes.
-  const unreadCount = useInboxStore(
-    (state) => state.unreadByContact[conversation.contactId] ?? conversation.unreadCount
-  );
+  // Derived straight off the cached row — lastMessageSeq/lastReadSeq are the single
+  // source of truth, no separate store lookup needed.
+  const unreadCount = Math.max(0, conversation.lastMessageSeq - conversation.lastReadSeq);
 
   return (
     <div

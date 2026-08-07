@@ -44,7 +44,7 @@ export function EnquiryDetailClient({
         .toUpperCase();
 
     return (
-        <div className="-mx-4 -my-4 md:-mx-8 md:-my-8 flex flex-col overflow-hidden" style={{ height: 'calc(100vh - 80px)' }}>
+        <div className="-mx-4 -my-4 md:-mx-8 md:-my-8 flex flex-col overflow-hidden" style={{ height: '100vh' }}>
 
             {/* ── Chat header ── */}
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60 bg-background shrink-0">

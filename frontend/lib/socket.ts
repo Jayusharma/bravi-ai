@@ -216,6 +216,18 @@ export async function leaveContactRoom(contactId: string): Promise<void> {
 }
 
 /**
+ * Marks a contact's thread as read — advances Contact.lastReadSeq on the
+ * backend to lastMessageSeq. The server broadcasts read:updated back to
+ * every open tab/socket of this user (via their personal user room), so
+ * the cached row's lastReadSeq — and therefore the derived unread badge —
+ * updates on its own; no local state is set here.
+ */
+export async function markContactRead(contactId: string): Promise<void> {
+  const sock = await getSocket();
+  sock.emit(SOCKET_EVENTS.READ_MARK, { contactId });
+}
+
+/**
  * Joins team-chat room & registers key with refcounting.
  */
 export async function joinChatRoom(conversationId: string): Promise<void> {

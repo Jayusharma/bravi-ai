@@ -77,17 +77,11 @@
 }
 
 .trendUp {
-  color: #059669;
-}
-.dark .trendUp {
-  color: #34d399;
+  color: hsl(var(--success));
 }
 
 .trendDown {
-  color: #dc2626;
-}
-.dark .trendDown {
-  color: #f87171;
+  color: hsl(var(--warning));
 }
 
 /* Status tabs row */

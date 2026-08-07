@@ -39,7 +39,7 @@ export interface ContactListResponse {
   };
 }
 
-export interface ContactDetail extends ContactListItem {}
+export type ContactDetail = ContactListItem;
 
 export interface ContactStats {
   total: number;

@@ -28,7 +28,8 @@ import {
 import { AppAbility } from '../casl/casl.types';
 import { accessibleBy } from '@casl/prisma';
 import { AuthUser } from 'src/common/types/auth-user.interface';
-import { decodeCursor, buildCursorWhere, paginateResult } from 'src/common/utils/cursor';
+import { decodeSeqCursor, paginateSeqResult } from 'src/common/utils/cursor';
+import { nextContactSeq } from 'src/common/utils/conversation-seq.util';
 
 @Injectable()
 export class EnquiryService {
@@ -288,40 +289,50 @@ export class EnquiryService {
       );
     }
 
-    const enquiry = await this.prisma.enquiry.create({
-      data: {
-        contactId: dto.contactId,
-        type: dto.type || EnquiryType.REAL,
-        status: EnquiryStatus.NEW,
-        tags: dto.tags || [],
-        // If an initial message is provided, create it
-        ...(dto.initialMessage
-          ? {
-            messages: {
-              create: {
-                channel: MessageChannel.EMAIL, // Default for manual
-                direction: 'OUTBOUND',
-                from: userId || 'SYSTEM',
-                content: dto.initialMessage,
-                sentByUserId: userId,
+    // Seq increment (when an initial message is included) and enquiry creation must
+    // live or die together — same reasoning as the qualification-pipeline creation path.
+    const enquiry = await this.prisma.$transaction(async (tx) => {
+      const seq = dto.initialMessage
+        ? await nextContactSeq(tx, dto.contactId)
+        : null;
+
+      return tx.enquiry.create({
+        data: {
+          contactId: dto.contactId,
+          type: dto.type || EnquiryType.REAL,
+          status: EnquiryStatus.NEW,
+          tags: dto.tags || [],
+          // If an initial message is provided, create it
+          ...(dto.initialMessage && seq !== null
+            ? {
+              messages: {
+                create: {
+                  contactId: dto.contactId,
+                  seq,
+                  channel: MessageChannel.EMAIL, // Default for manual
+                  direction: 'OUTBOUND',
+                  from: userId || 'SYSTEM',
+                  content: dto.initialMessage,
+                  sentByUserId: userId,
+                },
               },
+            }
+            : {}),
+          // Timeline entry
+          timeline: {
+            create: {
+              type: 'CREATED',
+              toStatus: EnquiryStatus.NEW,
+              createdBy: userId || 'SYSTEM',
+              metadata: { source: 'MANUAL' },
             },
-          }
-          : {}),
-        // Timeline entry
-        timeline: {
-          create: {
-            type: 'CREATED',
-            toStatus: EnquiryStatus.NEW,
-            createdBy: userId || 'SYSTEM',
-            metadata: { source: 'MANUAL' },
           },
         },
-      },
-      include: {
-        contact: { include: { channels: true } },
-        messages: true,
-      },
+        include: {
+          contact: { include: { channels: true } },
+          messages: true,
+        },
+      });
     });
 
     this.logger.log(`✅ Manual enquiry created: ${enquiry.id} by ${userId}`);
@@ -525,40 +536,49 @@ export class EnquiryService {
       );
     }
 
-    // Create the outbound message
-    const message = await this.prisma.conversationMessage.create({
-      data: {
-        enquiryId: id,
-        channel,
-        direction: 'OUTBOUND',
-        from: actor.userId,
-        to,
-        content: dto.content,
-        sentByUserId: actor.userId,
-        deliveryStatus: 'PENDING',
-      },
-    });
+    const contactId = enquiry.contactId;
 
-    // Update enquiry state
-    await this.prisma.enquiry.update({
-      where: { id },
-      data: {
-        lastActivityAt: new Date(),
-        ...(enquiry.firstResponseAt === null
-          ? { firstResponseAt: new Date() }
-          : {}),
-        // Auto-transition to AWAITING_CUSTOMER if currently IN_PROGRESS
-        ...(enquiry.status === 'IN_PROGRESS'
-          ? { status: EnquiryStatus.AWAITING_CUSTOMER }
-          : {}),
-        timeline: {
-          create: {
-            type: 'MESSAGE_SENT',
-            createdBy: actor.userId,
-            metadata: { channel, messageId: message.id },
+    // Create the outbound message + update enquiry state atomically — the seq
+    // increment and the message insert must live or die together.
+    const message = await this.prisma.$transaction(async (tx) => {
+      const seq = await nextContactSeq(tx, contactId);
+      const msg = await tx.conversationMessage.create({
+        data: {
+          enquiryId: id,
+          contactId,
+          seq,
+          channel,
+          direction: 'OUTBOUND',
+          from: actor.userId,
+          to,
+          content: dto.content,
+          sentByUserId: actor.userId,
+          deliveryStatus: 'PENDING',
+        },
+      });
+
+      await tx.enquiry.update({
+        where: { id },
+        data: {
+          lastActivityAt: new Date(),
+          ...(enquiry.firstResponseAt === null
+            ? { firstResponseAt: new Date() }
+            : {}),
+          // Auto-transition to AWAITING_CUSTOMER if currently IN_PROGRESS
+          ...(enquiry.status === 'IN_PROGRESS'
+            ? { status: EnquiryStatus.AWAITING_CUSTOMER }
+            : {}),
+          timeline: {
+            create: {
+              type: 'MESSAGE_SENT',
+              createdBy: actor.userId,
+              metadata: { channel, messageId: msg.id },
+            },
           },
         },
-      },
+      });
+
+      return msg;
     });
 
     // Emit outbound event for the OutboundModule to pick up
@@ -590,37 +610,47 @@ export class EnquiryService {
       draftId?: string;
     },
   ) {
-    const enquiry = await this.prisma.enquiry.findUnique({ where: { id: enquiryId } });
+    const enquiry = await this.prisma.enquiry.findUnique({
+      where: { id: enquiryId },
+      select: { firstResponseAt: true, contactId: true },
+    });
     if (!enquiry) throw new NotFoundException(`Enquiry ${enquiryId} not found`);
 
-    const message = await this.prisma.conversationMessage.create({
-      data: {
-        enquiryId,
-        channel: dto.channel,
-        direction: 'OUTBOUND',
-        from: dto.userId,
-        to: dto.to,
-        subject: dto.subject,
-        content: dto.body,
-        sentByUserId: dto.userId,
-        deliveryStatus: 'PENDING',
-        draftId: dto.draftId,
-      },
-    });
+    const message = await this.prisma.$transaction(async (tx) => {
+      const seq = await nextContactSeq(tx, enquiry.contactId);
+      const msg = await tx.conversationMessage.create({
+        data: {
+          enquiryId,
+          contactId: enquiry.contactId,
+          seq,
+          channel: dto.channel,
+          direction: 'OUTBOUND',
+          from: dto.userId,
+          to: dto.to,
+          subject: dto.subject,
+          content: dto.body,
+          sentByUserId: dto.userId,
+          deliveryStatus: 'PENDING',
+          draftId: dto.draftId,
+        },
+      });
 
-    await this.prisma.enquiry.update({
-      where: { id: enquiryId },
-      data: {
-        lastActivityAt: new Date(),
-        ...(enquiry.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
-        timeline: {
-          create: {
-            type: 'MESSAGE_SENT',
-            createdBy: dto.userId,
-            metadata: { channel: dto.channel, messageId: message.id },
+      await tx.enquiry.update({
+        where: { id: enquiryId },
+        data: {
+          lastActivityAt: new Date(),
+          ...(enquiry.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+          timeline: {
+            create: {
+              type: 'MESSAGE_SENT',
+              createdBy: dto.userId,
+              metadata: { channel: dto.channel, messageId: msg.id },
+            },
           },
         },
-      },
+      });
+
+      return msg;
     });
 
     this.eventEmitter.emit('message.outbound', {
@@ -650,37 +680,47 @@ export class EnquiryService {
       subject?: string;
     },
   ) {
-    const enquiry = await this.prisma.enquiry.findUnique({ where: { id: enquiryId } });
+    const enquiry = await this.prisma.enquiry.findUnique({
+      where: { id: enquiryId },
+      select: { firstResponseAt: true, contactId: true },
+    });
     if (!enquiry) throw new NotFoundException(`Enquiry ${enquiryId} not found`);
 
-    const message = await this.prisma.conversationMessage.create({
-      data: {
-        enquiryId,
-        channel: dto.channel,
-        direction: 'OUTBOUND',
-        source: 'AUTOMATION',
-        from: 'AI',
-        to: dto.to,
-        subject: dto.subject,
-        content: dto.body,
-        sentByUserId: null,
-        deliveryStatus: 'PENDING',
-      },
-    });
+    const message = await this.prisma.$transaction(async (tx) => {
+      const seq = await nextContactSeq(tx, enquiry.contactId);
+      const msg = await tx.conversationMessage.create({
+        data: {
+          enquiryId,
+          contactId: enquiry.contactId,
+          seq,
+          channel: dto.channel,
+          direction: 'OUTBOUND',
+          source: 'AUTOMATION',
+          from: 'AI',
+          to: dto.to,
+          subject: dto.subject,
+          content: dto.body,
+          sentByUserId: null,
+          deliveryStatus: 'PENDING',
+        },
+      });
 
-    await this.prisma.enquiry.update({
-      where: { id: enquiryId },
-      data: {
-        lastActivityAt: new Date(),
-        ...(enquiry.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
-        timeline: {
-          create: {
-            type: 'MESSAGE_SENT',
-            createdBy: 'SYSTEM',
-            metadata: { channel: dto.channel, messageId: message.id, aiGenerated: true },
+      await tx.enquiry.update({
+        where: { id: enquiryId },
+        data: {
+          lastActivityAt: new Date(),
+          ...(enquiry.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+          timeline: {
+            create: {
+              type: 'MESSAGE_SENT',
+              createdBy: 'SYSTEM',
+              metadata: { channel: dto.channel, messageId: msg.id, aiGenerated: true },
+            },
           },
         },
-      },
+      });
+
+      return msg;
     });
 
     this.eventEmitter.emit('message.outbound', {
@@ -736,24 +776,27 @@ export class EnquiryService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET MESSAGES — List conversation messages
+  // GET MESSAGES — List conversation messages for the CONTACT this enquiry
+  // belongs to (the inbox thread spans all of a contact's enquiries — the
+  // enquiryId in the route is just the entry point, not the scope).
   // ═══════════════════════════════════════════════════════════════════
 
   async getMessages(id: string, cursorStr?: string, limitStr?: string) {
     const enquiry = await this.prisma.enquiry.findUnique({
       where: { id },
+      select: { contactId: true },
     });
     if (!enquiry) throw new NotFoundException(`Enquiry ${id} not found`);
 
     const limit = Math.min(Math.max(parseInt(limitStr ?? '30', 10) || 30, 1), 100);
-    const cursor = decodeCursor(cursorStr);
+    const cursor = decodeSeqCursor(cursorStr);
 
     const rows = await this.prisma.conversationMessage.findMany({
       where: {
-        enquiryId: id,
-        ...(cursor ? buildCursorWhere(cursor) : {}),
+        contactId: enquiry.contactId,
+        ...(cursor !== null ? { seq: { lt: cursor } } : {}),
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ seq: 'desc' }],
       take: limit + 1,
       include: {
         sentByUser: {
@@ -778,7 +821,7 @@ export class EnquiryService {
       },
     });
 
-    return paginateResult(rows, limit);
+    return paginateSeqResult(rows, limit);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -991,16 +1034,22 @@ export class EnquiryService {
     });
 
     if (activeEnquiry) {
-      // Race: another message already created the enquiry → just append
-      const convMsg = await this.prisma.conversationMessage.create({
-        data: {
-          enquiryId: activeEnquiry.id,
-          channel: message.channel,
-          direction: 'INBOUND',
-          from: message.from,
-          content: message.body,
-          deliveryStatus: 'DELIVERED',
-        },
+      // Race: another message already created the enquiry → just append.
+      // Seq increment + insert must live or die together.
+      const convMsg = await this.prisma.$transaction(async (tx) => {
+        const seq = await nextContactSeq(tx, contactId);
+        return tx.conversationMessage.create({
+          data: {
+            enquiryId: activeEnquiry.id,
+            contactId,
+            seq,
+            channel: message.channel,
+            direction: 'INBOUND',
+            from: message.from,
+            content: message.body,
+            deliveryStatus: 'DELIVERED',
+          },
+        });
       });
 
       // Emit for WebSocket so chat view updates
@@ -1010,6 +1059,9 @@ export class EnquiryService {
         message: {
           id: convMsg.id,
           enquiryId: activeEnquiry.id,
+          contactId: convMsg.contactId,
+          seq: convMsg.seq,
+          clientMessageId: convMsg.clientMessageId,
           channel: message.channel,
           direction: 'INBOUND',
           from: message.from,
@@ -1028,36 +1080,44 @@ export class EnquiryService {
     }
 
     // ── Normal case: Create new enquiry ──
-    const enquiry = await this.prisma.enquiry.create({
-      data: {
-        contactId,
-        type: 'REAL',
-        status: 'NEW',
-        intent: this.toEnquiryIntent(intent),
-        urgency,
-        priority,
-        messages: {
-          create: {
-            channel: message.channel,
-            direction: 'INBOUND',
-            from: message.from,
-            content: message.body,
-            deliveryStatus: 'DELIVERED',
+    // The seq increment and the enquiry+message creation must live or die together —
+    // a single nested Prisma write can't reach across to a different model's counter,
+    // so this needs an explicit transaction instead of a nested `messages: { create }`.
+    const enquiry = await this.prisma.$transaction(async (tx) => {
+      const seq = await nextContactSeq(tx, contactId);
+      return tx.enquiry.create({
+        data: {
+          contactId,
+          type: 'REAL',
+          status: 'NEW',
+          intent: this.toEnquiryIntent(intent),
+          urgency,
+          priority,
+          messages: {
+            create: {
+              contactId,
+              seq,
+              channel: message.channel,
+              direction: 'INBOUND',
+              from: message.from,
+              content: message.body,
+              deliveryStatus: 'DELIVERED',
+            },
           },
-        },
-        timeline: {
-          create: {
-            type: 'CREATED',
-            toStatus: 'NEW',
-            createdBy: 'SYSTEM',
-            metadata: {
-              source: 'QUALIFICATION',
-              inboundMessageId,
-              aiIntent: intent,
+          timeline: {
+            create: {
+              type: 'CREATED',
+              toStatus: 'NEW',
+              createdBy: 'SYSTEM',
+              metadata: {
+                source: 'QUALIFICATION',
+                inboundMessageId,
+                aiIntent: intent,
+              },
             },
           },
         },
-      },
+      });
     });
 
     this.logger.log(

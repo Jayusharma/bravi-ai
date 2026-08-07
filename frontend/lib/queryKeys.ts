@@ -23,6 +23,9 @@ export const qk = {
   /** Messages infinite query thread for a specific contact */
   messages: (contactId: string) => ['messages', contactId] as const,
 
+  /** Global per-channel unread-contact-count summary (nav badges) */
+  unreadSummary: () => ['unread-summary'] as const,
+
   /** Contact profile metadata */
   contact: (contactId: string) => ['contact', contactId] as const,
 

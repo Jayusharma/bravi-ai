@@ -23,7 +23,7 @@ import { UserRole } from '@prisma/client';
 import { CheckAbility } from '../casl/decorators/check-ability.decorator';
 import { PrismaService } from 'src/database/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { decodeCursor, buildCursorWhere, paginateResult } from 'src/common/utils/cursor';
+import { decodeSeqCursor, paginateSeqResult } from 'src/common/utils/cursor';
 import { OutboundSendService } from './outbound-send.service';
 
 class ForwardMessageDto {
@@ -43,7 +43,11 @@ export class MessageController {
 
   // ── GET /outbound/enquiries/:enquiryId/messages ──
 
-  /** Cursor-paginated message history. Default limit 50, max 100. Newest first. */
+  /**
+   * Cursor-paginated message history. Default limit 50, max 100. Newest first.
+   * The route is entered via an enquiryId, but the thread returned is for the
+   * CONTACT that enquiry belongs to — spans all of that contact's enquiries.
+   */
   @Get('enquiries/:enquiryId/messages')
   @CheckAbility({ action: 'read', subject: 'conversationmessage' })
   async getMessages(
@@ -51,15 +55,21 @@ export class MessageController {
     @Query('cursor') cursorStr?: string,
     @Query('limit') limitStr?: string,
   ) {
-    const cursor = decodeCursor(cursorStr);
+    const enquiry = await this.prisma.enquiry.findUnique({
+      where: { id: enquiryId },
+      select: { contactId: true },
+    });
+    if (!enquiry) throw new NotFoundException(`Enquiry ${enquiryId} not found`);
+
+    const cursor = decodeSeqCursor(cursorStr);
     const limit = Math.min(Math.max(parseInt(limitStr ?? '50', 10) || 50, 1), 100);
 
     const rows = await this.prisma.conversationMessage.findMany({
       where: {
-        enquiryId,
-        ...(cursor ? buildCursorWhere(cursor) : {}),
+        contactId: enquiry.contactId,
+        ...(cursor !== null ? { seq: { lt: cursor } } : {}),
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ seq: 'desc' }],
       take: limit + 1,
       include: {
         sentByUser: { select: { id: true, displayName: true, userName: true } },
@@ -67,7 +77,7 @@ export class MessageController {
       },
     });
 
-    return paginateResult(rows, limit);
+    return paginateSeqResult(rows, limit);
   }
 
   // ── POST /outbound/messages/:messageId/reactions ──

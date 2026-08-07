@@ -53,10 +53,13 @@ interface RoleMapping {
     conditions?: any;
 }
 
+const ALL_PERMISSIONS: RoleMapping[] = SUBJECTS.flatMap((subject) =>
+  ACTIONS.map((action) => ({ action, subject }))
+);
+
 const DEFAULT_ROLE_PERMISSIONS: Record<string, RoleMapping[]> = {
     ADMIN: [
-        // Admin gets full access via "manage:all"
-        { action: 'manage', subject: 'all' },
+        ...ALL_PERMISSIONS,
     ],
 
     MANAGER: [

@@ -7,9 +7,15 @@ export const SOCKET_EVENTS = {
   OUTBOUND_SEND:  'outbound:send',
   TYPING_START:   'typing:start',
   TYPING_STOP:    'typing:stop',
+  READ_MARK:      'read:mark', // agent viewed a contact's thread — advance Contact.lastReadSeq
 
   // Server → Client: messages
   MESSAGE_NEW:    'chat:new-message',
+
+  // Server → Client: read state — GLOBAL broadcasts. lastReadSeq is a TEAM watermark, one
+  // per contact, shared by every agent — these are never scoped to just the actor's tabs.
+  READ_UPDATED:   'read:updated',
+  UNREAD_SUMMARY: 'unread:summary', // { WHATSAPP, EMAIL } distinct-unread-contact counts changed
 
   // Server → Client: outbound delivery
   OUTBOUND_SENT:             'outbound:sent',

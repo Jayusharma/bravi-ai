@@ -99,6 +99,12 @@ export async function getConversations(params?: {
   return apiClient<ConversationsResponse>(API.CONVERSATION.LIST, { params });
 }
 
+export type UnreadSummary = Record<string, number>;
+
+export async function getUnreadSummary(): Promise<UnreadSummary> {
+  return apiClient<UnreadSummary>(API.CONVERSATION.UNREAD_SUMMARY);
+}
+
 export async function getConversationThread(contactId: string): Promise<ConversationThread> {
   return apiClient<ConversationThread>(API.CONVERSATION.THREAD(contactId));
 }

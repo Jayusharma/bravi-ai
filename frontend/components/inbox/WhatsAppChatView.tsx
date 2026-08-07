@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Avatar } from '@/components/ui/Avatar';
-import { useMessages } from '@/hooks/useConversations';
-import { useContactRoom } from '@/lib/socket';
+import { useMessages, useConversationRow } from '@/hooks/useConversations';
+import { useContactRoom, markContactRead } from '@/lib/socket';
 import { Message } from '@/contracts/socketEvents';
 
 export interface WhatsAppChatViewProps {
@@ -21,6 +21,41 @@ export function WhatsAppChatView({ contactId }: WhatsAppChatViewProps) {
 
   // ⚡ 2. FLATTEN 2D PAGES ARRAY INTO A 1D MESSAGES LIST
   const messages = data?.pages.flat() || [];
+
+  // 📖 AUTO READ-MARK — keyed off the cached sidebar row's lastMessageSeq (server truth,
+  // already live-patched by applyConversationUpdate), NOT the messages array. Using the
+  // messages array would fire on every fetchNextPage pagination load (messages.length
+  // grows without a new message ever arriving) — this doesn't have that problem since
+  // lastMessageSeq only changes when a genuinely new message lands.
+  const { data: row } = useConversationRow(contactId || '', 'WHATSAPP');
+  const lastMarkedSeqRef = useRef<Record<string, number>>({});
+
+  // One shared guard, called from both effects below. Ref updated BEFORE the emit —
+  // messages landing mid-flight must not fire duplicate read:mark calls.
+  function tryMarkRead(id: string, currentSeq: number) {
+    if (document.visibilityState !== 'visible') return;
+    if (currentSeq <= (lastMarkedSeqRef.current[id] ?? 0)) return;
+    lastMarkedSeqRef.current[id] = currentSeq;
+    markContactRead(id).catch(console.error);
+  }
+
+  // Fires when a new message genuinely arrives while the chat is open.
+  useEffect(() => {
+    if (contactId && row?.lastMessageSeq !== undefined) {
+      tryMarkRead(contactId, row.lastMessageSeq);
+    }
+  }, [contactId, row?.lastMessageSeq]);
+
+  // Fires when the agent alt-tabs/switches back with a contact still open.
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (contactId && row?.lastMessageSeq !== undefined) {
+        tryMarkRead(contactId, row.lastMessageSeq);
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [contactId, row?.lastMessageSeq]);
 
   return (
     <div className="flex h-full flex-1 flex-col bg-background">

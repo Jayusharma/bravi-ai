@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from 'src/database/prisma.service';
+import { MessageChannel, MessageDirection } from '@prisma/client';
 /**
  * READ-ONLY service for the chat view.
  *
@@ -24,19 +25,89 @@ export class ConversationService {
     private readonly eventEmitter: EventEmitter2,
   ) { }
   // ═══════════════════════════════════════════════════════════════
+  // CONTACT SUMMARY — the single source of truth for a contact's
+  // "latest state" (last message preview + read watermark).
+  //
+  // WHY: Before this existed, broadcastConversationDelta,
+  //      broadcastConversationNew, and the gateway's outbound:send
+  //      handler each independently computed a "last message" —
+  //      every one of them scoped to ONE enquiry instead of the
+  //      contact's full message history. This is the replacement:
+  //      reads Contact.lastMessageSeq/lastReadSeq directly (no join
+  //      needed, they live on Contact now) plus one indexed query
+  //      for the preview, ordered by the authoritative `seq`.
+  // ═══════════════════════════════════════════════════════════════
+
+  async getContactSummary(contactId: string): Promise<{
+    lastMessagePreview: string;
+    lastMessageAt: Date | null;
+    lastMessageChannel: MessageChannel | null;
+    lastMessageDirection: MessageDirection | null;
+    lastMessageSeq: number;
+    lastReadSeq: number;
+  } | null> {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { lastMessageSeq: true, lastReadSeq: true },
+    });
+    if (!contact) return null;
+
+    const latest = await this.prisma.conversationMessage.findFirst({
+      where: { contactId },
+      orderBy: { seq: 'desc' },
+      select: { content: true, channel: true, direction: true, createdAt: true },
+    });
+
+    return {
+      lastMessagePreview: latest ? latest.content.substring(0, 80) : '',
+      lastMessageAt: latest?.createdAt ?? null,
+      lastMessageChannel: latest?.channel ?? null,
+      lastMessageDirection: latest?.direction ?? null,
+      lastMessageSeq: contact.lastMessageSeq,
+      lastReadSeq: contact.lastReadSeq,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // UNREAD SUMMARY — global nav badge: count of DISTINCT CONTACTS with
+  // unread messages, per channel (not message count — 5 unread messages
+  // in one chat counts as 1). Contact.lastReadSeq/lastMessageSeq span ALL
+  // of a contact's channels combined, so attributing an unread contact to
+  // a specific channel needs a join against the actual message rows —
+  // the two watermark fields alone can't say which channel the unread
+  // message arrived on. Uses the existing @@index([contactId, seq(desc)])
+  // on ConversationMessage.
+  // ═══════════════════════════════════════════════════════════════
+
+  async getUnreadSummary(): Promise<Record<string, number>> {
+    const rows = await this.prisma.$queryRaw<{ channel: MessageChannel; count: bigint }[]>`
+      SELECT cm.channel, COUNT(DISTINCT cm."contactId") AS count
+      FROM "ConversationMessage" cm
+      JOIN "Contact" c ON c.id = cm."contactId"
+      WHERE cm.seq > c."lastReadSeq"
+      GROUP BY cm.channel
+    `;
+    const summary: Record<string, number> = { EMAIL: 0, WHATSAPP: 0, SMS: 0 };
+    for (const row of rows) summary[row.channel] = Number(row.count);
+    return summary;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // LIST CONVERSATIONS
   //
-  // Returns contacts that have at least one enquiry with messages,
-  // sorted by the most recent message timestamp.
+  // Returns contacts that have at least one message, sorted by the
+  // most recent message timestamp — aggregated across ALL of a
+  // contact's enquiries (open AND closed), not just the latest
+  // non-terminal one. A contact whose only enquiries are CONVERTED/
+  // CLOSED_LOST still belongs here with its full history — it used
+  // to silently disappear from this list because the old query only
+  // ever looked at `take: 1` non-terminal enquiry.
   //
-  // Shape of each item (what the frontend sidebar needs):
-  //   {
-  //     contactId, contactName,
-  //     channel, identifier,          ← WhatsApp / +919876543210
-  //     enquiryId, enquiryStatus,     ← which enquiry + its state
-  //     lastMessage: { content, direction, createdAt },
-  //     messageCount,
-  //   }
+  // Message/read data comes from getContactSummary() (single source
+  // of truth, see above). The enquiry sub-fetch below is ONLY for
+  // card metadata that's genuinely enquiry-level (status badge,
+  // assignee) — resolved from the contact's most-recently-active
+  // enquiry regardless of status, not filtered to open ones.
   // ═══════════════════════════════════════════════════════════════
   async listConversations(
     query?: {
@@ -55,13 +126,10 @@ export class ConversationService {
       ? { some: { channel: query.channel as any } }
       : { some: {} };
 
-    // Build WHERE — only contacts that have messages
+    // Build WHERE — only contacts that have messages (now a direct relation,
+    // no need to join through enquiries to find out if the contact ever messaged)
     const where: any = {
-      enquiries: {
-        some: {
-          messages: messageFilter,
-        },
-      },
+      messages: messageFilter,
     };
     // Search by name or phone number
     if (query?.search) {
@@ -79,35 +147,24 @@ export class ConversationService {
     const [contacts, total] = await Promise.all([
       this.prisma.contact.findMany({
         where,
-        include: {
-          // Get primary channel (for sidebar icon)
+        select: {
+          id: true,
+          displayName: true,
+          organization: true,
+          // Primary channel (for sidebar icon)
           channels: {
             select: { channel: true, identifier: true, isPrimary: true },
             orderBy: { isPrimary: 'desc' },
             take: 1,
           },
-          // Get latest NON-CLOSED enquiry
+          // Most-recently-active enquiry for status badge + assignee — ANY
+          // status, not just non-terminal (that was the closed-contact bug).
           enquiries: {
-            where: {
-              status: { notIn: ['CONVERTED', 'CLOSED_LOST'] },
-              messages: { some: {} },
-            },
             orderBy: { lastActivityAt: 'desc' },
             take: 1,
-            include: {
-              // Latest message for preview
-              messages: {
-                orderBy: { createdAt: 'desc' },
-                take: 1,
-                select: {
-                  id: true,
-                  content: true,
-                  direction: true,
-                  channel: true,
-                  createdAt: true,
-                },
-              },
-              _count: { select: { messages: true } },
+            select: {
+              id: true,
+              status: true,
               assignedTo: {
                 select: { id: true, displayName: true, userName: true },
               },
@@ -120,7 +177,13 @@ export class ConversationService {
       }),
       this.prisma.contact.count({ where }),
     ]);
-    // Fetch active drafts for all enquiry IDs in one query
+
+    // Message/read summary — single source of truth, one call per contact.
+    const summaries = await Promise.all(
+      contacts.map((c) => this.getContactSummary(c.id)),
+    );
+
+    // Fetch active drafts for all latest-enquiry IDs in one query
     const enquiryIds = contacts
       .map((c) => c.enquiries[0]?.id)
       .filter(Boolean) as string[];
@@ -148,33 +211,33 @@ export class ConversationService {
 
     // Flatten into the shape the frontend needs
     const conversations = contacts
-      .map((contact) => {
+      .map((contact, i) => {
+        const summary = summaries[i];
+        if (!summary) return null;
         const enquiry = contact.enquiries[0];
-        if (!enquiry) return null;
-        const lastMsg = enquiry.messages[0];
         const channel = contact.channels[0];
-        const draft = draftByEnquiry.get(enquiry.id);
+        const draft = enquiry ? draftByEnquiry.get(enquiry.id) : undefined;
         return {
           contactId: contact.id,
           contactName: contact.displayName,
           organization: contact.organization,
           channel: channel?.channel || null,
           identifier: channel?.identifier || null,
-          enquiryId: enquiry.id,
-          enquiryStatus: enquiry.status,
-          assignedTo: enquiry.assignedTo,
-          messageCount: enquiry._count.messages,
-          lastMessage: lastMsg
+          enquiryId: enquiry?.id ?? null,
+          enquiryStatus: enquiry?.status ?? null,
+          assignedTo: enquiry?.assignedTo ?? null,
+          messageCount: summary.lastMessageSeq, // seq IS the per-contact message count
+          lastMessage: summary.lastMessagePreview
             ? {
-              content: lastMsg.content.length > 80
-                ? lastMsg.content.substring(0, 80) + '…'
-                : lastMsg.content,
-              direction: lastMsg.direction,
-              channel: lastMsg.channel,
-              createdAt: lastMsg.createdAt,
+              content: summary.lastMessagePreview,
+              direction: summary.lastMessageDirection,
+              channel: summary.lastMessageChannel,
+              createdAt: summary.lastMessageAt,
             }
             : null,
-          lastActivityAt: enquiry.lastActivityAt,
+          lastActivityAt: summary.lastMessageAt,
+          lastMessageSeq: summary.lastMessageSeq,
+          lastReadSeq: summary.lastReadSeq,
           draft: draft
             ? {
               body: draft.body,
@@ -184,11 +247,11 @@ export class ConversationService {
             : null,
         };
       })
-      .filter(Boolean);
+      .filter(Boolean) as any[];
     // Sort by last message time (most recent first)
-    conversations.sort((a: any, b: any) => {
-      const timeA = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
-      const timeB = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
+    conversations.sort((a, b) => {
+      const timeA = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+      const timeB = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
       return timeB - timeA;
     });
     return {
@@ -246,7 +309,7 @@ export class ConversationService {
           select: { id: true, displayName: true, userName: true },
         },
         messages: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: { seq: 'asc' }, // seq is authoritative; createdAt stays on the row for display only
           include: {
             sentByUser: {
               select: { id: true, displayName: true, userName: true },
@@ -284,11 +347,6 @@ export class ConversationService {
   async toggleMessageStar(messageId: string) {
     const msg = await this.prisma.conversationMessage.findUnique({
       where: { id: messageId },
-      include: {
-        enquiry: {
-          select: { contactId: true }
-        }
-      }
     });
 
     if (!msg) {
@@ -301,7 +359,7 @@ export class ConversationService {
     });
 
     this.eventEmitter.emit('message.star.toggled', {
-      contactId: msg.enquiry.contactId,
+      contactId: msg.contactId,
       messageId: msg.id,
       isStarred: updated.isStarred,
     });
@@ -313,9 +371,7 @@ export class ConversationService {
     return this.prisma.conversationMessage.findMany({
       where: {
         isStarred: true,
-        enquiry: {
-          contactId,
-        },
+        contactId, // direct field now — no need to join through enquiry
       },
       include: {
         sentByUser: {
@@ -335,7 +391,7 @@ export class ConversationService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { seq: 'desc' }, // seq is authoritative; createdAt stays on the row for display only
     });
   }
 }

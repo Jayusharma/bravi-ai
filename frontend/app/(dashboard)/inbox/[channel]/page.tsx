@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { InboxSidebar } from '@/components/inbox/InboxSidebar';
 import { WhatsAppChatView } from '@/components/inbox/WhatsAppChatView';
@@ -14,6 +14,13 @@ export default function ChannelInboxPage() {
   const activeChannel: Channel = rawChannel === 'EMAIL' ? 'EMAIL' : 'WHATSAPP';
   
   const activeContactId = useInboxStore((state) => state.activeContactId);
+
+  // 🧹 CLEANUP: Clear activeContactId when navigating away from the inbox pages entirely
+  useEffect(() => {
+    return () => {
+      useInboxStore.getState().setActiveContactId(null);
+    };
+  }, []);
 
   // ⚡ REAL BACKEND DATA: Connects NestJS GET /conversations?channel=... to TanStack Query Cache!
   const { data: conversations = [], isLoading } = useConversations(activeChannel);

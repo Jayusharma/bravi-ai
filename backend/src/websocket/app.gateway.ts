@@ -49,6 +49,7 @@ import { PrismaService } from 'src/database/prisma.service';
 import { ROOMS, SOCKET_EVENTS } from 'src/common/constants/socket-events';
 import { OutboundSendService } from '../modules/outbound/outbound-send.service';
 import { ChatService } from '../modules/chat/chat.service';
+import { ConversationService } from '../modules/messaging/messaging.service';
 import { MessageChannel } from '@prisma/client';
 import * as jwt from 'jsonwebtoken';
 import { requireEnv } from 'src/common/utils/require-env';
@@ -78,6 +79,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly prisma: PrismaService,
     @Optional() private readonly outboundSendService?: OutboundSendService,
     @Optional() private readonly chatService?: ChatService,
+    @Optional() private readonly conversationService?: ConversationService,
   ) {}
 
   // ─── CONNECTION LIFECYCLE ─────────────────────────────────────────────────
@@ -169,6 +171,63 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.leave(room);
     this.logger.log(`👁️ User ${client.data?.userId} left room ${room}`);
     return { status: 'left', room };
+  }
+
+  // ─── READ STATE ──────────────────────────────────────────────────────────
+
+  /**
+   * Agent viewed a contact's thread — advance Contact.lastReadSeq to the current
+   * lastMessageSeq. lastReadSeq is a TEAM watermark (one per contact, shared by
+   * everyone) — READ_UPDATED and the unread summary both broadcast GLOBALLY, not
+   * to the actor's own ROOMS.user, so every agent's cache converges.
+   * Column-to-column assignment (lastReadSeq = lastMessageSeq) needs raw SQL —
+   * Prisma's typed update API can't reference another column of the same row —
+   * but this way it's a single atomic statement, no read-then-write race.
+   */
+  @SubscribeMessage(SOCKET_EVENTS.READ_MARK)
+  async handleReadMark(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { contactId: string },
+  ) {
+    if (!client.data?.userId) return { status: 'error', message: 'Not authenticated' };
+    if (!data.contactId) return { status: 'error', message: 'contactId is required' };
+
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: data.contactId },
+      select: { lastReadSeq: true, lastMessageSeq: true },
+    });
+    if (!contact) return { status: 'error', message: 'Contact not found' };
+
+    // Already caught up — no-op. Without this, two tabs with the same contact open
+    // can both fire read:mark in the same instant, doubling writes and fan-out for
+    // one real change.
+    if (contact.lastReadSeq >= contact.lastMessageSeq) {
+      return { status: 'ok', lastReadSeq: contact.lastReadSeq };
+    }
+
+    const rows = await this.prisma.$queryRaw<{ lastReadSeq: number }[]>`
+      UPDATE "Contact"
+      SET "lastReadSeq" = "lastMessageSeq"
+      WHERE id = ${data.contactId}
+      RETURNING "lastReadSeq"
+    `;
+    const lastReadSeq = rows[0]?.lastReadSeq;
+    if (lastReadSeq === undefined) return { status: 'error', message: 'Contact not found' };
+
+    this.server.emit(SOCKET_EVENTS.READ_UPDATED, {
+      contactId: data.contactId,
+      lastReadSeq,
+    });
+    await this.broadcastUnreadSummary();
+
+    return { status: 'ok', lastReadSeq };
+  }
+
+  /** Recomputes and globally broadcasts the per-channel unread-contact-count summary. */
+  private async broadcastUnreadSummary(): Promise<void> {
+    if (!this.conversationService) return;
+    const summary = await this.conversationService.getUnreadSummary();
+    this.server.emit(SOCKET_EVENTS.UNREAD_SUMMARY, summary);
   }
 
   // ─── TYPING INDICATORS ───────────────────────────────────────────────────
@@ -358,16 +417,17 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
       }
 
-      // Broadcast CONVERSATION_UPDATED globally to update all sidebars
-      this.server.emit(SOCKET_EVENTS.CONVERSATION_UPDATED, {
-        enquiryId: data.enquiryId,
-        contactId: result.contactId,
-        lastMessagePreview: data.body ? data.body.substring(0, 80) : 'New attachment',
-        lastActivityAt: message ? message.createdAt.toISOString() : new Date().toISOString(),
-        status: 'OPEN', // Default to active status
-        unreadDelta: 0,
-        updatedField: 'OUTBOUND_SENT',
-      });
+      // Broadcast CONVERSATION_UPDATED globally to update all sidebars — same single
+      // source of truth as AppEventHandler.broadcastConversationDelta(), keyed by
+      // contactId (a contact's thread can span multiple enquiries).
+      const summary = await this.conversationService?.getContactSummary(result.contactId);
+      if (summary) {
+        this.server.emit(SOCKET_EVENTS.CONVERSATION_UPDATED, {
+          contactId: result.contactId,
+          ...summary,
+          updatedField: 'OUTBOUND_SENT',
+        });
+      }
 
       return {
         success: true,

@@ -12,6 +12,9 @@ import { z } from 'zod';
 export const ChannelSchema = z.enum(['WHATSAPP', 'EMAIL']);
 export type Channel = z.infer<typeof ChannelSchema>;
 
+export const MessageDirectionSchema = z.enum(['INBOUND', 'OUTBOUND']);
+export type MessageDirection = z.infer<typeof MessageDirectionSchema>;
+
 
 // ============================================================================
 // 🟢 ACTIVE NOW — Conversation Updated (sidebar bump + unread badge)
@@ -26,6 +29,10 @@ export const ConversationSchema = z.object({
   lastMessagePreview: z.string(),
   lastMessageAt: z.string(),
   lastMessageChannel: ChannelSchema,
+  // lastMessageSeq/lastReadSeq are the single source of truth for the unread badge —
+  // derived as Math.max(0, lastMessageSeq - lastReadSeq), not stored anywhere separately.
+  lastMessageSeq: z.number(),
+  lastReadSeq: z.number(),
   lastReadAt: z.string().nullable(),
   unreadCount: z.number(),
   channels: z.array(ChannelSchema),
@@ -35,23 +42,31 @@ export const ConversationSchema = z.object({
 export type Conversation = z.infer<typeof ConversationSchema>;
 
 /**
- * CONVERSATION_UPDATED socket payload — confirmed against real console log:
- * { enquiryId, contactId, lastMessagePreview, lastActivityAt, status, unreadDelta, updatedField }
+ * CONVERSATION_UPDATED socket payload — confirmed against a live-captured payload
+ * (contact-keyed migration, see verification report). Contact-scoped now, not
+ * enquiry-scoped: no enquiryId/status (an enquiry-level concept a contact-wide
+ * event can't represent), no unreadDelta (replaced by lastMessageSeq/lastReadSeq —
+ * the client derives unread as a subtraction, it's never told a delta anymore).
  */
 export const ConversationUpdatedPayloadSchema = z.object({
-  enquiryId: z.string(),
   contactId: z.string(),
   lastMessagePreview: z.string(),
-  lastMessageChannel: ChannelSchema.optional(),
-  lastActivityAt: z.string(),
-  status: z.string(),
-  unreadDelta: z.number(),   // backend-computed. NEVER hardcode +1 on the frontend — see notes.
+  lastMessageAt: z.string(),
+  lastMessageChannel: ChannelSchema,
+  lastMessageDirection: MessageDirectionSchema,
+  lastMessageSeq: z.number(),
+  lastReadSeq: z.number(),
   updatedField: z.string(),
 });
 export type ConversationUpdatedPayload = z.infer<typeof ConversationUpdatedPayloadSchema>;
 
 
-//conversation_new when contact doesn't exist its completely new row 
+// CONVERSATION_NEW — brand-new contact conversation, or an existing contact's
+// new enquiry (see insertNewConversation's patch-or-insert handling). Confirmed
+// against a live-captured payload — no enquiryStatus/messageCount/draft (those
+// are per-enquiry sidebar-card concerns the REST list endpoint supplies; this
+// realtime event only carries contact identity + the same message summary shape
+// as CONVERSATION_UPDATED).
 export const ConversationNewPayloadSchema = z.object({
   contactId: z.string(),
   contactName: z.string(),
@@ -59,12 +74,12 @@ export const ConversationNewPayloadSchema = z.object({
   channel: ChannelSchema.nullable(),
   identifier: z.string().nullable(),
   enquiryId: z.string(),
-  enquiryStatus: z.string(),
-  assignedTo: z.string().nullable(),
-  messageCount: z.number(),
-  lastMessage: z.string().nullable(),
-  lastActivityAt: z.string(),
-  draft: z.string().nullable(),
+  lastMessagePreview: z.string(),
+  lastMessageAt: z.string(),
+  lastMessageChannel: ChannelSchema,
+  lastMessageDirection: MessageDirectionSchema,
+  lastMessageSeq: z.number(),
+  lastReadSeq: z.number(),
 });
 export type ConversationNewPayload = z.infer<typeof ConversationNewPayloadSchema>;
 
@@ -72,21 +87,25 @@ export type ConversationNewPayload = z.infer<typeof ConversationNewPayloadSchema
 
 /**
  * Converts a CONVERSATION_NEW wire payload into the same shape used by
- * cached sidebar rows (Conversation). Field names differ between the two —
- * see the side-by-side comparison from the last step — this is the
- * translation layer that reconciles them.
+ * cached sidebar rows (Conversation). CONVERSATION_NEW no longer carries
+ * assignedTo (dropped — that's a per-enquiry sidebar-card concern the REST
+ * list endpoint supplies, not a realtime message-summary concern), so
+ * assignedToId is left null here; the next full listConversations() refetch
+ * fills it in.
  */
 export function conversationFromNewPayload(payload: ConversationNewPayload): Conversation {
   return {
     contactId: payload.contactId,
     contactName: payload.contactName,
-    lastMessagePreview: payload.lastMessage ?? '',
-    lastMessageAt: payload.lastActivityAt,
-    lastMessageChannel: payload.channel ?? 'WHATSAPP',
+    lastMessagePreview: payload.lastMessagePreview,
+    lastMessageAt: payload.lastMessageAt,
+    lastMessageChannel: payload.lastMessageChannel,
+    lastMessageSeq: payload.lastMessageSeq,
+    lastReadSeq: payload.lastReadSeq,
     lastReadAt: null,
-    unreadCount: 1,
+    unreadCount: Math.max(0, payload.lastMessageSeq - payload.lastReadSeq),
     channels: payload.channel ? [payload.channel] : [],
-    assignedToId: payload.assignedTo,
+    assignedToId: null,
     channelState: null,
   };
 }
@@ -99,7 +118,12 @@ export function parseSocketConversation(raw: unknown): Conversation {
     contactName: r.contactName || r.displayName || 'Unknown Contact',
     lastMessagePreview: r.lastMessagePreview || r.lastMessage?.content || '',
     lastMessageAt: r.lastMessageAt || r.lastMessage?.createdAt || r.lastActivityAt || null,
-    lastMessageChannel: (r.lastMessageChannel || r.channel || r.lastMessage?.channel || 'WHATSAPP') as Channel,
+    // Most specific first: the actual last message's channel, THEN the contact's
+    // primary channel as a fallback — not the other way around (a multi-channel
+    // contact's badge/icon must reflect what they actually last messaged on).
+    lastMessageChannel: (r.lastMessageChannel || r.lastMessage?.channel || r.channel || 'WHATSAPP') as Channel,
+    lastMessageSeq: typeof r.lastMessageSeq === 'number' ? r.lastMessageSeq : 0,
+    lastReadSeq: typeof r.lastReadSeq === 'number' ? r.lastReadSeq : 0,
     lastReadAt: r.lastReadAt || null,
     unreadCount: typeof r.unreadCount === 'number' ? r.unreadCount : 0,
     channels: Array.isArray(r.channels)
@@ -138,9 +162,6 @@ export type NotificationNewMessageEvent = z.infer<typeof NotificationNewMessageE
 // against these until useContactRoom is actually mounted somewhere.
 // ============================================================================
 
-export const MessageDirectionSchema = z.enum(['INBOUND', 'OUTBOUND']);
-export type MessageDirection = z.infer<typeof MessageDirectionSchema>;
-
 export const MessageStatusSchema = z.enum([
   'SENDING', 'PENDING', 'SENT', 'DELIVERED', 'READ', 'FAILED', 'BOUNCED', 'RECEIVED',
 ]);
@@ -165,7 +186,7 @@ export type Attachment = z.infer<typeof AttachmentSchema>;
 /** One message bubble in a thread. */
 export const MessageSchema = z.object({
   id: z.string(),
-  seq: z.number().optional(),   // backend doesn't send this yet — confirmed via console log
+  seq: z.number(),   // required — backend sends this on every MESSAGE_NEW now (Stage 0 fix, live-verified)
   clientMessageId: z.string().nullable(),
   contactId: z.string(),
   enquiryId: z.string(),
@@ -234,11 +255,19 @@ export const MessageFailedEventSchema = z.object({
 });
 export type MessageFailedEvent = z.infer<typeof MessageFailedEventSchema>;
 
+// Matches backend/src/websocket/app.gateway.ts's READ_MARK handler broadcast —
+// seq-based, not a timestamp (confirmed against the actual emit site).
 export const ReadUpdatedEventSchema = z.object({
   contactId: z.string(),
-  lastReadAt: z.string(),
+  lastReadSeq: z.number(),
 });
 export type ReadUpdatedEvent = z.infer<typeof ReadUpdatedEventSchema>;
+
+// Global nav badge — distinct-unread-contact counts per channel. GLOBAL broadcast (team
+// watermark, not per-user) — matches backend/src/modules/messaging/messaging.service.ts
+// getUnreadSummary()'s return shape exactly.
+export const UnreadSummarySchema = z.record(z.string(), z.number());
+export type UnreadSummary = z.infer<typeof UnreadSummarySchema>;
 
 
 // ============================================================================

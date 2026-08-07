@@ -9,8 +9,8 @@ const variantStyles: Record<string, string> = {
     secondary: 'border-transparent bg-secondary text-secondary-foreground',
     destructive: 'border-transparent bg-destructive text-destructive-foreground',
     outline: 'text-foreground border-border',
-    success: 'border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
-    warning: 'border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400',
+    success: 'border-transparent bg-success/15 text-success',
+    warning: 'border-transparent bg-warning/15 text-warning',
 };
 
 export const Badge = forwardRef<HTMLDivElement, BadgeProps>(

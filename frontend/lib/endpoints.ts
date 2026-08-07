@@ -65,6 +65,7 @@ export const API = {
         THREAD: (enquiryId: string) => `/conversations/${enquiryId}/thread`,
         STAR: (messageId: string) => `/conversations/messages/${messageId}/star`,
         STARRED: (contactId: string) => `/conversations/${contactId}/starred`,
+        UNREAD_SUMMARY: '/conversations/unread-summary',
     },
 
     // ── Internal Team Chat ──
